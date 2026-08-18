@@ -11,6 +11,25 @@ This file is updated in the same commit as the change it describes.
 Phases 0 to 3 are complete. The external review has not taken place; it remains a precondition for
 first production use.
 
+### Changed — path segments are drawn from an allowlist
+
+- Finding 1. The segment rules rejected control characters and whitespace, which let every Unicode
+  *format* character through: U+200B, U+00AD, U+FEFF, U+2060 and U+202E were all accepted, and each
+  one produces a path that renders identically to another — or, for the bidirectional override, as a
+  different one entirely. That contradicted the rule's own stated reason for refusing whitespace.
+- Segments now allow letters and digits of any script plus `-`, `_` and `.`, and refuse the rest.
+  **An allowlist rather than a longer denylist**, because a denylist grows with every Unicode
+  revision and a gap in it stays invisible until someone finds it. Not an ASCII rule: `日本/x` is a
+  valid path.
+- Control characters and whitespace keep their own errors; the new one names the offending code
+  point as `U+XXXX` rather than printing a character nobody can see.
+- **Confusables are unchanged and are now a stated boundary.** A Cyrillic `а` and the `ﬁ` ligature
+  are letters, so any rule admitting non-ASCII names admits them. A test pins that they remain
+  distinct paths.
+- One deliberate cost: `%` and `[` are no longer legal in paths, and a store test used them to show
+  the prefix listing is a range scan rather than `LIKE`/`GLOB`. `_` is also a `LIKE` wildcard and
+  still legal, so that guard survives; the `GLOB` half does not, and the test now says so.
+
 ### Fixed — three review findings that needed no decision
 
 - **Finding 3, the one with a trap in it.** `state.rs` and the doc comment on `read_secret` both

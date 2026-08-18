@@ -268,24 +268,20 @@ fn listing_is_prefix_scoped_on_segment_boundaries() {
 
 #[test]
 fn listing_handles_paths_that_look_like_sql_patterns() {
-    // Paths may legally contain `%`, `_` and `[`. A LIKE or GLOB based prefix
-    // query would treat those as wildcards; the range scan does not.
+    // `_` is a LIKE wildcard and a legal path character, so a prefix query built on
+    // LIKE would match `infra/axb` when asked for `infra/a_b`. The range scan does not.
+    //
+    // This test used to cover `%` and `[` as well. Since path segments were narrowed to
+    // an allowed set (letters, digits, `-`, `_`, `.`) neither is a legal path character
+    // any more, so `_` is what carries this guard. The narrowing was worth it — those
+    // two characters bought this test and nothing else, while the old rule let every
+    // invisible format character through — but it does mean a switch to GLOB, whose
+    // metacharacters are `*`, `?` and `[`, would no longer be caught here. `*` is
+    // refused in paths for its own reasons, which covers the common half of that.
     let (mut store, root) = initialized();
-    for text in [
-        "infra/100%/value",
-        "infra/1x0/value",
-        "infra/a_b/value",
-        "infra/axb/value",
-        "infra/[set]/value",
-    ] {
+    for text in ["infra/a_b/value", "infra/axb/value"] {
         put(&mut store, &root, &path(text), b"value");
     }
-
-    let percent = store.list(Some(&path("infra/100%"))).expect("list");
-    assert_eq!(
-        percent.iter().map(SecretPath::as_str).collect::<Vec<_>>(),
-        ["infra/100%/value"]
-    );
 
     let underscore = store.list(Some(&path("infra/a_b"))).expect("list");
     assert_eq!(
@@ -296,11 +292,9 @@ fn listing_handles_paths_that_look_like_sql_patterns() {
         ["infra/a_b/value"]
     );
 
-    let bracket = store.list(Some(&path("infra/[set]"))).expect("list");
-    assert_eq!(
-        bracket.iter().map(SecretPath::as_str).collect::<Vec<_>>(),
-        ["infra/[set]/value"]
-    );
+    // And the sibling is not swept in, which is the actual failure a LIKE query would
+    // produce here.
+    assert_eq!(underscore.len(), 1);
 }
 
 #[test]

@@ -11,7 +11,8 @@ use ciphr_crypto::{RootKey, decrypt, encrypt};
 use proptest::prelude::*;
 
 fn valid_path() -> impl Strategy<Value = String> {
-    prop::string::string_regex("[a-zA-Z0-9_.=+-]{1,20}(/[a-zA-Z0-9_.=+-]{1,20}){0,4}")
+    // Matches the allowed set in `ciphr-core`: letters, digits, `-`, `_`, `.`.
+    prop::string::string_regex("[a-zA-Z0-9_.-]{1,20}(/[a-zA-Z0-9_.-]{1,20}){0,4}")
         .expect("the regex is a literal and compiles")
         .prop_filter("segments must not be relative", |candidate| {
             candidate

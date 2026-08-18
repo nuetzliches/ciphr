@@ -125,6 +125,9 @@ impl PathPattern {
                         },
                         SegmentProblem::Control => PatternError::ControlCharacter,
                         SegmentProblem::Whitespace => PatternError::Whitespace,
+                        SegmentProblem::Disallowed { character } => {
+                            PatternError::DisallowedCharacter { character }
+                        }
                     })?;
 
                     if literal.contains('*') {
@@ -252,6 +255,11 @@ pub enum PatternError {
     ControlCharacter,
     /// A whitespace character.
     Whitespace,
+    /// A character outside the allowed set.
+    DisallowedCharacter {
+        /// The offending character.
+        character: char,
+    },
     /// A `*` inside a larger segment, such as `ab*`.
     PartialWildcard {
         /// The offending segment.
@@ -279,6 +287,11 @@ impl fmt::Display for PatternError {
             }
             Self::ControlCharacter => f.write_str("pattern contains a control character"),
             Self::Whitespace => f.write_str("pattern contains whitespace"),
+            Self::DisallowedCharacter { character } => write!(
+                f,
+                "pattern contains U+{:04X}; segments allow letters, digits, '-', '_' and '.'",
+                u32::from(*character)
+            ),
             Self::PartialWildcard { segment } => write!(
                 f,
                 "segment '{segment}' mixes a wildcard with literal characters; \

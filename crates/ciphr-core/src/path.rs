@@ -19,8 +19,14 @@
 //! - No `.` or `..` segments. They are rejected rather than resolved: a
 //!   normalizer that *computes* with paths has to be trusted to compute the same
 //!   way everywhere, and rejecting is a property, not a computation.
-//! - No control characters and no whitespace. A path is an identifier, not
-//!   prose, and an invisible difference between two paths is a trap.
+//! - **Segments are drawn from an allowed set**: letters and digits in any script,
+//!   plus `-`, `_` and `.`. Everything else is refused, which is what keeps invisible
+//!   characters out — a zero-width space, a soft hyphen or a bidirectional override is
+//!   none of those, and any of them would produce a second path that renders exactly
+//!   like the first. A list of what to reject would have to be extended with every
+//!   Unicode revision; a list of what to accept does not.
+//! - Control characters and whitespace get their own errors rather than the generic
+//!   one, because those are the two a person actually types by accident.
 //! - No `*`. The policy language uses `*` and `**` as glob wildcards
 //!   ([`ciphr-policy`]), so a literal `*` in a secret path would make "does this
 //!   rule match this path" ambiguous. Patterns are a separate type; secret paths
@@ -190,6 +196,11 @@ pub(crate) enum SegmentProblem {
     Control,
     /// The segment contained whitespace.
     Whitespace,
+    /// The segment contained a character outside the allowed set.
+    Disallowed {
+        /// The offending character.
+        character: char,
+    },
 }
 
 /// Check everything about a segment except wildcards.
@@ -206,14 +217,41 @@ pub(crate) fn inspect_segment(segment: &str) -> Result<(), SegmentProblem> {
         return Err(SegmentProblem::Relative);
     }
     for ch in segment.chars() {
+        // These two come first only for the error message: both are already excluded by
+        // the allowed set below, but "contains whitespace" says more than "contains a
+        // character that is not allowed here".
         if ch.is_control() {
             return Err(SegmentProblem::Control);
         }
         if ch.is_whitespace() {
             return Err(SegmentProblem::Whitespace);
         }
+        if !is_allowed(ch) {
+            return Err(SegmentProblem::Disallowed { character: ch });
+        }
     }
     Ok(())
+}
+
+/// Whether a character may appear in a segment.
+///
+/// An allowlist, deliberately. The rule this replaced rejected control characters and
+/// whitespace, which let every format character through: U+200B, U+00AD, U+FEFF, U+2060
+/// and U+202E were all accepted, and each produces a path that renders identically to
+/// another one — or, for the bidirectional override, as a different one entirely. A
+/// denylist would have to grow with every Unicode revision, and a gap in it is invisible
+/// until someone exploits it.
+///
+/// `*` is allowed **here** and refused by both callers afterwards, each with its own
+/// error: a path may not contain one at all, and a pattern may not contain one inside a
+/// larger segment. Rejecting it in this function would replace both messages with a
+/// worse one.
+///
+/// Letters and digits of any script are allowed, so this is not an ASCII rule.
+/// Confusables across scripts remain possible and remain out of scope — a documented
+/// boundary rather than an oversight.
+fn is_allowed(ch: char) -> bool {
+    ch.is_alphanumeric() || matches!(ch, '-' | '_' | '.' | '*')
 }
 
 fn validate_segment(segment: &str) -> Result<(), PathError> {
@@ -228,6 +266,7 @@ fn validate_segment(segment: &str) -> Result<(), PathError> {
         },
         SegmentProblem::Control => PathError::ControlCharacter,
         SegmentProblem::Whitespace => PathError::Whitespace,
+        SegmentProblem::Disallowed { character } => PathError::DisallowedCharacter { character },
     })?;
 
     // The one rule a pattern does not share: in a path, `*` is never special and
@@ -271,6 +310,11 @@ pub enum PathError {
     ControlCharacter,
     /// A whitespace character.
     Whitespace,
+    /// A character outside the allowed set.
+    DisallowedCharacter {
+        /// The offending character.
+        character: char,
+    },
     /// A `*`, which is reserved for policy patterns.
     Wildcard,
 }
@@ -293,6 +337,11 @@ impl fmt::Display for PathError {
             }
             Self::ControlCharacter => f.write_str("path contains a control character"),
             Self::Whitespace => f.write_str("path contains whitespace"),
+            Self::DisallowedCharacter { character } => write!(
+                f,
+                "path contains U+{:04X}; segments allow letters, digits, '-', '_' and '.'",
+                u32::from(*character)
+            ),
             Self::Wildcard => {
                 f.write_str("path contains '*', which is reserved for policy patterns")
             }
@@ -315,7 +364,7 @@ mod tests {
             "sys/audit",
             "a/b/c/d/e/f/g",
             "with.dots/and-dashes/and_underscores",
-            "percent%and_underscore_are_literal",
+            "underscore_is_a_like_wildcard_and_stays_literal",
         ] {
             assert!(SecretPath::parse(input).is_ok(), "should accept {input}");
         }
@@ -403,5 +452,63 @@ mod tests {
         assert!(SecretPath::parse("infra/a/b").unwrap().starts_with(&prefix));
         assert!(!SecretPath::parse("infra/ab").unwrap().starts_with(&prefix));
         assert!(!SecretPath::parse("infra").unwrap().starts_with(&prefix));
+    }
+    #[test]
+    fn invisible_characters_are_refused() {
+        // The reason the segment rules are an allowlist. Every one of these was accepted
+        // by the previous rule -- it rejected control characters and whitespace, and none
+        // of these is either -- and every one produces a path that renders identically to
+        // another, or, for the bidirectional override, as a different one entirely.
+        for (name, input) in [
+            ("zero width space", "infra/db\u{200b}"),
+            ("soft hyphen", "infra/db\u{00ad}"),
+            ("zero width no-break space", "infra/db\u{feff}"),
+            ("word joiner", "infra/db\u{2060}"),
+            ("right-to-left override", "infra/\u{202e}db"),
+            ("mongolian vowel separator", "infra/db\u{180e}"),
+        ] {
+            assert!(
+                matches!(
+                    SecretPath::parse(input),
+                    Err(PathError::DisallowedCharacter { .. })
+                ),
+                "{name} must be refused"
+            );
+        }
+
+        // No-break space is whitespace, and keeps the more specific error.
+        assert_eq!(
+            SecretPath::parse("infra/db\u{00a0}"),
+            Err(PathError::Whitespace)
+        );
+    }
+
+    #[test]
+    fn confusables_remain_possible_and_that_is_the_documented_boundary() {
+        // Not a gap that was missed. Both of these are letters, so any rule that admits
+        // non-ASCII names at all admits them. Refusing them means either an ASCII-only
+        // path space or a script-mixing policy, and neither is in v1.
+        assert!(SecretPath::parse("infr\u{0430}/db").is_ok(), "cyrillic a");
+        assert!(SecretPath::parse("\u{fb01}le/x").is_ok(), "fi ligature");
+
+        // They are still distinct paths, which is what keeps authorization sound: a
+        // pattern for one does not match the other.
+        assert_ne!(
+            SecretPath::parse("infr\u{0430}/db"),
+            SecretPath::parse("infra/db")
+        );
+    }
+
+    #[test]
+    fn the_allowed_set_covers_what_paths_actually_contain() {
+        for input in [
+            "infra/host-a/service-b/DB_PASSWORD",
+            "infra/_shared/otel/OTEL_TOKEN",
+            "with.dots/and-dashes/and_underscores",
+            // Letters of any script, not an ASCII rule.
+            "\u{65e5}\u{672c}/x",
+        ] {
+            assert!(SecretPath::parse(input).is_ok(), "should accept {input}");
+        }
     }
 }

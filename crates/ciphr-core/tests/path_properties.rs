@@ -10,10 +10,14 @@ use ciphr_core::SecretPath;
 use ciphr_core::path::{MAX_PATH_LEN, MAX_SEGMENT_LEN};
 use proptest::prelude::*;
 
-/// Paths that should be accepted: ordinary identifier characters, one to five
+/// Paths that should be accepted: the allowed set from `path.rs`, one to five
 /// segments.
+///
+/// Kept in step with `is_allowed` by hand. `=` and `+` were in this generator until the
+/// segment rules were narrowed to an allowlist; they are no longer legal, and leaving
+/// them here would have made the property tests fail rather than the paths.
 fn valid_path() -> impl Strategy<Value = String> {
-    prop::string::string_regex("[a-zA-Z0-9_.=+-]{1,20}(/[a-zA-Z0-9_.=+-]{1,20}){0,4}")
+    prop::string::string_regex("[a-zA-Z0-9_.-]{1,20}(/[a-zA-Z0-9_.-]{1,20}){0,4}")
         .expect("the regex is a literal and compiles")
         .prop_filter("segments must not be relative", |candidate| {
             candidate
