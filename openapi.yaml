@@ -479,8 +479,31 @@ components:
           examples: ["static_env"]
         audit_devices:
           type: array
-          items: { type: string }
-          description: The configured devices, in order.
+          description: |
+            The configured devices, in order, each with whether it accepted the most
+            recent record. This is what makes "is the second device still working"
+            answerable from outside the process: a device that refuses every write is
+            otherwise invisible, because one accepting device is enough for a request
+            to succeed.
+
+            The reason a device gave is deliberately absent. This route is
+            unauthenticated, and a device failure message names a path or a database.
+          items:
+            type: object
+            required: [name, accepting]
+            properties:
+              name:
+                type: string
+                description: The device name, as configured.
+                examples: ["file:/var/lib/ciphr/audit.jsonl"]
+              accepting:
+                type: boolean
+                nullable: true
+                description: |
+                  Whether the device accepted the last record. `null` until the first
+                  record is written -- "nothing recorded yet" is a different state from
+                  "the last record was accepted", and a monitor that conflates them
+                  reports a healthy device on a service that has never written to it.
         api_version: { type: string, examples: ["v1"] }
 
     SecretInput:

@@ -28,11 +28,12 @@
 
 use std::sync::{Arc, Mutex};
 
-use ciphr_audit::{Action, AuditSink, Entry, Principal, RequestContext};
+use ciphr_audit::{Action, AuditError, AuditSink, Entry, Principal, RequestContext};
 use ciphr_core::{Capability, SecretPath};
 use ciphr_crypto::{RootKey, TokenPepper};
 use ciphr_policy::{Decision, PolicySet};
 use ciphr_store::SqliteStore;
+use serde::Serialize;
 
 use crate::error::ApiError;
 
@@ -49,7 +50,25 @@ struct Inner {
     root: RootKey,
     pepper: TokenPepper,
     seal_id: String,
-    audit_devices: Vec<String>,
+    devices: Mutex<Vec<DeviceHealth>>,
+}
+
+/// Whether one audit device accepted the most recent record.
+///
+/// Reported by `/v1/health`, which is why it carries a name and a boolean and nothing
+/// else. The reason a device gave for refusing belongs in the operator's logs, not on
+/// an unauthenticated endpoint: a device failure message names a path or a database.
+///
+/// `accepting` is `None` until the first record is written. "Nothing has been recorded
+/// yet" and "the last record was accepted" are different states, and a monitor that
+/// cannot tell them apart reports a healthy second device on a service that has never
+/// written to it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DeviceHealth {
+    /// The device name, as configured.
+    pub name: String,
+    /// Whether it accepted the last record. `None` before the first one.
+    pub accepting: Option<bool>,
 }
 
 /// Who is making a request, once their token has been checked.
@@ -84,10 +103,13 @@ impl AppState {
         seal_id: String,
     ) -> Self {
         let pepper = TokenPepper::derive(&root);
-        let audit_devices = audit
+        let devices = audit
             .device_names()
             .into_iter()
-            .map(str::to_owned)
+            .map(|name| DeviceHealth {
+                name: name.to_owned(),
+                accepting: None,
+            })
             .collect();
 
         Self {
@@ -98,7 +120,7 @@ impl AppState {
                 root,
                 pepper,
                 seal_id,
-                audit_devices,
+                devices: Mutex::new(devices),
             }),
         }
     }
@@ -118,9 +140,33 @@ impl AppState {
         &self.inner.seal_id
     }
 
-    /// The configured audit device names, for the health endpoint.
-    pub fn audit_devices(&self) -> &[String] {
-        &self.inner.audit_devices
+    /// What each audit device did with the most recent record, for the health endpoint.
+    ///
+    /// A snapshot rather than a borrow, because the state changes on every request. If
+    /// the lock is poisoned the names are still reported, with `accepting` unknown:
+    /// health is the endpoint an operator reaches for when something is wrong, so it
+    /// answers as much as it can rather than failing.
+    pub fn audit_devices(&self) -> Vec<DeviceHealth> {
+        self.inner
+            .devices
+            .lock()
+            .map(|guard| guard.clone())
+            .unwrap_or_default()
+    }
+
+    /// Record what the sink reported, so `/v1/health` can be asked about it.
+    ///
+    /// Called on both paths. A partial failure is the case this exists for: the record
+    /// was stored somewhere, the request succeeds, and without this the fact that one
+    /// device refused would be discarded — which is how a second device that has been
+    /// failing for a month becomes a second device that does not exist.
+    fn note_device_outcome(&self, failures: &[ciphr_audit::DeviceFailure]) {
+        let Ok(mut guard) = self.inner.devices.lock() else {
+            return;
+        };
+        for device in guard.iter_mut() {
+            device.accepting = Some(!failures.iter().any(|f| f.device == device.name));
+        }
     }
 
     /// Run something against the store.
@@ -198,8 +244,20 @@ impl AppState {
             detail: "the audit lock is poisoned".to_owned(),
         })?;
 
-        match sink.record(entry, now_millis()) {
-            Ok(_written) => Ok(()),
+        let outcome = sink.record(entry, now_millis());
+        // The sink's lock is released before the device state is touched, so the two
+        // are never held at once and cannot deadlock against each other.
+        drop(sink);
+
+        match outcome {
+            Ok(written) => {
+                self.note_device_outcome(&written.failures);
+                Ok(())
+            }
+            Err(AuditError::AllDevicesFailed { failures }) => {
+                self.note_device_outcome(&failures);
+                Err(ApiError::AuditUnavailable)
+            }
             Err(_) => Err(ApiError::AuditUnavailable),
         }
     }

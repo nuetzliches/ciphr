@@ -34,7 +34,7 @@ use ciphr_store::{AuditFilter, Store};
 use serde::{Deserialize, Serialize};
 
 use crate::error::ApiError;
-use crate::state::{AppState, Caller};
+use crate::state::{AppState, Caller, DeviceHealth};
 
 /// Paths under this prefix are virtual: they authorize administrative reads and can
 /// never be secrets.
@@ -74,7 +74,7 @@ struct Health {
     status: &'static str,
     sealed: bool,
     seal: String,
-    audit_devices: Vec<String>,
+    audit_devices: Vec<DeviceHealth>,
     api_version: &'static str,
 }
 
@@ -220,7 +220,7 @@ async fn health(State(state): State<AppState>) -> Json<Health> {
         // meaningful, and a client should not have to change shape when it does.
         sealed: false,
         seal: state.seal_id().to_owned(),
-        audit_devices: state.audit_devices().to_vec(),
+        audit_devices: state.audit_devices(),
         api_version: "v1",
     })
 }

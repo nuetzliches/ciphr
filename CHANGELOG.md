@@ -11,6 +11,19 @@ This file is updated in the same commit as the change it describes.
 Phases 0 to 3 are complete. The external review has not taken place; it remains a precondition for
 first production use.
 
+### Fixed — the server no longer discards partial audit-device failures
+
+- Finding 6. `AuditSink::record` has always reported which devices refused a record; `AppState`
+  dropped that on the floor, so a device failing every write stayed invisible in the API, on the
+  health endpoint and in the logs — the exact state `device.rs` names as the thing to prevent.
+- `/v1/health` now reports each audit device as `{ name, accepting }`. `accepting` is `null` until
+  the first record: "nothing written yet" is a third state, and a monitor that reads it as healthy
+  reports a working second device on a service that has never written to it.
+- **The reason a device gave is not reported.** The route is unauthenticated and a device failure
+  message names a path or a database. A test asserts the reason stays out of the response.
+- Covered by two tests, one driving a sink with two devices where one refuses everything. Finding 8
+  is unaffected: a gap on the lagging device remains indistinguishable from a deletion afterwards.
+
 ### Added — `/v1/health` states what the process enforces
 
 - Plan sections 10 and 17. The design has no switch that turns a security property off: TLS is a

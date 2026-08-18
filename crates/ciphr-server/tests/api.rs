@@ -120,6 +120,10 @@ impl Harness {
                 )]
             }
             AuditKind::Failing => vec![Box::new(AlwaysFails)],
+            AuditKind::Partial => vec![
+                Box::new(SqliteAuditDevice::open(&database).expect("audit device")),
+                Box::new(AlwaysFails),
+            ],
         };
         let sink = AuditSink::new(devices, Chain::new()).expect("sink");
 
@@ -201,6 +205,9 @@ impl Harness {
 enum AuditKind {
     Working,
     Failing,
+    /// One device that works and one that refuses everything. The state a second
+    /// device is actually in when it has quietly stopped accepting records.
+    Partial,
 }
 
 /// A device that refuses everything, for the fail-closed test.
@@ -226,6 +233,11 @@ fn health_needs_no_token_and_reveals_no_inventory() {
     assert_eq!(body["sealed"], false);
     assert_eq!(body["seal"], "static_env");
     assert!(body["audit_devices"].is_array());
+    // Nothing has been recorded yet, and that is a third state -- not "healthy".
+    assert_eq!(
+        body["audit_devices"][0]["accepting"],
+        serde_json::Value::Null
+    );
 
     // An unauthenticated endpoint must not say how many secrets exist, or whether any
     // do.
@@ -679,5 +691,75 @@ fn a_write_is_not_performed_when_the_audit_trail_cannot_be_written() {
     assert!(
         store.metadata(&path).is_err(),
         "nothing may be written when the write cannot be logged"
+    );
+}
+
+#[test]
+fn health_reports_a_device_that_stopped_accepting_records() {
+    // Finding 6. `AuditSink::record` reports which devices refused; before this the
+    // server discarded that, so a second device failing every write for a month was
+    // invisible in the API, in the health endpoint, and in the logs. That is the exact
+    // state `device.rs` names as the thing to prevent.
+    let harness = Harness::with_audit(AuditKind::Partial);
+
+    let before = harness.get("/v1/health", None).1;
+    let names: Vec<String> = before["audit_devices"]
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|d| d["name"].as_str().expect("name").to_owned())
+        .collect();
+    assert_eq!(names.len(), 2, "the harness configures two devices");
+    for device in before["audit_devices"].as_array().expect("array") {
+        assert_eq!(
+            device["accepting"],
+            serde_json::Value::Null,
+            "before the first record, no device has an outcome yet"
+        );
+    }
+
+    // One authenticated request is enough: every endpoint writes an audit entry.
+    let (status, _) = harness.get(
+        "/v1/secrets/infra/service-a/DB_PASSWORD",
+        Some(&harness.deploy_token),
+    );
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "one working device is enough to serve the request"
+    );
+
+    let after = harness.get("/v1/health", None).1;
+    let devices = after["audit_devices"].as_array().expect("array");
+    let working = devices
+        .iter()
+        .find(|d| d["name"] != "always-fails")
+        .expect("the working device");
+    let broken = devices
+        .iter()
+        .find(|d| d["name"] == "always-fails")
+        .expect("the failing device");
+
+    assert_eq!(working["accepting"], true);
+    assert_eq!(
+        broken["accepting"], false,
+        "a device that refused the last record must not look healthy"
+    );
+}
+
+#[test]
+fn health_never_reports_why_a_device_failed() {
+    // The endpoint is unauthenticated. A device failure message names a path or a
+    // database, so the boolean is reported and the reason is not.
+    let harness = Harness::with_audit(AuditKind::Partial);
+    let _ = harness.get(
+        "/v1/secrets/infra/service-a/DB_PASSWORD",
+        Some(&harness.deploy_token),
+    );
+
+    let text = harness.get("/v1/health", None).1.to_string();
+    assert!(
+        !text.contains("this device always fails"),
+        "the reason must stay out of an unauthenticated response, got {text}"
     );
 }
