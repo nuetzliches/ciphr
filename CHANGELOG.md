@@ -11,6 +11,24 @@ This file is updated in the same commit as the change it describes.
 Phases 0 to 3 are complete. The external review has not taken place; it remains a precondition for
 first production use.
 
+### Known issue — a CLI write while the server runs takes the service down
+
+- Finding 10, reproduced against a running instance: one `ciphr put` from the CLI while the server
+  is up turns every subsequent request into `503`, and it does not recover until the process is
+  restarted.
+- The chain lives in memory and both processes hold one. The server resumes from the store's head at
+  startup; a CLI write moves that head without telling it; the server's next record collides on a
+  sequence number, no device accepts it, and fail-closed refuses the request. The chain only advances
+  on a committed record, so the collision repeats forever.
+- Every component behaves as designed. The assumption underneath them — that one process at a time
+  writes to a store — is stated nowhere and enforced nowhere.
+- It matters because the CLI is the documented way to do `token issue`, `import`, `destroy` and
+  `rotate-master-key`, two of which are routine. `import` is the migration tool for an existing
+  corpus; run against a live server it takes the service down on its first write.
+- Not fixed here. The options differ in what they assume about concurrent writers, which is a design
+  question rather than a patch. Recorded with all three and with what the minimum is: nothing in
+  `docs/`, in the CLI or in the store says these two must not run at once.
+
 ### Added — a container image and a release workflow
 
 - `Dockerfile`, `docker-entrypoint.sh` and `.github/workflows/release.yml`. Single architecture on
