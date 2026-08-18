@@ -9,9 +9,18 @@ lives, and what would disprove it — so that a reviewer spends their time attac
 than reconstructing them.
 
 **It is not a review.** It was written by the author of the code, and a checklist written by the
-author cannot substitute for someone else reading it. Plan section 18 makes the review a
-*precondition* for first production use and says self-review is not sufficient; this document exists
-to make that review cheap, not to replace it.
+author cannot substitute for someone else reading it.
+
+Plan section 18 makes the review a *precondition* for first production use and says self-review is
+not sufficient; this document exists to make that review cheap, not to replace it.
+
+**A pre-review pass has since been made against this list** and is recorded in
+[`review-2026-08-18.md`](review-2026-08-18.md). It does not discharge the precondition either — it
+came from the same model that co-authored the code, so it carries the same blind spots — but it
+closed B9 mechanically, corrected two claims that turned out to be weaker than the implementation,
+and produced nine findings, all since addressed. **A reviewer should read it for what it says it did
+*not* check at least as much as for what it found**, and should treat every claim below as one this
+pass already looked at and therefore looked at with the wrong eyes.
 
 Two consequences follow, and both matter:
 
@@ -77,7 +86,7 @@ They are listed so nobody spends time on them:
    concrete inputs. The fastest way to check whether the semantics are what a reader expects.
 
 ```sh
-cargo test --workspace --all-features        # 234 tests
+cargo test --workspace --all-features        # 244 tests
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo doc --no-deps --open                   # the reasoning is in the code, not only here
 ```
@@ -94,8 +103,8 @@ which parts do *not* need their attention.
 |---|---|---|
 | A1 | There is exactly **one** normalization, shared by the router, the policy evaluator, and the AAD construction (ADR-9). | Any second place that lower-cases, trims, or NFC-normalizes a path. Verified mechanically: no other call site exists. |
 | A2 | Normalization is idempotent: `parse(parse(x)) == parse(x)`. | An input where they differ. Property-tested and fuzzed. |
-| A3 | An accepted path satisfies every documented rule — no empty, relative, whitespace, or control segments, no `*`, within length limits. | An input that is accepted and breaks one. Fuzzed with invariant assertions rather than only for panics. |
-| A4 | Two spellings of one path cannot exist: NFC is applied, comparison is byte-exact and case sensitive. | A pair of distinct inputs that map to the same secret in a way the design did not intend, or a pair that *should* be the same and is not. Unicode edge cases beyond NFC are the interesting attack surface here. |
+| A3 | An accepted path satisfies every documented rule — segments are drawn from an **allowlist** (letters and digits of any script, plus `-`, `_`, `.`), no empty or relative segments, no `*`, within length limits. | An input that is accepted and breaks one. Fuzzed with invariant assertions rather than only for panics. *Changed 2026-08-18: this was a denylist of control characters and whitespace, which admitted every Unicode format character — see finding 1.* |
+| A4 | Two spellings of one path cannot exist: NFC is applied, comparison is byte-exact and case sensitive. Invisible characters are refused by the allowlist; **confusables across scripts are not**, and that is a stated boundary. | A pair of distinct inputs that map to the same secret in a way the design did not intend, or a pair that *should* be the same and is not. The invisible-character half was the first finding of the pre-review pass; the confusable half is open by decision, and an argument that it should not be is a finding. |
 | A5 | `*` matches exactly one segment; `**` matches one or more and only as the last segment; no partial wildcards. | A pattern/path pair where `matches()` disagrees with that. |
 | A6 | Specificity is the number of literal segments, and it orders patterns the way the evaluator assumes. | Two patterns where the more specific one loses, or a case where specificity is not a usable total order. |
 | A7 | `**` does **not** match zero segments, so `infra/**` does not cover `infra`. | — this is a decision, not a bug. Worth challenging: it is the reason listings authorize per result rather than on a prefix. |
@@ -147,7 +156,7 @@ which parts do *not* need their attention.
 
 | # | Claim | Falsified by |
 |---|---|---|
-| E1 | No response leaves the process, and no change is made, before the record is stored. Reads work-then-record; writes record-then-mutate. | A route that answers or mutates first. `every_endpoint_writes_an_audit_entry` covers presence; the *ordering* needs a human. |
+| E1 | No response leaves the process, and no change is made, before the record is stored. **Both** record the authorization decision first; they differ only in what follows. A read that then finds nothing, or cannot be served, gets a second entry with the real outcome. | A route that answers or mutates first. `every_endpoint_writes_an_audit_entry` covers presence; the *ordering* needs a human. *Corrected 2026-08-18: this row said reads work first and record afterwards, which the code never did. The claim was weaker than the implementation.* |
 | E2 | If no device accepts a record the request is refused with `503`, and no sequence number is consumed. | A path that serves or writes anyway, or a gap after a device failure. |
 | E3 | A bulk read produces one entry per secret served, never one per call. | An export that records once. |
 | E4 | An entry never contains a value, key material, or a token — only a token's non-secret identifier. | Any field that can carry one. The type system is the intended guarantee; check that it actually is. |
@@ -160,8 +169,12 @@ which parts do *not* need their attention.
 Stated up front so a reviewer can judge whether the characterization is honest, rather than
 rediscovering it:
 
-1. **The known-answer tests are self-generated** (B9). They pin the format; they do not validate the
-   primitive.
+1. ~~**The known-answer tests are self-generated** (B9)~~ — **closed 2026-08-18.** All three pinned
+   vectors were reproduced byte-for-byte by an independent AES-256-GCM implementation, with the value
+   AAD rebuilt from the prose in `envelope.rs` rather than copied from the pinned hex, plus negative
+   controls for AAD sensitivity and argument order. They now validate the primitive and its plumbing,
+   not only the format. What remains true is that they were *generated* by this code; what is no
+   longer true is that nothing independent confirms them.
 2. **Constant-time behaviour is not proven** (C2), only exercised for correctness at every byte
    position.
 3. **The hash chain cannot detect a forward rewrite** (E6).

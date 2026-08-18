@@ -11,6 +11,22 @@ This file is updated in the same commit as the change it describes.
 Phases 0 to 3 are complete. The external review has not taken place; it remains a precondition for
 first production use.
 
+### Changed — `security-review.md` brought in line with what the code now does
+
+- **B9 is struck from the known imperfections.** The known-answer tests were reproduced against an
+  independent AES-256-GCM implementation, so they validate the primitive and its plumbing rather than
+  only the stored format.
+- **E1 corrected.** It claimed reads work first and record afterwards. They never did — the
+  authorization decision is recorded before the read, which is the stronger property. The claim was
+  weaker than the implementation, and a reviewer checking the claim would have found the code
+  "wrong" in the safe direction.
+- **A3 rewritten** for the allowlist, with a pointer to why it changed, and **A4** now states that
+  invisible characters are refused while confusables across scripts are not, and that the second half
+  is a decision rather than an omission.
+- The document now says a pre-review pass exists, what it closed, and — the part that matters — that
+  it came from the same model that co-authored the code, so every claim it looked at was looked at
+  with the wrong eyes.
+
 ### Changed — the audit record shape, for listings and for device failures
 
 - **Findings 4 and 8.** Two additions to the stored record, both deliberate and both changing the
