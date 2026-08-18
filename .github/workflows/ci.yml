@@ -124,14 +124,20 @@ jobs:
       # A smoke run, not a fuzzing campaign: enough to catch a target that no longer
       # builds or an invariant that breaks on trivial input. Finding deep bugs takes
       # hours and belongs in a scheduled run, which is a separate decision.
+      #
+      # `--target` is explicit because cargo-fuzz otherwise builds for its own host
+      # triple, and the pinned binary is the musl build — the only one rust-fuzz
+      # publishes for Linux. AddressSanitizer needs a dynamically linked libc, so a
+      # musl target fails to build. Naming the target also makes the run reproducible
+      # rather than dependent on how the tool was installed.
       - name: Fuzz path normalization
-        run: cargo +nightly-2026-08-01 fuzz run path_normalization -- -max_total_time=45 -rss_limit_mb=2048
+        run: cargo +nightly-2026-08-01 fuzz run --target x86_64-unknown-linux-gnu path_normalization -- -max_total_time=45 -rss_limit_mb=2048
 
       - name: Fuzz pattern matching
-        run: cargo +nightly-2026-08-01 fuzz run pattern_matching -- -max_total_time=45 -rss_limit_mb=2048
+        run: cargo +nightly-2026-08-01 fuzz run --target x86_64-unknown-linux-gnu pattern_matching -- -max_total_time=45 -rss_limit_mb=2048
 
       - name: Fuzz policy file loading
-        run: cargo +nightly-2026-08-01 fuzz run policy_file -- -max_total_time=45 -rss_limit_mb=2048
+        run: cargo +nightly-2026-08-01 fuzz run --target x86_64-unknown-linux-gnu policy_file -- -max_total_time=45 -rss_limit_mb=2048
 
       # A crash leaves an artifact behind; keep it, because a reproducer that only
       # existed inside a CI run is a bug report nobody can act on.

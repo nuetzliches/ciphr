@@ -35,13 +35,19 @@ sh ci/install-fuzz-tools.sh                       # pinned cargo-fuzz, checksum 
 rustup toolchain install nightly-2026-08-01 --profile minimal
 
 cargo +nightly-2026-08-01 fuzz list
-cargo +nightly-2026-08-01 fuzz run path_normalization -- -max_total_time=60
+cargo +nightly-2026-08-01 fuzz run --target x86_64-unknown-linux-gnu path_normalization -- -max_total_time=60
 ```
+
+`--target` is not optional. cargo-fuzz builds for its own host triple by default, and the pinned
+binary is the musl build — the only one rust-fuzz publishes for Linux. AddressSanitizer requires a
+dynamically linked libc, so a musl target fails with "sanitizer is incompatible with statically
+linked libc". Naming the target also keeps the run reproducible instead of dependent on how the tool
+was installed.
 
 A crash writes a reproducer under `fuzz/artifacts/`. To replay one:
 
 ```sh
-cargo +nightly-2026-08-01 fuzz run path_normalization fuzz/artifacts/path_normalization/crash-<hash>
+cargo +nightly-2026-08-01 fuzz run --target x86_64-unknown-linux-gnu path_normalization fuzz/artifacts/path_normalization/crash-<hash>
 ```
 
 In CI the artifact directory is uploaded when the job fails, because a reproducer that only ever
