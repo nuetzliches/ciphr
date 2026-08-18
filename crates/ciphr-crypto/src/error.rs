@@ -1,0 +1,113 @@
+//! Cryptographic errors.
+//!
+//! Two rules shape this type.
+//!
+//! **No error carries a value or key material.** Not the plaintext, not the key,
+//! not a fragment of either, not a length that only makes sense with the value in
+//! hand (ADR-1).
+//!
+//! **Every authentication failure looks the same.** A wrong key, a tampered tag,
+//! a ciphertext bound to a different path, and a ciphertext bound to a different
+//! version all produce [`CryptoError::Aead`]. Distinguishing them would hand an
+//! attacker a decryption oracle that tells them *why* their guess failed, which
+//! is exactly the information they lack.
+
+use core::fmt;
+
+use ciphr_core::hex::HexError;
+
+/// Something went wrong in the cryptographic layer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CryptoError {
+    /// Authenticated decryption failed.
+    ///
+    /// Deliberately indistinguishable between a wrong key, a modified
+    /// ciphertext, and a ciphertext that belongs to a different path or version.
+    Aead,
+    /// The operating system refused to provide randomness.
+    ///
+    /// Not recoverable and not worth retrying: without entropy there is no safe
+    /// way to generate a key, and falling back to anything else would be the
+    /// worst possible response.
+    Entropy,
+    /// A key was not the expected length.
+    KeyLength {
+        /// Length the algorithm requires, in bytes.
+        expected: usize,
+        /// Length supplied, in bytes.
+        found: usize,
+    },
+    /// A key or identifier was not valid hexadecimal.
+    ///
+    /// Carries the reason, which contains lengths and never content.
+    Encoding(HexError),
+    /// The sealed root key does not carry the identifier it was expected to.
+    ///
+    /// This is what a swapped or mixed-up seal record looks like. Continuing
+    /// would mean decrypting with a key whose provenance is unclear.
+    RootKeyIdMismatch,
+    /// The environment variable holding the master key is not set.
+    MasterKeyMissing {
+        /// Name of the variable that was consulted.
+        variable: String,
+    },
+    /// The environment variable holding the master key is not valid Unicode.
+    MasterKeyNotUnicode {
+        /// Name of the variable that was consulted.
+        variable: String,
+    },
+}
+
+impl fmt::Display for CryptoError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Aead => f.write_str("authenticated decryption failed"),
+            Self::Entropy => f.write_str("the operating system provided no randomness"),
+            Self::KeyLength { expected, found } => {
+                write!(f, "expected a {expected}-byte key, found {found} bytes")
+            }
+            Self::Encoding(reason) => write!(f, "invalid hexadecimal: {reason}"),
+            Self::RootKeyIdMismatch => {
+                f.write_str("the sealed root key carries an unexpected identifier")
+            }
+            Self::MasterKeyMissing { variable } => {
+                write!(f, "environment variable {variable} is not set")
+            }
+            Self::MasterKeyNotUnicode { variable } => {
+                write!(f, "environment variable {variable} is not valid Unicode")
+            }
+        }
+    }
+}
+
+impl core::error::Error for CryptoError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        match self {
+            Self::Encoding(reason) => Some(reason),
+            _ => None,
+        }
+    }
+}
+
+impl From<HexError> for CryptoError {
+    fn from(reason: HexError) -> Self {
+        Self::Encoding(reason)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CryptoError;
+
+    #[test]
+    fn authentication_failures_are_indistinguishable() {
+        // Not a formality: if the envelope layer ever grows a second variant for
+        // "wrong AAD" or "bad tag", that difference is a decryption oracle. The
+        // proof that all four failure shapes end up here lives in the envelope
+        // tests; this only pins the message.
+        assert_eq!(
+            CryptoError::Aead.to_string(),
+            "authenticated decryption failed"
+        );
+    }
+}

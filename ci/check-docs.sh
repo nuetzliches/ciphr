@@ -1,0 +1,40 @@
+#!/bin/sh
+# Gate: every document under docs/ carries a date, and no date is in the future.
+#
+# Documentation decays quietly, and a secret manager whose manual is wrong
+# produces confident mistakes. This cannot check whether a document is accurate.
+# What it can check is that a reader is able to *question* it: an undated document
+# offers no way to judge whether it describes the current system.
+#
+# A future date fails too. It is the signature of a copy-pasted header or an
+# intention to update later, and both make the date worse than none.
+set -eu
+
+cd "$(dirname "$0")/.."
+
+today=$(date -u +%Y-%m-%d)
+status=0
+
+for doc in $(find docs -name '*.md' | sort); do
+    dates=$(grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' "$doc" || true)
+
+    if [ -z "$dates" ]; then
+        echo "check-docs: $doc carries no date (YYYY-MM-DD)" >&2
+        status=1
+        continue
+    fi
+
+    for date in $dates; do
+        # String comparison is correct for ISO dates, which is most of the reason
+        # to insist on that format.
+        if [ "$date" \> "$today" ]; then
+            echo "check-docs: $doc claims the future date $date (today is $today)" >&2
+            status=1
+        fi
+    done
+done
+
+if [ "$status" -eq 0 ]; then
+    echo "check-docs: ok"
+fi
+exit "$status"

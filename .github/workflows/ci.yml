@@ -69,6 +69,11 @@ jobs:
       - name: No raw HTML injection in the UI
         run: sh ci/check-no-v-html.sh
 
+      # Cannot check whether a document is accurate; can check that a reader is
+      # able to judge how old it is.
+      - name: Documentation carries dates
+        run: sh ci/check-docs.sh
+
   supply-chain:
     name: Licenses, advisories, dependency budget
     runs-on: ubuntu-latest

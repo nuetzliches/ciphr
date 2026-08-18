@@ -7,12 +7,13 @@ reasoning behind them lives in [`docs/adr/`](docs/adr/) and
 
 ## Where the project stands
 
-Phase 0 is complete: workspace skeleton, decision records, threat model, supply-chain policy, and
-blocking CI gates. The crates are empty scaffolding.
+Phases 0 and 1 are complete. `ciphr-core` (paths, versions, secret wrappers, rotation classes),
+`ciphr-crypto` (envelope encryption, the seal), and `ciphr-store` (SQLite, migrations) are
+implemented and tested. There is no HTTP server, no CLI, no policy evaluator, and no audit trail yet.
 
-Phase 1 is `ciphr-crypto`, `ciphr-store`, and the seal — **not** the HTTP server. The phase order in
-the plan is deliberately "cryptography first, HTTP last", because the decisions that are hard to
-correct come first. Do not start a phase by wiring up a listener.
+Phase 2 is `ciphr-policy` and `ciphr-audit` — still **not** the HTTP server. The phase order in the
+plan is deliberately "cryptography first, HTTP last", because the decisions that are hard to correct
+come first. Do not start a phase by wiring up a listener.
 
 ## Hard rules
 
@@ -108,6 +109,26 @@ considered and rejected: a guard that any push can walk past invites treating th
 
 Either way, the CI gates are the same and they are blocking. They are what actually stands between a
 mistake and `main`.
+
+## Documentation
+
+Documentation is part of the change, not a follow-up. The rules and the reasoning are in
+[`docs/README.md`](docs/README.md); the short version:
+
+- **Honest.** State what is not protected next to what is. Where something buys convenience rather
+  than security, say so — the seal in v1 is the standing example.
+- **Dated.** Every document under `docs/` carries an ISO date, and facts that age carry the date they
+  were verified. `ci/check-docs.sh` fails the build on a missing or future date.
+- **About what exists.** Describe the built system. Plans for unbuilt features belong in the
+  implementation plan; anything partial says which phase finishes it.
+- **Executable where possible.** Code examples in rustdoc are doctests and run in CI, so an example
+  that stops working fails the build. Prefer an example that runs over prose that cannot be checked.
+- **Same commit as the code.** A documentation update that trails its change is a window in which the
+  documentation is wrong.
+
+For anything hard to undo — master key handling, rotating a secret that cannot be rotated — the
+document belongs in `docs/operations/` and says what breaks, what it looks like when it breaks, and
+what to do instead.
 
 ## Commits and changelog
 

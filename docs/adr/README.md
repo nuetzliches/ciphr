@@ -1,5 +1,8 @@
 # Architecture decision records
 
+**Status:** current as of 2026-08-18. Thirteen decisions, all accepted; each file carries its own
+date and status.
+
 One file per decision. Each records what was decided, why, and what was rejected — the rejected
 options matter as much as the chosen one, because they are what a future reader would otherwise
 propose again.

@@ -52,6 +52,12 @@ ignore = false
 # nobody is watching. Resolve it, or record a `skip` entry with a reason.
 multiple-versions = "deny"
 wildcards         = "deny"
+# The rule above exists so that a *third-party* dependency is never pinned as
+# `*`. Our own crates depend on each other by path and carry no version
+# requirement, which is the same thing syntactically and none of the same risk.
+# Publishing would make cargo itself demand real versions, so nothing is being
+# deferred here that could be forgotten.
+allow-wildcard-paths = true
 highlight         = "all"
 
 deny = [

@@ -15,6 +15,34 @@ publish      = false
 # Lint policy for the whole workspace. Every crate opts in with
 # `[lints] workspace = true`; CI runs clippy with `-D warnings`, so everything
 # below is blocking. See docs/security-guidelines in AGENTS.md.
+# Every entry here is a reviewed decision, and the reason is part of the
+# entry. The budget is tightest in ciphr-crypto and ciphr-policy, which take
+# nothing beyond what is listed as cryptographic.
+[workspace.dependencies]
+ciphr-core   = { path = "crates/ciphr-core" }
+ciphr-crypto = { path = "crates/ciphr-crypto" }
+
+# AEAD. Default features are off so that nothing arrives unasked; `zeroize`
+# makes the crate wipe its own key schedule, which is the point of using it.
+aes-gcm = { version = "0.11.0", default-features = false, features = ["aes", "alloc", "zeroize"] }
+# The OS CSPRNG, which is what `rand::rngs::OsRng` wraps. Taken directly so that
+# no userspace PRNG exists in the dependency graph at all — a deterministic RNG
+# cannot be reached by accident if it is not there.
+getrandom = "0.4.3"
+# Secret wrappers whose types implement neither Debug, Display nor Serialize.
+secrecy = "0.10.3"
+zeroize = { version = "1.9.0", features = ["alloc"] }
+# Unicode NFC for path normalization: two encodings of the same path must not
+# become two different secrets.
+unicode-normalization = "0.1.25"
+# SQLite, statically linked (`bundled`) so the version is pinned by Cargo rather
+# than by whatever the host image happens to ship.
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+
+# Test-only.
+proptest = "1.11.0"
+tempfile = "3.24.0"
+
 [workspace.lints.rust]
 missing_docs          = "warn"
 unreachable_pub       = "warn"
@@ -27,3 +55,10 @@ unused_qualifications = "warn"
 [workspace.lints.clippy]
 all      = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
+
+# Allowed with a reason, not because they were inconvenient:
+#
+# `must_use_candidate` would put an attribute on every getter in the workspace.
+# The case that actually matters — ignoring a `Result` — is already caught by
+# rustc's own `unused_must_use`.
+must_use_candidate = "allow"

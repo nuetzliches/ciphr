@@ -28,6 +28,12 @@ trait Seal {
 v1 implements `StaticEnvSeal`, reading the master key from `CIPHR_MASTER_KEY`. `ShamirSeal`,
 `Pkcs11Seal`, and `TransitSeal` are anticipated in the design but not built.
 
+**Correction from implementation (2026-08-18).** The sketch above is what this decision was written
+with; the implemented `unseal` takes the wrapped record as an argument, because unsealing needs a
+record that lives in the store, and a seal that reached into the store would invert the dependency.
+The decision — a static key behind a trait — is unchanged; only the signature was wrong. The
+implemented trait is in `crates/ciphr-crypto/src/seal.rs`.
+
 ## Rationale
 
 Unattended startup is the precondition for deploys that do not stall waiting for a person. The

@@ -1,5 +1,9 @@
 # Threat model
 
+**Status:** current as of 2026-08-18, phase 1. The adversaries and boundaries are settled; the
+defences marked as implemented are the cryptographic and storage ones, and the rest arrive with the
+phases that build them.
+
 Everything in the design is derived from this document, so it is stated first and stated plainly —
 including the parts where the answer is "not defended against". A security product that lists only
 the attacks it stops is marketing.
