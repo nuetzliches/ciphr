@@ -1,0 +1,97 @@
+# Builds and publishes the container image.
+#
+# Third-party actions are pinned to a commit hash rather than a tag, for the
+# reason ci.yml gives: a tag can be moved. The comment after each hash records
+# which release it was.
+#
+# **Single architecture, on purpose.** This image runs on one amd64 host. A
+# multi-arch manifest would mean a second build, a digest-merge step and a cache
+# scope per architecture, all to produce an artifact nothing pulls. If a second
+# architecture ever appears, that is the moment to add it.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  # The image is only built if the code that goes into it passes. Duplicating
+  # the gates would let them drift; calling the CI workflow keeps one definition
+  # of "green".
+  verify:
+    name: Verify before publishing
+    uses: ./.github/workflows/ci.yml
+
+  image:
+    name: Build and publish
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Derive the version
+        id: version
+        run: |
+          set -euo pipefail
+          ref='${{ github.ref }}'
+          case "$ref" in
+            refs/tags/v*) version="${ref#refs/tags/v}" ;;
+            # A manual run has no tag. It still produces an image, but one that
+            # cannot be mistaken for a release: no `latest`, and a name that
+            # says where it came from.
+            *)            version="0.0.0-dev.${GITHUB_SHA::7}" ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "release=${{ startsWith(github.ref, 'refs/tags/v') }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.REGISTRY_IMAGE }}:${{ steps.version.outputs.version }}
+            ${{ steps.version.outputs.release == 'true' && format('{0}:latest', env.REGISTRY_IMAGE) || '' }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.title=ciphr
+            org.opencontainers.image.description=Secret manager for machine identities: KV secrets, gap-free access auditing, path-based authorization.
+            org.opencontainers.image.licenses=MIT OR Apache-2.0
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=release
+          cache-to: type=gha,mode=max,scope=release
+
+      # What was published, by digest. A deployment pins the digest rather than
+      # the tag: a tag is a name that can be moved, and this is the one image in
+      # the fleet that reads every secret in it.
+      - name: Report the digest
+        run: |
+          echo "### Published" >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo '${{ env.REGISTRY_IMAGE }}:${{ steps.version.outputs.version }}' >> "$GITHUB_STEP_SUMMARY"
+          echo '${{ steps.build.outputs.digest }}' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

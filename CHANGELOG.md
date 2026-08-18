@@ -11,6 +11,31 @@ This file is updated in the same commit as the change it describes.
 Phases 0 to 3 are complete. The external review has not taken place; it remains a precondition for
 first production use.
 
+### Added — a container image and a release workflow
+
+- `Dockerfile`, `docker-entrypoint.sh` and `.github/workflows/release.yml`. Single architecture on
+  purpose: this runs on one amd64 host, and a multi-arch manifest would mean a second build, a
+  digest merge and a cache scope per architecture to produce an artifact nothing pulls.
+- Both binaries ship in the image. The CLI is not a convenience: `init`, `token issue`, `destroy`,
+  `audit verify` and `rotate-master-key` need the master key and the store and have no endpoint by
+  design (ADR-3), so they run as `docker exec` against this container. A separate CLI image would
+  need the same volume, the same master key and therefore the same trust.
+- The health check speaks HTTPS and **verifies**, using the CA that signed the listener's own leaf.
+  ADR-8 rules out `--insecure` everywhere, and a health check that skipped verification would be the
+  one place that rule was quietly broken.
+- The entrypoint disables core dumps before dropping privileges — a dump of this process contains
+  the master key, the root key, and whatever was in flight, and `ZeroizeOnDrop` cannot help with a
+  snapshot of a live process. It belongs with the process rather than in a container definition that
+  a deployment can forget.
+- **Built and run before being committed**, which is the only reason three of these are right. The
+  `CMD` invoked a `--config` flag that does not exist; the config path is positional. The entrypoint
+  accepted a key that is mode 600 *and owned by root*, which the service then cannot read — the
+  likelier mistake by far, since `install -o root -g root -m 0600` is the reflex for a private key,
+  and it surfaced as "Permission denied" from the TLS loader, reading like a broken certificate. And
+  `docker commit` does not carry volume contents, so a store initialized that way disappears.
+- Verified end to end: the container reports healthy, an authenticated request over TLS succeeds, and
+  `/v1/health` shows `accepting` moving from `null` to `true` — finding 6's fix, in a running system.
+
 ### Changed — `security-review.md` brought in line with what the code now does
 
 - **B9 is struck from the known imperfections.** The known-answer tests were reproduced against an
