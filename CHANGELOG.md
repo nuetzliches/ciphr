@@ -10,6 +10,42 @@ This file is updated in the same commit as the change it describes.
 
 Phases 0 to 2 are complete; phase 3 is in progress. There is no HTTP server and no CLI yet.
 
+### Added — phase 3: the CLI
+
+- `ciphr`, working on the local store with the master key from the environment: `init`, `put`, `get`,
+  `list`, `versions`, `delete`, `undelete`, `destroy`, `rotation`, `export`, `import`, `token`,
+  `audit`, `rotate-master-key`, and `dump`.
+- **No value is ever an argument.** There is no `--value` flag; values come from standard input.
+  There is no interactive prompt either, because prompting with echo writes the secret into the
+  operator's scrollback and disabling echo would need another dependency.
+- **No secret goes to a pipe unasked.** `get`, `export`, `dump`, and `token issue` refuse when output
+  is not a terminal unless `--force` is given. `export --format actions-env` is exempt, because
+  writing into the runner's environment file is its purpose.
+- `export --format actions-env` emits `::add-mask::` for every value *before* the assignments, one
+  mask per line for multi-line values, and assigns those with a heredoc whose delimiter includes the
+  variable name so a value containing `EOF` cannot end its own block. No forge masks a value fetched
+  at runtime, so masking is part of the product rather than of the documentation.
+- `import --from-dotenv` with `--dry-run` that prints paths and value *lengths*, never values. A line
+  the parser cannot read stops the import rather than being skipped, and `$VAR` references are not
+  expanded — storing the expansion would store something the file does not say.
+- `token issue` checks the identity exists in the policy file, prints the token exactly once, and
+  requires a unit on a TTL: `90` meaning seconds when days were intended is a token that expires
+  mid-deploy.
+- `dump --format portable` ships in v1 deliberately: it is the insurance against the scenario in the
+  plan, and insurance bought after the fire is worthless.
+- CLI actions are audited, metadata reads included, so the trail says the same thing whether an
+  access came through the API or from the host.
+- `docs/operations/cli.md` documents every command and the reasoning behind the two rules.
+
+### Changed
+
+- The CLI works on the local store rather than through the SDK, which the plan had assumed. Most of
+  what it does needs the master key and has no endpoint by design (ADR-3); a CLI that spoke HTTP
+  would need the privileged API this project deliberately does not have. `ciphr-sdk` therefore stays
+  a skeleton until phase 7, where applications fetching their own secrets is the requirement.
+- `SecretPath::segments` is now double-ended, so the last segment — the conventional environment
+  variable name — can be taken without collecting.
+
 ### Added — phase 3: the HTTP server
 
 - `ciphr-server`: all ten v1 endpoints on axum, with TLS terminating at the listener

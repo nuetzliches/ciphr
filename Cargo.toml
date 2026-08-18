@@ -73,6 +73,11 @@ tokio  = { version = "1.53.1", default-features = false, features = ["rt-multi-t
 axum-server    = { version = "0.8.0", default-features = false, features = ["tls-rustls-no-provider"] }
 rustls         = { version = "0.23.43", default-features = false, features = ["ring", "std", "tls12"] }
 
+# Argument parsing for the CLI. Hand-rolled parsing in a tool that handles secrets
+# is the same class of mistake as hand-rolled routing: it is the boring code where an
+# edge case turns into the wrong path or the wrong flag being honoured.
+clap = { version = "4.6.6", default-features = false, features = ["std", "derive", "help", "usage", "error-context", "wrap_help"] }
+
 # Test-only.
 proptest = "1.11.0"
 tempfile = "3.24.0"

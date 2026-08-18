@@ -99,7 +99,10 @@ impl SecretPath {
     }
 
     /// The segments, without the separators. Never empty.
-    pub fn segments(&self) -> impl Iterator<Item = &str> {
+    ///
+    /// Double-ended, because the last segment is the conventional environment variable
+    /// name for a secret and callers should not have to collect to get at it.
+    pub fn segments(&self) -> impl DoubleEndedIterator<Item = &str> {
         self.0.split('/')
     }
 

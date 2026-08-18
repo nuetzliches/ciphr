@@ -4,11 +4,12 @@ A small secret manager for machine identities: key/value secrets, gap-free acces
 and path-based authorization. The name contains *CI* — the primary consumer is a build and
 deploy pipeline, not a human.
 
-> **Status: phase 2 of 7.** The parts that are hard to correct later are built and tested:
-> envelope encryption with master key rotation, SQLite with migrations, the path-based policy
-> evaluator, and the fail-closed hash-chained audit trail. There is no HTTP server and no CLI yet.
-> Nothing should hold a real secret until the cryptographic and authorization crates have passed
-> external review. The full design lives in [`.claude/plans/PLAN.md`](.claude/plans/PLAN.md).
+> **Status: phase 3 of 7.** Usable end to end: envelope encryption with master key rotation, SQLite
+> with migrations, the policy evaluator, the fail-closed hash-chained audit trail, the HTTPS API with
+> token authentication, and the `ciphr` CLI. Not yet deployed anywhere, and nothing should hold a
+> real secret until the cryptographic and authorization crates have passed external review — that
+> review is a precondition for phase 4. The full design lives in
+> [`.claude/plans/PLAN.md`](.claude/plans/PLAN.md).
 
 ## Why this exists
 
@@ -70,6 +71,8 @@ deliberately out of scope, is in [`docs/threat-model.md`](docs/threat-model.md).
 | [`docs/adr/`](docs/adr/) | The 13 architecture decisions, one file each, with what was rejected and why |
 | [`docs/crypto.md`](docs/crypto.md) | The implemented key hierarchy and wire format, and what the tests establish |
 | [`docs/authorization.md`](docs/authorization.md) | The policy file, the pattern language, and the four rules of the decision |
+| [`docs/operations/cli.md`](docs/operations/cli.md) | Every `ciphr` command, and the two rules that shape all of them |
+| [`openapi.yaml`](openapi.yaml) | The HTTP API |
 | [`docs/operations/`](docs/operations/) | Procedures for what is hard to undo: the master key, and rotating secrets that break things |
 | [`docs/threat-model.md`](docs/threat-model.md) | Adversaries, defended and undefended boundaries, the availability trade |
 | [`docs/why-build-this.md`](docs/why-build-this.md) | The evaluation of existing tools, and the condition under which this project should be abandoned in favour of OpenBao |

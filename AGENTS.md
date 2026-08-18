@@ -7,21 +7,24 @@ reasoning behind them lives in [`docs/adr/`](docs/adr/) and
 
 ## Where the project stands
 
-Phases 0 to 2 are complete. `ciphr-core` (paths, patterns, capabilities, versions, secret wrappers,
-rotation classes), `ciphr-crypto` (envelope encryption, the seal), `ciphr-store` (SQLite, migrations,
-the audit device), `ciphr-policy` (the evaluator), and `ciphr-audit` (hash chain, fail-closed sink,
-file device) are implemented and tested. There is no HTTP server and no CLI.
+Phases 0 to 3 are complete. Every crate except `ciphr-sdk` is implemented and tested: the
+cryptographic layer, the store, the policy evaluator, the audit trail, the HTTP server with TLS and
+token authentication, and the `ciphr` CLI. `openapi.yaml` is maintained from here on.
 
-Phase 3 is `ciphr-server`, authentication, and `ciphr-cli`. It is the first phase that is allowed to
-open a listener — the order in the plan is deliberately "cryptography first, HTTP last", because the
-decisions that are hard to correct come first.
+Phase 4 is the first production integration: one low-risk service drawing its secrets from ciphr,
+with the way back tested and `::add-mask::` demonstrated on a real runner. **Before phase 4 an
+external review of `ciphr-crypto` and `ciphr-policy` is a precondition** — those two crates are the
+project, and self-review is not sufficient.
 
-Two things phase 3 must not undo:
+Three things later phases must not undo:
 
 - The router calls the path normalization in `ciphr-core`. Not a copy of it, not a variant that
   strips a trailing slash first (ADR-9).
-- The audit record is written **before** the response is produced, and a request whose record no
-  device accepted is refused with `503`.
+- No response leaves the process, and no change is made, before the audit entry is stored. A request
+  whose entry no device accepted is refused with `503`.
+  `crates/ciphr-server/tests/api.rs::every_endpoint_writes_an_audit_entry` is what keeps that true
+  as routes are added; extend it rather than working around it.
+- A value is never a CLI argument, and a secret is never written to a pipe without `--force`.
 
 ## Hard rules
 

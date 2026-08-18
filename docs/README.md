@@ -1,6 +1,6 @@
 # Documentation
 
-**Status:** current as of 2026-08-18, phase 2 of 7. Describes what is built, and says so where
+**Status:** current as of 2026-08-18, phase 3 of 7. Describes what is built, and says so where
 something is not.
 
 ## The rules this documentation is held to
@@ -44,6 +44,8 @@ The parts where a mistake is expensive, and where to read before making one.
 | **Writing a policy that grants more than intended** | The most specific rule wins entirely and does not inherit from broader rules — the behaviour most likely to surprise. | [authorization.md](authorization.md) |
 | **Trusting the audit trail too far** | A hash chain detects partial tampering, not a forward rewrite by someone who can write to the store. | [operations/audit-trail.md](operations/audit-trail.md) |
 | **A full audit volume** | Fail-closed means it is a total outage, not a logging gap. That is intended and needs monitoring. | [operations/audit-trail.md](operations/audit-trail.md) |
+| **A secret in a CI job log** | No forge masks a value fetched at runtime. Only the `actions-env` export does, and only if the masks are emitted first. | [operations/cli.md](operations/cli.md) |
+| **A secret in shell history** | A value passed as an argument is readable by every process on the host while the command runs. | [operations/cli.md](operations/cli.md) |
 | **Trusting the wrong boundary** | Assuming the container network is private, or that root on the host is excluded. | [threat-model.md](threat-model.md) |
 | **Building this at all** | A self-built secret manager fails silently. There is a defined point at which abandoning it is correct. | [why-build-this.md](why-build-this.md) |
 
@@ -57,13 +59,15 @@ The parts where a mistake is expensive, and where to read before making one.
 | [authorization.md](authorization.md) | The policy file, the pattern language, and the four rules of the decision |
 | [fuzzing.md](fuzzing.md) | The three fuzz targets, how to run them, and what the CI gate does and does not prove |
 | [why-build-this.md](why-build-this.md) | The evaluation of existing tools and the exit condition |
+| [operations/cli.md](operations/cli.md) | Every command, and the two rules that shape all of them |
 | [operations/](operations/) | Procedures for the things that are hard to undo: the master key, rotating secrets, and the audit trail |
+| [`../openapi.yaml`](../openapi.yaml) | The HTTP API, maintained in the same commit as the code |
 | [`../AGENTS.md`](../AGENTS.md) | Working rules for contributors and the gates that enforce them |
 | [`../SECURITY.md`](../SECURITY.md) | Disclosure process and scope |
 | `cargo doc --open` | API documentation, generated from the code, with running examples |
 
 ## What is not documented yet, and why
 
-The HTTP API, the CLI, and deployment. None of them exist yet — they arrive in phases 3 to 5. The
-specification for all of them is in the implementation plan; this directory will describe them when
-they can be used, not before.
+Deployment — containers, the reverse proxy, certificates — and the admin UI. Those are phases 4 and
+5. The HTTP API is documented in `openapi.yaml` rather than here, because it is generated from and
+maintained beside the code.
