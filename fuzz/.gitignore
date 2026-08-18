@@ -1,0 +1,5 @@
+# Build output and the corpora cargo-fuzz manages.
+target/
+corpus/
+artifacts/
+coverage/

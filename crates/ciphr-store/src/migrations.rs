@@ -19,7 +19,7 @@ use rusqlite::Connection;
 use crate::error::StoreError;
 
 /// The schema version this build produces and understands.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 struct Migration {
     version: u32,
@@ -27,11 +27,18 @@ struct Migration {
     sql: &'static str,
 }
 
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "init",
-    sql: include_str!("../migrations/001_init.sql"),
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "init",
+        sql: include_str!("../migrations/001_init.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "audit",
+        sql: include_str!("../migrations/002_audit.sql"),
+    },
+];
 
 /// Bring a database up to [`SCHEMA_VERSION`].
 ///

@@ -51,7 +51,10 @@ fn read(
 #[test]
 fn a_fresh_store_is_at_the_current_schema_and_uninitialized() {
     let store = SqliteStore::open_in_memory().expect("open");
-    assert_eq!(store.schema_version().expect("version"), 1);
+    assert_eq!(
+        store.schema_version().expect("version"),
+        ciphr_store::SCHEMA_VERSION
+    );
     assert!(store.seal_state().expect("seal state").is_none());
 }
 

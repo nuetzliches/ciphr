@@ -50,11 +50,13 @@
 //! # Ok::<(), Box<dyn core::error::Error>>(())
 //! ```
 
+pub mod audit;
 pub mod error;
 pub mod migrations;
 pub mod sqlite;
 pub mod store;
 
+pub use audit::{AuditRow, SqliteAuditDevice};
 pub use error::StoreError;
 pub use migrations::SCHEMA_VERSION;
 pub use sqlite::SqliteStore;

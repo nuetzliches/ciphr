@@ -98,3 +98,47 @@ jobs:
       # this one fails on a stale or unreachable database rather than skipping.
       - name: cargo audit
         run: cargo audit --deny warnings
+
+  fuzz:
+    name: Fuzz smoke run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      # The one place a second toolchain is accepted: libFuzzer needs nightly, and
+      # the path normalizer is where an unexpected input can make routing and
+      # authorization disagree (ADR-9), so a real fuzzer is worth a real cost. The
+      # nightly is pinned by date for the same reason 1.94.0 is pinned — a floating
+      # toolchain would let CI go red without a code change, and a gate nobody
+      # trusts is a gate nobody reads.
+      - name: Install the pinned nightly toolchain
+        run: |
+          rustup toolchain install nightly-2026-08-01 --profile minimal --no-self-update
+          rustup run nightly-2026-08-01 rustc --version
+
+      - name: Install pinned cargo-fuzz
+        run: sh ci/install-fuzz-tools.sh
+
+      # A smoke run, not a fuzzing campaign: enough to catch a target that no longer
+      # builds or an invariant that breaks on trivial input. Finding deep bugs takes
+      # hours and belongs in a scheduled run, which is a separate decision.
+      - name: Fuzz path normalization
+        run: cargo +nightly-2026-08-01 fuzz run path_normalization -- -max_total_time=45 -rss_limit_mb=2048
+
+      - name: Fuzz pattern matching
+        run: cargo +nightly-2026-08-01 fuzz run pattern_matching -- -max_total_time=45 -rss_limit_mb=2048
+
+      - name: Fuzz policy file loading
+        run: cargo +nightly-2026-08-01 fuzz run policy_file -- -max_total_time=45 -rss_limit_mb=2048
+
+      # A crash leaves an artifact behind; keep it, because a reproducer that only
+      # existed inside a CI run is a bug report nobody can act on.
+      - name: Keep any crash reproducers
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts/
+          if-no-files-found: ignore

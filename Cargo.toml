@@ -19,6 +19,7 @@ publish      = false
 # entry. The budget is tightest in ciphr-crypto and ciphr-policy, which take
 # nothing beyond what is listed as cryptographic.
 [workspace.dependencies]
+ciphr-audit  = { path = "crates/ciphr-audit" }
 ciphr-core   = { path = "crates/ciphr-core" }
 ciphr-crypto = { path = "crates/ciphr-crypto" }
 
@@ -38,6 +39,20 @@ unicode-normalization = "0.1.25"
 # SQLite, statically linked (`bundled`) so the version is pinned by Cargo rather
 # than by whatever the host image happens to ship.
 rusqlite = { version = "0.40.2", features = ["bundled"] }
+
+# TOML and typed deserialization. These are the dependencies ADR-2 chose when it
+# rejected a custom policy DSL: the alternative is a hand-written parser in the
+# authorization path, where a parser bug is an authorization bypass. Deriving the
+# schema also gets `deny_unknown_fields` for free, so a typo in a policy file is
+# an error rather than a silently ignored line.
+serde = { version = "1.0.228", features = ["derive"] }
+toml  = "1.1.4"
+
+# Hashing, for the audit chain.
+sha2 = "0.11.0"
+# JSON, for the audit payload. The bytes that are hashed are the bytes that are
+# stored, so verification never re-serializes anything.
+serde_json = "1.0.145"
 
 # Test-only.
 proptest = "1.11.0"

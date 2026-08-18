@@ -7,13 +7,21 @@ reasoning behind them lives in [`docs/adr/`](docs/adr/) and
 
 ## Where the project stands
 
-Phases 0 and 1 are complete. `ciphr-core` (paths, versions, secret wrappers, rotation classes),
-`ciphr-crypto` (envelope encryption, the seal), and `ciphr-store` (SQLite, migrations) are
-implemented and tested. There is no HTTP server, no CLI, no policy evaluator, and no audit trail yet.
+Phases 0 to 2 are complete. `ciphr-core` (paths, patterns, capabilities, versions, secret wrappers,
+rotation classes), `ciphr-crypto` (envelope encryption, the seal), `ciphr-store` (SQLite, migrations,
+the audit device), `ciphr-policy` (the evaluator), and `ciphr-audit` (hash chain, fail-closed sink,
+file device) are implemented and tested. There is no HTTP server and no CLI.
 
-Phase 2 is `ciphr-policy` and `ciphr-audit` — still **not** the HTTP server. The phase order in the
-plan is deliberately "cryptography first, HTTP last", because the decisions that are hard to correct
-come first. Do not start a phase by wiring up a listener.
+Phase 3 is `ciphr-server`, authentication, and `ciphr-cli`. It is the first phase that is allowed to
+open a listener — the order in the plan is deliberately "cryptography first, HTTP last", because the
+decisions that are hard to correct come first.
+
+Two things phase 3 must not undo:
+
+- The router calls the path normalization in `ciphr-core`. Not a copy of it, not a variant that
+  strips a trailing slash first (ADR-9).
+- The audit record is written **before** the response is produced, and a request whose record no
+  device accepted is refused with `503`.
 
 ## Hard rules
 
@@ -31,7 +39,10 @@ elsewhere" is not a reason. Where an alternative is genuinely better on some axi
 see ADR-1 on Go, which concedes two real advantages and decides against it anyway.
 
 **Every new dependency is a reviewed decision** with a justification in the pull request, especially
-in `ciphr-crypto` and `ciphr-policy`, which take nothing beyond the cryptographic primitives.
+in `ciphr-crypto` and `ciphr-policy`. `ciphr-crypto` takes nothing beyond the cryptographic
+primitives. `ciphr-policy` takes a TOML parser and `serde` and nothing else — that is not an
+exception to the budget but the substance of ADR-2, which rejected a custom DSL precisely to avoid a
+hand-written parser in the authorization path.
 
 ## The rules that are enforced rather than trusted
 
@@ -46,7 +57,11 @@ cargo audit --deny warnings
 sh ci/check-no-print.sh          # no stdout/stderr from library crates
 sh ci/check-forbid-unsafe.sh     # #![forbid(unsafe_code)] in every crate root
 sh ci/check-no-v-html.sh         # no v-html / innerHTML in ui/
+sh ci/check-docs.sh              # every doc under docs/ carries a date
 ```
+
+The fuzz targets are a fourth CI job and need a nightly toolchain, so they do not run on Windows at
+all — see [`docs/fuzzing.md`](docs/fuzzing.md).
 
 `cargo deny` and `cargo audit` are not installed by default:
 `cargo install --locked cargo-deny@0.20.2 cargo-audit@0.22.2` (the versions CI pins).

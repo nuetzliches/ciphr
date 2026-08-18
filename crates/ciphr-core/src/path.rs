@@ -154,40 +154,83 @@ impl FromStr for SecretPath {
 
 /// Apply the normalization half of the rules: NFC, and nothing else.
 ///
+/// `pub(crate)` because [`crate::pattern::PathPattern`] must normalize the same
+/// way. That is ADR-9 as a fact of the code rather than a promise: there is one
+/// function, and a pattern and a path cannot disagree about what they are.
+///
 /// Kept separate from validation so that a test can assert the property that
 /// matters — normalizing an already normalized path changes nothing.
-fn normalize(input: &str) -> String {
+pub(crate) fn normalize(input: &str) -> String {
     match is_nfc_quick(input.chars()) {
         IsNormalized::Yes => input.to_owned(),
         _ => input.nfc().collect(),
     }
 }
 
-fn validate_segment(segment: &str) -> Result<(), PathError> {
+/// What is wrong with a segment, in terms both paths and patterns share.
+///
+/// Wildcards are deliberately absent: they are the one rule where paths and
+/// patterns differ, so each type decides that for itself and everything else is
+/// decided in one place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SegmentProblem {
+    /// The segment was empty.
+    Empty,
+    /// The segment was longer than [`MAX_SEGMENT_LEN`].
+    TooLong {
+        /// Length supplied.
+        found: usize,
+    },
+    /// The segment was `.` or `..`.
+    Relative,
+    /// The segment contained a control character.
+    Control,
+    /// The segment contained whitespace.
+    Whitespace,
+}
+
+/// Check everything about a segment except wildcards.
+pub(crate) fn inspect_segment(segment: &str) -> Result<(), SegmentProblem> {
     if segment.is_empty() {
-        return Err(PathError::EmptySegment);
+        return Err(SegmentProblem::Empty);
     }
     if segment.len() > MAX_SEGMENT_LEN {
-        return Err(PathError::SegmentTooLong {
-            limit: MAX_SEGMENT_LEN,
+        return Err(SegmentProblem::TooLong {
             found: segment.len(),
         });
     }
     if segment == "." || segment == ".." {
-        return Err(PathError::RelativeSegment {
-            segment: segment.to_owned(),
-        });
+        return Err(SegmentProblem::Relative);
     }
     for ch in segment.chars() {
         if ch.is_control() {
-            return Err(PathError::ControlCharacter);
+            return Err(SegmentProblem::Control);
         }
         if ch.is_whitespace() {
-            return Err(PathError::Whitespace);
+            return Err(SegmentProblem::Whitespace);
         }
-        if ch == '*' {
-            return Err(PathError::Wildcard);
-        }
+    }
+    Ok(())
+}
+
+fn validate_segment(segment: &str) -> Result<(), PathError> {
+    inspect_segment(segment).map_err(|problem| match problem {
+        SegmentProblem::Empty => PathError::EmptySegment,
+        SegmentProblem::TooLong { found } => PathError::SegmentTooLong {
+            limit: MAX_SEGMENT_LEN,
+            found,
+        },
+        SegmentProblem::Relative => PathError::RelativeSegment {
+            segment: segment.to_owned(),
+        },
+        SegmentProblem::Control => PathError::ControlCharacter,
+        SegmentProblem::Whitespace => PathError::Whitespace,
+    })?;
+
+    // The one rule a pattern does not share: in a path, `*` is never special and
+    // never allowed, so a literal can never be mistaken for a wildcard.
+    if segment.contains('*') {
+        return Err(PathError::Wildcard);
     }
     Ok(())
 }

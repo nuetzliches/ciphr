@@ -1,0 +1,45 @@
+# Its own workspace, detached from the one above.
+#
+# cargo-fuzz builds with a nightly toolchain and sanitizer flags that must not
+# apply to the production crates. Keeping this crate out of the main workspace is
+# what stops `cargo build` at the root from ever compiling anything with a fuzzing
+# instrumentation pass, and what stops the pinned 1.94.0 toolchain from being
+# loosened for everything else.
+[package]
+name         = "ciphr-fuzz"
+version      = "0.0.0"
+edition      = "2024"
+license      = "MIT OR Apache-2.0"
+publish      = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.13"
+ciphr-core   = { path = "../crates/ciphr-core" }
+ciphr-policy = { path = "../crates/ciphr-policy" }
+
+[[bin]]
+name = "path_normalization"
+path = "fuzz_targets/path_normalization.rs"
+test = false
+doc  = false
+bench = false
+
+[[bin]]
+name = "pattern_matching"
+path = "fuzz_targets/pattern_matching.rs"
+test = false
+doc  = false
+bench = false
+
+[[bin]]
+name = "policy_file"
+path = "fuzz_targets/policy_file.rs"
+test = false
+doc  = false
+bench = false
+
+# Detach from the parent workspace.
+[workspace]
