@@ -6,6 +6,10 @@
 //! wrapped around the payload would have to be stripped again byte-exactly before
 //! hashing, and that is a step that can be got wrong.
 //!
+//! A write that fails part-way truncates back to where the file ended before it. A
+//! partial line would otherwise be concatenated with the next record and break the
+//! chain at that point for good -- indistinguishable, afterwards, from an edit.
+//!
 //! Each write is flushed and synced before returning. Fail-closed means the caller
 //! is entitled to treat a success as "this is on disk"; without the sync it would
 //! mean "this is in a buffer that a power failure will discard", and the request
@@ -91,7 +95,12 @@ impl AuditDevice for FileDevice {
     }
 
     fn write(&mut self, record: &EncodedRecord) -> Result<(), String> {
-        let line_len = record.payload.len() as u64 + 1;
+        // One buffer, written once. `write_all` loops internally, so building the
+        // line in two calls doubles the number of places a partial write can happen.
+        let mut line = String::with_capacity(record.payload.len() + 1);
+        line.push_str(&record.payload);
+        line.push('\n');
+        let line_len = line.len() as u64;
 
         if let Some(limit) = self.rotate_at
             && self.written > 0
@@ -101,14 +110,35 @@ impl AuditDevice for FileDevice {
                 .map_err(|error| format!("could not rotate {}: {error}", self.path.display()))?;
         }
 
-        self.file
-            .write_all(record.payload.as_bytes())
-            .and_then(|()| self.file.write_all(b"\n"))
+        // Where the file ends now. `write_all` is not atomic: it loops over `write`,
+        // so a failure part-way through -- `ENOSPC` being the one this device is
+        // designed around -- leaves bytes on disk and reports the error afterwards.
+        // Without the truncation below, the next successful write appends to that
+        // fragment and produces one line that is half of one record followed by all of
+        // another. The chain then fails to verify there, permanently, and looks exactly
+        // like tampering. A full disk has to stay an outage, not a corrupted trail.
+        let resume_at = self.written;
+
+        let outcome = self
+            .file
+            .write_all(line.as_bytes())
             .and_then(|()| self.file.flush())
             // Durability, not tidiness: a success here is what allows the request to
             // proceed, so it has to mean the bytes are on the disk.
-            .and_then(|()| self.file.sync_data())
-            .map_err(|error| format!("could not write to {}: {error}", self.path.display()))?;
+            .and_then(|()| self.file.sync_data());
+
+        if let Err(error) = outcome {
+            // Best effort. If this fails too there is nothing further to try, and the
+            // caller is told the write failed either way -- which is what fail-closed
+            // needs. Reporting the truncation failure instead would replace the useful
+            // error with a less useful one.
+            let _ = self.file.set_len(resume_at);
+            let _ = self.file.sync_data();
+            return Err(format!(
+                "could not write to {}: {error}",
+                self.path.display()
+            ));
+        }
 
         self.written += line_len;
         Ok(())
@@ -276,5 +306,60 @@ mod tests {
             .join("no-such-directory")
             .join("audit.jsonl");
         assert!(FileDevice::open(&path, None).is_err());
+    }
+    #[test]
+    fn the_tracked_size_never_drifts_from_the_file_on_disk() {
+        // The accounting half of the torn-line problem. `written` decides when rotation
+        // happens; if a write can advance the file without advancing the counter, every
+        // later rotation triggers late by the accumulated difference. Checked after each
+        // record rather than once at the end, so a drift is attributed to the write that
+        // caused it.
+        //
+        // The other half — a write that fails part-way and is truncated back — is not
+        // exercised here. Provoking it needs a filesystem that runs out of space mid
+        // `write`, and a test that fakes the error would only be testing the fake.
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("audit.jsonl");
+        let mut device = FileDevice::open(&path, None).expect("open");
+        let mut chain = Chain::new();
+
+        for tick in 1..=5 {
+            let record = chain
+                .encode(&Entry::allowed(Action::Read), tick)
+                .expect("encode");
+            device.write(&record).expect("write");
+            chain.commit(&record);
+
+            let on_disk = std::fs::metadata(&path).expect("stat").len();
+            assert_eq!(
+                device.size(),
+                on_disk,
+                "after record {tick} the tracked size must equal the file"
+            );
+        }
+    }
+
+    #[test]
+    fn reopening_resynchronises_the_tracked_size() {
+        // `reopen` is the SIGHUP path. It re-stats deliberately: an external rotation
+        // moved the file, so whatever the counter held is no longer about this file.
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("audit.jsonl");
+        let mut device = FileDevice::open(&path, None).expect("open");
+        let chain = Chain::new();
+
+        let record = chain
+            .encode(&Entry::allowed(Action::Read), 1)
+            .expect("encode");
+        device.write(&record).expect("write");
+        let before = device.size();
+        assert!(before > 0);
+
+        device.reopen().expect("reopen");
+        assert_eq!(
+            device.size(),
+            std::fs::metadata(&path).expect("stat").len(),
+            "a reopened device must agree with the file it reopened"
+        );
     }
 }

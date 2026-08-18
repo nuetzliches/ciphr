@@ -6,14 +6,22 @@
 //! and no *change* is made before it either. Those two pull in different directions,
 //! so reads and writes differ deliberately:
 //!
-//! - **Reads** do the work, then audit with the real outcome, then respond. If the
-//!   audit fails the value is dropped and the client gets `503` — it never left the
-//!   process, so nothing was served unlogged.
-//! - **Writes** audit the authorized intent *first*, because the alternative is
-//!   mutating the store and then discovering the audit trail is unavailable, which is
-//!   exactly the unlogged access this project exists to prevent. If the mutation then
-//!   fails, a second entry records that, sharing the request id so the two read as
-//!   one event.
+//! **Both record the authorization decision before doing the work.** Reads and writes
+//! differ only in what happens afterwards:
+//!
+//! - **Reads** record the decision, then read, then respond. If the audit fails nothing
+//!   is read and the client gets `503`; the value never left the process. When the read
+//!   then finds nothing, or fails, a *second* entry records the real outcome, so the
+//!   trail does not imply a value was served.
+//! - **Writes** record the decision before touching the store, because the alternative
+//!   is mutating it and then discovering the audit trail is unavailable — exactly the
+//!   unlogged access this project exists to prevent. If the mutation then fails, a
+//!   second entry records that, sharing the request id so the two read as one event.
+//!
+//! An earlier version of this paragraph said reads do the work *first* and audit
+//! afterwards. They never did. The wording is corrected rather than the code, because
+//! recording first is the stronger property — and someone "fixing" the code to match
+//! the old sentence would open the unlogged-read window it was describing.
 //!
 //! Either way, a request whose entry no device accepted is refused. That is
 //! fail-closed, and it is the reason a full audit volume is an outage rather than a

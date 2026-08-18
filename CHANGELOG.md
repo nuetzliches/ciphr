@@ -11,6 +11,24 @@ This file is updated in the same commit as the change it describes.
 Phases 0 to 3 are complete. The external review has not taken place; it remains a precondition for
 first production use.
 
+### Fixed — three review findings that needed no decision
+
+- **Finding 3, the one with a trap in it.** `state.rs` and the doc comment on `read_secret` both
+  said reads do the work first and audit afterwards. They never did — the authorization decision is
+  recorded before the read. The wording is corrected and the code left alone, because recording
+  first is the stronger property and the risk was someone aligning the code to the sentence. The
+  decryption-failure and non-UTF-8 paths now write the second audit entry the not-found path always
+  wrote, so no outcome other than a served value is recorded as if a value had been served.
+- **Finding 7, a torn line in the file device.** `write_all` is not atomic; a failure part-way
+  through left bytes on disk that the next record was appended to, producing a line the chain could
+  never verify again — indistinguishable from an edit, and triggered by exactly the failure this
+  device is designed around. The line is now built once and the file truncated back on any error.
+  Two tests assert the tracked size never drifts from the file; the `ENOSPC` path itself is stated
+  as untested, because faking the error would only test the fake.
+- **Finding 2, a timing difference on unknown token identifiers.** Both paths now derive the
+  verifier and run the same constant-time comparison. This narrows rather than closes it — the known
+  path still performs one extra query — and the code says so instead of claiming more than it does.
+
 ### Fixed — the server no longer discards partial audit-device failures
 
 - Finding 6. `AuditSink::record` has always reported which devices refused a record; `AppState`

@@ -18,6 +18,13 @@ use rusqlite::{OptionalExtension, params};
 use crate::error::StoreError;
 use crate::sqlite::{SqliteStore, now_millis};
 
+/// The verifier an unknown identifier is compared against.
+///
+/// Its value is irrelevant — no token can produce it, because a verifier is an HMAC
+/// under a pepper the caller does not have. It exists so that the unknown-identifier
+/// path performs the same work as the known one.
+const ABSENT_VERIFIER: [u8; 32] = [0; 32];
+
 /// What a successful authentication establishes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Authenticated {
@@ -114,18 +121,33 @@ impl SqliteStore {
         };
 
         let now = now_millis();
-        let Some(record) = self.token(&token.id().as_text())? else {
+        let record = self.token(&token.id().as_text())?;
+        let stored = match &record {
+            Some(record) => self.verifier_for(&record.token_id)?,
+            None => None,
+        };
+
+        // An unknown identifier used to return here, before the HMAC and the
+        // comparison. That made "this identifier exists" measurable even though the
+        // return value is identical, in the one module whose subject is not leaking
+        // which failure occurred. Both paths now do the same derivation and the same
+        // constant-time comparison against a fixed stand-in.
+        //
+        // This narrows the difference rather than closing it: the known-identifier path
+        // still performs one more database query. Equalising that would mean issuing a
+        // query nobody needs, and the remaining signal is a lookup on a 48-bit
+        // identifier that cannot be enumerated remotely.
+        let expected = stored.unwrap_or_else(|| TokenVerifier::from_bytes(ABSENT_VERIFIER));
+        let presented = token.verifier(pepper);
+        let matched = expected.matches(&presented);
+
+        let Some(record) = record else {
             return Ok(None);
         };
 
-        let stored = self.verifier_for(&record.token_id)?;
-        let Some(stored) = stored else {
-            return Ok(None);
-        };
-
-        // Constant-time, and done before expiry and revocation are considered, so
+        // Constant-time, and evaluated before expiry and revocation are considered, so
         // that timing cannot distinguish "wrong secret" from "expired".
-        if !stored.matches(&token.verifier(pepper)) {
+        if !matched {
             return Ok(None);
         }
         if !record.is_usable_at(now) {

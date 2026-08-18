@@ -227,9 +227,11 @@ async fn health(State(state): State<AppState>) -> Json<Health> {
 
 /// `GET /v1/secrets/{path}` — read a value.
 ///
-/// The read happens, then the audit entry is written with the real outcome, then the
-/// response is produced. If the audit fails the value is dropped and the client gets
-/// `503`: it never left the process.
+/// The authorization decision is recorded first, then the read happens, then the
+/// response is produced. If the audit fails nothing is read and the client gets `503`:
+/// no value ever left the process. Any outcome other than a served value — not found,
+/// undecryptable, not UTF-8 — gets a second entry, so the trail never implies a value
+/// was served when none was.
 async fn read_secret(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -263,15 +265,23 @@ async fn read_secret(
         }
     };
 
-    let plaintext = ciphr_crypto::decrypt(
-        state.root_key(),
-        &stored.path,
-        stored.version,
-        &stored.value,
-    )?;
-    let value = String::from_utf8(plaintext.expose().to_vec()).map_err(|_| ApiError::Internal {
-        detail: "a stored value is not valid UTF-8; read it with the CLI".to_owned(),
-    })?;
+    // The same reasoning as the not-found branch above: the trail already says this
+    // read was authorized, and without a second entry it would imply a value was
+    // served. A read that could not be decrypted, or is not UTF-8, served nothing.
+    let value = match decrypt_to_text(&state, &stored) {
+        Ok(value) => value,
+        Err(error) => {
+            state.record_outcome(
+                &caller,
+                Action::Read,
+                Some(&path),
+                &request,
+                error.status().as_u16(),
+                Some("not-served"),
+            )?;
+            return Err(error);
+        }
+    };
 
     Ok(Json(SecretResponse {
         path: stored.path.as_str().to_owned(),
@@ -706,6 +716,30 @@ fn request_context(headers: &HeaderMap) -> RequestContext {
         http_status: None,
         channel: None,
     }
+}
+
+/// Decrypt a stored value and return it as text.
+///
+/// Split out so that both call sites treat "could not be served" as one case. The two
+/// failures differ in cause and not in consequence: nothing reaches the client either
+/// way, and the audit trail has to say so.
+///
+/// # Errors
+///
+/// Whatever `decrypt` returns, or [`ApiError::Internal`] if the plaintext is not UTF-8.
+fn decrypt_to_text(
+    state: &AppState,
+    stored: &ciphr_store::StoredVersion,
+) -> Result<String, ApiError> {
+    let plaintext = ciphr_crypto::decrypt(
+        state.root_key(),
+        &stored.path,
+        stored.version,
+        &stored.value,
+    )?;
+    String::from_utf8(plaintext.expose().to_vec()).map_err(|_| ApiError::Internal {
+        detail: "a stored value is not valid UTF-8; read it with the CLI".to_owned(),
+    })
 }
 
 /// Parse a path from the route, mapping a rejection to `400` with the reason.
