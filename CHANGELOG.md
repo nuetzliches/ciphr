@@ -11,6 +11,28 @@ This file is updated in the same commit as the change it describes.
 Phases 0 to 3 are complete. The external review has not taken place; it remains a precondition for
 first production use.
 
+### Added — masking measured on a real runner, and its limit
+
+- Finding 9 in `docs/review-2026-08-18.md`, from a run on Forgejo runner v12.7.2 in the same
+  host-execution mode production jobs use. The premise behind `export --format actions-env` is
+  confirmed: a runtime-fetched value with no mask registered appears in the job log in full, so the
+  masking really is the product's job and not the forge's.
+- Every case the format was built for holds — same step, across steps through `$GITHUB_ENV`,
+  multi-line values through the heredoc form, a value inside a composed URL, and a value in the
+  stderr of a failing command are all redacted. The heredoc round-trip was checked by comparing
+  SHA-256 digests rather than by printing anything.
+- **The limit: masks match literal substrings, and `set -x` re-quotes.** A value containing a single
+  quote is rendered `'part'\''part'` and a value containing a tab is rendered `$'a\tb'`; neither
+  matches, and both are printed in full. Measured across eight values differing only in which
+  character they contained — exactly those two leaked. Spaces, `$`, backticks, double quotes and
+  backslashes are safe, because bash leaves the content unchanged inside the quotes.
+- The multi-line case is safe **because** masks are emitted per line: the same property that
+  `render_actions_env` justifies with "runners match literal strings" also defeats bash's `$'…\n…'`
+  form, since each line's bytes still appear verbatim between the escapes.
+- The module documentation in `crates/ciphr-cli/src/formats.rs` names `set -x` as the motivation for
+  the feature and does not state where the protection stops. That is the minimum to change; whether
+  to additionally register the shell-quoted renderings is a judgement recorded with the finding.
+
 ### Added — developer experience as a stated goal, and ADR-14
 
 - Plan section 1 gains a **Developer experience** subsection. Until now usability was not a criterion
