@@ -573,6 +573,26 @@ served**, not one per call — otherwise bulk retrieval would be a blind spot in
 `/v1/health` returns seal state and audit device state, but no inventory counts: an
 unauthenticated endpoint does not reveal how many secrets exist.
 
+**`/v1/health` states what the process enforces, not only that it is alive.** Recorded
+2026-08-18. The design has no switch that turns a security property off — TLS is a non-optional
+field, there is no feature flag in the workspace, and the one relaxation that exists (`--force`
+on secret output) suspends a heuristic for a single invocation rather than disabling a property.
+The constructive counterpart to that strictness is a service that *says* what it is enforcing,
+so an operator can check it from outside rather than trusting a claim in a README:
+
+- **Seal state** — already specified above, and already returned.
+- **Audit device state, per device.** Presently the endpoint lists the device names captured at
+  startup and nothing about whether any of them still accepts records. `AuditSink::record`
+  returns the failures and the server discards them, so a device that has been failing for a
+  month is invisible. This is the third of the three monitoring checks in section 17, and it
+  cannot currently be built.
+- **Transport** — that TLS is terminated here, and the certificate's expiry, so a renewal
+  deadline is monitorable rather than a surprise.
+
+The constraint from the paragraph above still binds: this endpoint is unauthenticated, so it may
+report *what is enforced* and never *what is stored*. A device name, a boolean, and an expiry
+date are properties of the process. A count of secrets, a path, or an identity is not.
+
 **Administrative read endpoints run through the same policy evaluator:** `/v1/audit`,
 `/v1/identities` and `/v1/policies` are authorized as the virtual paths `sys/audit`,
 `sys/identities`, `sys/policies` — there is no second authorization mechanism and no `admin`
@@ -1028,7 +1048,9 @@ plus an offline copy. A restore drill belongs in the regular backup audit cycle.
 2. **Seal state.** A sealed service responds but is non-functional — an HTTP 200 check alone
    cannot distinguish that from "healthy".
 3. **Audit device state and audit volume fill level.** Because of fail-closed, a full disk is
-   a total outage, not a logging gap.
+   a total outage, not a logging gap. **This check is not buildable against the current
+   `/v1/health`** — see section 10: the endpoint lists configured device names, not their state,
+   and the server discards the failures the audit sink reports to it.
 
 **Failure impact.** If ciphr fails, **all services keep running** — their configuration is
 already on their hosts. Only new deploys are affected. This is why a single instance is

@@ -11,6 +11,20 @@ This file is updated in the same commit as the change it describes.
 Phases 0 to 3 are complete. The external review has not taken place; it remains a precondition for
 first production use.
 
+### Added — `/v1/health` states what the process enforces
+
+- Plan sections 10 and 17. The design has no switch that turns a security property off: TLS is a
+  non-optional config field, the workspace has no feature flag at all, and the single relaxation that
+  exists (`--force` on secret output) suspends a heuristic for one invocation rather than disabling a
+  property. The constructive counterpart is a service that says what it enforces, so an operator can
+  check it from outside instead of trusting a claim in a README.
+- Named for the endpoint: seal state (already returned), **per-device** audit state (missing, and the
+  reason the third monitoring check in section 17 cannot currently be built — see finding 6), and the
+  transport including certificate expiry, so a renewal deadline is monitorable rather than a surprise.
+- The existing constraint still binds and is restated: the endpoint is unauthenticated, so it may
+  report *what is enforced* and never *what is stored*. A device name, a boolean and an expiry date
+  are properties of the process; a count of secrets, a path or an identity are not.
+
 ### Added — masking measured on a real runner, and its limit
 
 - Finding 9 in `docs/review-2026-08-18.md`, from a run on Forgejo runner v12.7.2 in the same
