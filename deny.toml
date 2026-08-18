@@ -68,7 +68,18 @@ deny = [
     { crate = "openssl-sys" },
     { crate = "native-tls" },
 ]
-skip      = []
+# Recorded duplicates. Each entry says who needs the older version and what would
+# remove it, because a skip without that is how a deny rule turns into a formality.
+skip = [
+    # `getrandom` exists three times: 0.4 is ours, 0.2 comes from `ring` (rustls's
+    # crypto provider), and 0.3 from `rand` inside `proptest`, a dev-dependency.
+    # Neither transitive version is reachable from our code — we call `getrandom`
+    # directly and never through `rand`, which is not a dependency of anything we
+    # ship. Both disappear on their own schedule: `ring` when it updates, `proptest`
+    # when it moves to a newer `rand`.
+    { crate = "getrandom@0.2", reason = "pulled in by ring, the rustls crypto provider" },
+    { crate = "getrandom@0.3", reason = "pulled in by rand, inside the proptest dev-dependency" },
+]
 skip-tree = []
 
 [sources]

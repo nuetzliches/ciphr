@@ -10,6 +10,48 @@ This file is updated in the same commit as the change it describes.
 
 Phases 0 to 2 are complete; phase 3 is in progress. There is no HTTP server and no CLI yet.
 
+### Added — phase 3: the HTTP server
+
+- `ciphr-server`: all ten v1 endpoints on axum, with TLS terminating at the listener
+  (ADR-8) — there is no option to disable it and no insecure mode, because a flag that turns off
+  transport encryption is a flag that ends up set in production.
+- Configuration in one strict TOML file: an unknown key is an error, and the server **refuses to
+  start** without an audit device. Policies live in a separate file, named by the configuration.
+- Startup refuses rather than degrading: an unreadable policy file, an uninitialized store, a
+  missing or wrong master key, an audit device that cannot be opened, or unusable TLS material each
+  stop the process. A certificate and key swapped by mistake is reported by name at startup instead
+  of surfacing as a handshake failure for the first client.
+- Audit ordering, deliberately different for reads and writes: a read does the work, records the
+  real outcome, then answers — so a failed audit drops the value before it leaves the process. A
+  write records the authorized intent *first*, so a failed audit leaves the store untouched. Both
+  are tested, including that no value is served and no secret is written when the trail is down.
+- `every_endpoint_writes_an_audit_entry` walks every route and asserts an entry appeared, which
+  turns "nothing is answered before it is recorded" into a checked property rather than a
+  convention a future handler can quietly break.
+- Listings authorize **per returned path** rather than on the prefix, because `infra/**`
+  deliberately does not match `infra`. The alternative — a special case in the evaluator so a
+  subtree grant also covers its prefix — was rejected: path-based authorization is worth having
+  only if there is one rule for how a decision is made.
+- `/v1/export` authorizes and records path by path, so a bulk read produces one entry per secret;
+  a single refusal fails the whole export rather than revealing which paths are readable.
+- `/v1/audit` returns each record as the exact stored bytes plus its hash, so a client can verify
+  the chain instead of trusting the endpoint, with server-side filters on identity, path, decision,
+  time, and sequence.
+- Values are UTF-8 text on the wire and in the store — a stated limitation rather than two
+  representations that every client would have to handle.
+- `openapi.yaml`, covering all ten endpoints plus the reserved `POST /v1/auth/oidc/login`, which
+  returns 404 in v1 and is listed so the path is not claimed by accident.
+
+### Changed
+
+- `rustls-pemfile` removed: it was unused, and `cargo deny` flagged it as unmaintained. The gate
+  caught a dependency that should not have been added.
+- `deny.toml` records two `getrandom` duplicates with the reason for each — one from `ring`, one
+  from `proptest` — rather than relaxing the duplicate rule.
+- `AuditDevice` now requires `Send`, since a device is written to from whichever worker thread
+  handles a request. It is deliberately not `Sync`: two threads writing one file device would
+  interleave lines, which for a hash chain means a chain that does not verify.
+
 ### Added — phase 3: authentication
 
 - `ciphr-core`: unpadded base64url, hand-written and checked against the RFC 4648 vectors. Decoding

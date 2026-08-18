@@ -28,7 +28,13 @@ use crate::error::{AuditError, DeviceFailure};
 ///
 /// Implementations must make a record durable before returning success. "Written"
 /// has to mean written, or fail-closed becomes a promise about a buffer.
-pub trait AuditDevice {
+///
+/// `Send` is required because a device is written to from whichever worker thread is
+/// handling a request. It is deliberately **not** `Sync`: a device is used behind the
+/// sink's lock, one record at a time, and two threads writing to one file device
+/// concurrently would interleave lines — which for a hash chain means a chain that
+/// does not verify.
+pub trait AuditDevice: Send {
     /// The device's name, as it appears in configuration and in errors.
     fn name(&self) -> &str;
 

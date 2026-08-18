@@ -57,7 +57,7 @@ pub mod sqlite;
 pub mod store;
 pub mod tokens;
 
-pub use audit::{AuditRow, SqliteAuditDevice};
+pub use audit::{AuditFilter, AuditRow, SqliteAuditDevice};
 pub use error::StoreError;
 pub use migrations::SCHEMA_VERSION;
 pub use sqlite::SqliteStore;

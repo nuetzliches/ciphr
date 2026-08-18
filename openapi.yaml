@@ -1,0 +1,699 @@
+# The v1 HTTP API, as implemented.
+#
+# Maintained from phase 3 on, in the same commit as the code it describes. Two
+# consumers depend on it being accurate rather than aspirational: the composite CI
+# action, and the MCP server, which is derived from this file rather than written
+# alongside it (ADR-13).
+#
+# `POST /v1/auth/oidc/login` is listed as reserved. It does not exist in v1 and
+# returns 404; it is here so that the path is not claimed for something else by
+# accident when OIDC federation arrives (section 14 of the plan).
+openapi: 3.1.0
+
+info:
+  title: ciphr
+  version: "1.0.0"
+  summary: A secret manager for machine identities.
+  description: |
+    Key/value secrets, gap-free access auditing, and path-based authorization.
+
+    **Every route except `/v1/health` requires a bearer token.** Authentication
+    failures are always `401` with the same body, whatever was wrong with the
+    credential; authorization failures are `403` and say nothing about the rule that
+    refused. The rule is in the audit trail, where the operator can see it and the
+    caller cannot.
+
+    **Values are UTF-8 text.** A binary secret must be encoded by whoever stores it.
+    There is deliberately no second representation: two of them would mean every
+    client has to handle both, and the one that only handles text fails on the value
+    it was never tested with.
+
+    **`503` means the audit trail could not be written.** No secret is served and no
+    change is made in that case. A full audit volume is therefore an outage rather
+    than a logging gap, which is intended and needs monitoring.
+
+    The minimal client is `curl`. There is no agent, no plugin, and no forge
+    integration required:
+
+    ```sh
+    curl --cacert "$CIPHR_CA" \
+         -H "Authorization: Bearer $CIPHR_TOKEN" \
+         "https://ciphr.internal:4400/v1/secrets/infra/service-a/DB_PASSWORD"
+    ```
+
+    `-k` and `--insecure` appear in no example here, not even for testing. TLS
+    terminates at the listener (ADR-8), and the certificate or its pin is distributed
+    as a non-secret CI variable.
+  license:
+    name: MIT OR Apache-2.0
+    identifier: MIT OR Apache-2.0
+
+servers:
+  - url: https://{host}:{port}
+    description: A ciphr instance. TLS is not optional.
+    variables:
+      host:
+        default: localhost
+      port:
+        default: "4400"
+
+security:
+  - bearerToken: []
+
+tags:
+  - name: secrets
+    description: Reading and writing values.
+  - name: administration
+    description: Read-only views. Writing identities or policies is not an API operation (ADR-3).
+  - name: operations
+    description: Health.
+
+paths:
+  /v1/health:
+    get:
+      tags: [operations]
+      summary: Liveness, seal state, and audit device state.
+      description: |
+        The only route without authentication, and therefore the only one that
+        deliberately reveals nothing: no inventory counts, no path names, and no
+        indication of whether any secret exists.
+
+        Seal state is included because an HTTP 200 alone cannot distinguish a healthy
+        service from a sealed one that answers and can serve nothing.
+      security: []
+      responses:
+        "200":
+          description: The service is reachable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+
+  /v1/secrets/{path}:
+    parameters:
+      - $ref: "#/components/parameters/SecretPath"
+    get:
+      tags: [secrets]
+      summary: Read a value.
+      description: |
+        Requires the `read` capability on the path. Produces exactly one audit entry.
+      parameters:
+        - $ref: "#/components/parameters/Version"
+      responses:
+        "200":
+          description: The value.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Secret"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/AuditUnavailable" }
+    put:
+      tags: [secrets]
+      summary: Write a new version.
+      description: |
+        Requires the `write` capability. Always creates a new version; nothing is
+        overwritten, and the previous version stays readable.
+
+        The audit entry is written **before** the store changes, so a failure to log
+        leaves the store untouched. Paths under `sys/` are refused with `400`: that
+        prefix names the virtual paths the administrative endpoints authorize against,
+        and a secret living there would change what an authorization decision means.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SecretInput"
+      responses:
+        "200":
+          description: The version that was written.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WriteResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/AuditUnavailable" }
+    delete:
+      tags: [secrets]
+      summary: Soft-delete a version.
+      description: |
+        Requires the `delete` capability. Reversible: the version is marked deleted and
+        can be restored with the CLI.
+
+        Irreversible destruction — crypto-shredding, which deletes the wrapped data key
+        — is deliberately not an API operation. It happens through the CLI on the host
+        (ADR-3).
+      parameters:
+        - $ref: "#/components/parameters/Version"
+      responses:
+        "204":
+          description: The version is deleted.
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/AuditUnavailable" }
+
+  /v1/versions/{path}:
+    parameters:
+      - $ref: "#/components/parameters/SecretPath"
+    get:
+      tags: [secrets]
+      summary: The version history of one secret, without values.
+      description: |
+        Requires the `list` capability on the path.
+
+        A separate prefix rather than `/v1/secrets/{path}/versions`, because with a
+        catch-all route a secret named `foo/versions` would be indistinguishable from
+        the version listing for `foo` — the routing-versus-policy divergence ADR-9
+        warns about. Suffix parsing on catch-all routes is forbidden throughout.
+      responses:
+        "200":
+          description: The versions, oldest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VersionSummary"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/AuditUnavailable" }
+
+  /v1/list/{prefix}:
+    parameters:
+      - name: prefix
+        in: path
+        required: true
+        description: The prefix to list under, without a leading or trailing slash.
+        schema:
+          type: string
+          examples: ["infra/service-a"]
+    get:
+      tags: [secrets]
+      summary: The paths under a prefix.
+      description: |
+        Every returned path is authorized individually against the `list` capability, so
+        a caller sees exactly the names they may see. The operation itself needs only
+        authentication.
+
+        That is deliberate: a prefix is not a path anyone holds a rule about. `infra/**`
+        grants `list` inside `infra` and not on `infra` itself, so authorizing the
+        prefix would refuse the listing to an identity permitted to list everything
+        under it. An empty array is what "you may list nothing here" looks like, and it
+        is indistinguishable from "there is nothing here".
+      responses:
+        "200":
+          description: The visible paths.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Listing"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "503": { $ref: "#/components/responses/AuditUnavailable" }
+
+  /v1/export:
+    post:
+      tags: [secrets]
+      summary: Several secrets in one call.
+      description: |
+        Requires `read` on **every** path requested, and produces **one audit entry per
+        secret served** — never one per call. A collective entry for a bulk read is
+        exactly the blind spot that disqualified other candidates during the evaluation.
+
+        One refusal fails the whole export rather than returning the permitted subset,
+        so an export cannot be used to map which paths a caller may read.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportRequest"
+      responses:
+        "200":
+          description: The requested secrets.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/AuditUnavailable" }
+
+  /v1/audit:
+    get:
+      tags: [administration]
+      summary: Read the audit trail.
+      description: |
+        Authorized as the virtual path `sys/audit` through the ordinary policy
+        evaluator. There is no `admin` capability and no second authorization
+        mechanism.
+
+        Each entry is returned as the exact stored record plus its hash, so a client can
+        verify the chain itself rather than trusting this endpoint's word about it.
+        Filters are applied server-side, because the alternative is a client pulling the
+        whole trail to answer a question about part of it.
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum entries to return. Clamped to 1000.
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+        - name: after_seq
+          in: query
+          description: Only entries with a sequence number greater than this.
+          schema: { type: integer, format: int64, minimum: 0 }
+        - name: since
+          in: query
+          description: Only entries at or after this time, in milliseconds since the Unix epoch.
+          schema: { type: integer, format: int64 }
+        - name: identity
+          in: query
+          description: Only entries for this identity.
+          schema: { type: string }
+        - name: path
+          in: query
+          description: Only entries for this exact path.
+          schema: { type: string }
+        - name: decision
+          in: query
+          description: Only allowed or only denied entries.
+          schema: { type: string, enum: [allow, deny] }
+      responses:
+        "200":
+          description: The matching entries, oldest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditPage"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/AuditUnavailable" }
+
+  /v1/identities:
+    get:
+      tags: [administration]
+      summary: Which identities exist and which policies they hold.
+      description: |
+        Authorized as `sys/identities`. Read-only: identities are defined in the policy
+        file, which is authoritative (ADR-3). This endpoint makes misconfiguration
+        visible without making it creatable.
+      responses:
+        "200":
+          description: The identities.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Identities"
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/AuditUnavailable" }
+
+  /v1/policies:
+    get:
+      tags: [administration]
+      summary: The rules, as loaded.
+      description: |
+        Authorized as `sys/policies`. Includes each rule's specificity — the number of
+        literal segments — because that is what decides between two matching rules, and
+        a reader working out why an access was refused needs it.
+      responses:
+        "200":
+          description: The policies.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Policies"
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/AuditUnavailable" }
+
+  /v1/auth/oidc/login:
+    post:
+      tags: [administration]
+      summary: Reserved. Not implemented in v1.
+      description: |
+        Reserved for OIDC federation, which is first on the post-v1 list: a CI job
+        exchanges a forge-issued ID token for a short-lived ciphr token, and the
+        long-lived bootstrap secret disappears.
+
+        Listed here so the path is not claimed for something else by accident. It
+        returns `404` in v1.
+      security: []
+      responses:
+        "404":
+          description: Not implemented in v1.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+components:
+  securitySchemes:
+    bearerToken:
+      type: http
+      scheme: bearer
+      description: |
+        A ciphr token: `cph_` followed by an 8-character identifier and 43 characters
+        of base64url. The `cph_` prefix is there so that secret scanners recognize an
+        accidentally committed token.
+
+  parameters:
+    SecretPath:
+      name: path
+      in: path
+      required: true
+      description: |
+        The normalized secret path. Segments joined by `/`, NFC-normalized, case
+        sensitive. No empty segments, no `.` or `..`, no whitespace, no control
+        characters, and no `*` — that character is reserved for policy patterns.
+      schema:
+        type: string
+        examples: ["infra/service-a/DB_PASSWORD"]
+    Version:
+      name: version
+      in: query
+      required: false
+      description: Which version. The current one if omitted. Versions start at 1.
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+
+  responses:
+    BadRequest:
+      description: |
+        The request could not be understood — an unparseable path, a reserved prefix, or
+        a malformed body. The `detail` field describes the request; it never describes
+        the configuration.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthenticated:
+      description: |
+        No credential, or one that is not valid. Identical for a missing, malformed,
+        unknown, expired, and revoked token: distinguishing them would tell a caller
+        whether an identifier exists.
+      headers:
+        WWW-Authenticate:
+          schema: { type: string, examples: ["Bearer"] }
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: |
+        A valid identity that may not do this. Says nothing about the rule that refused
+        — that is in the audit trail.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: |
+        No such secret or version. A deleted version and one that never existed are
+        both reported this way; the difference is in the audit trail.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    AuditUnavailable:
+      description: |
+        The audit trail could not be written, so the request was refused. No secret was
+        served and no change was made.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          description: A stable machine-readable code.
+          enum:
+            [
+              unauthenticated,
+              forbidden,
+              not_found,
+              bad_request,
+              audit_unavailable,
+              internal,
+            ]
+        message:
+          type: string
+          description: A fixed human-readable sentence.
+        detail:
+          type: string
+          description: Present only where it describes the request rather than the server.
+
+    Health:
+      type: object
+      required: [status, sealed, seal, audit_devices, api_version]
+      properties:
+        status: { type: string, examples: ["ok"] }
+        sealed:
+          type: boolean
+          description: |
+            Whether the root key is unavailable. Always false in v1, which unseals at
+            startup or refuses to start; the field exists because a split-key or HSM
+            seal makes it meaningful, and a client should not have to change shape then.
+        seal:
+          type: string
+          description: The seal mechanism recorded in the store.
+          examples: ["static_env"]
+        audit_devices:
+          type: array
+          items: { type: string }
+          description: The configured devices, in order.
+        api_version: { type: string, examples: ["v1"] }
+
+    SecretInput:
+      type: object
+      required: [value]
+      properties:
+        value:
+          type: string
+          description: The value, as UTF-8 text.
+
+    Secret:
+      type: object
+      required: [path, version, value, created_at, created_by]
+      properties:
+        path: { type: string }
+        version: { type: integer, format: int32, minimum: 1 }
+        value: { type: string }
+        created_at:
+          type: integer
+          format: int64
+          description: Milliseconds since the Unix epoch, UTC.
+        created_by:
+          type: string
+          description: The identity that wrote this version.
+
+    WriteResult:
+      type: object
+      required: [path, version]
+      properties:
+        path: { type: string }
+        version: { type: integer, format: int32, minimum: 1 }
+
+    VersionSummary:
+      type: object
+      required: [version, created_at, created_by, deleted, destroyed]
+      properties:
+        version: { type: integer, format: int32, minimum: 1 }
+        created_at: { type: integer, format: int64 }
+        created_by: { type: string }
+        deleted:
+          type: boolean
+          description: Soft-deleted, and restorable.
+        destroyed:
+          type: boolean
+          description: |
+            Crypto-shredded: the wrapped data key is gone, so the value cannot be
+            recovered by anyone, including from a backup taken afterwards.
+
+    Listing:
+      type: object
+      required: [prefix, paths]
+      properties:
+        prefix: { type: string }
+        paths:
+          type: array
+          items: { type: string }
+
+    ExportRequest:
+      type: object
+      required: [paths]
+      properties:
+        paths:
+          type: array
+          minItems: 1
+          items: { type: string }
+          description: |
+            The paths to export, named explicitly rather than by prefix: an export is
+            the operation most likely to hand over more than intended.
+
+    ExportResult:
+      type: object
+      required: [secrets]
+      properties:
+        secrets:
+          type: array
+          items:
+            type: object
+            required: [path, version, value]
+            properties:
+              path: { type: string }
+              version: { type: integer, format: int32, minimum: 1 }
+              value: { type: string }
+
+    AuditPage:
+      type: object
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEntry"
+
+    AuditEntry:
+      type: object
+      required: [seq, hash, record]
+      properties:
+        seq: { type: integer, format: int64, minimum: 1 }
+        hash:
+          type: string
+          description: |
+            SHA-256 of the stored record, as 64 hexadecimal characters. It is the hash
+            of exactly the bytes in `record`, so a client can recompute it.
+        record:
+          $ref: "#/components/schemas/AuditRecord"
+
+    AuditRecord:
+      type: object
+      description: |
+        A record exactly as stored. The field order is the hashed form: recomputing the
+        hash requires the original bytes, which is why this endpoint returns them rather
+        than a rearranged view.
+      required: [seq, ts, prev_hash, entry]
+      properties:
+        seq: { type: integer, format: int64, minimum: 1 }
+        ts:
+          type: string
+          format: date-time
+          description: RFC 3339, UTC, milliseconds.
+        prev_hash:
+          type: string
+          description: The previous record's hash, or 64 zeroes for the first record.
+        entry:
+          type: object
+          required: [action, allowed]
+          properties:
+            principal:
+              type: [object, "null"]
+              properties:
+                name: { type: string }
+                kind: { type: [string, "null"] }
+                token_id:
+                  type: [string, "null"]
+                  description: The non-secret identifier of the token used. Never the token.
+            action:
+              type: string
+              enum:
+                [
+                  read,
+                  write,
+                  delete,
+                  list,
+                  undelete,
+                  init,
+                  rotate-master-key,
+                  destroy,
+                ]
+            path: { type: [string, "null"] }
+            version: { type: [integer, "null"], format: int32 }
+            allowed: { type: boolean }
+            deny_reason:
+              type: [string, "null"]
+              enum: [unknown-identity, no-matching-rule, not-granted, tie, unauthenticated, not-found, write-failed, null]
+            rule:
+              type: [object, "null"]
+              properties:
+                policy: { type: string }
+                pattern: { type: string }
+            request:
+              type: object
+              properties:
+                request_id: { type: [string, "null"] }
+                client_ip: { type: [string, "null"] }
+                user_agent: { type: [string, "null"] }
+                http_status: { type: [integer, "null"] }
+                channel:
+                  type: [string, "null"]
+                  description: |
+                    The channel a request arrived through. Set to `mcp` by the MCP
+                    server, so that what flowed into a model context stays
+                    distinguishable from what a human read.
+
+    Identities:
+      type: object
+      required: [identities]
+      properties:
+        identities:
+          type: array
+          items:
+            type: object
+            required: [name, kind, policies]
+            properties:
+              name: { type: string }
+              kind: { type: string, enum: [machine, human] }
+              policies:
+                type: array
+                items: { type: string }
+
+    Policies:
+      type: object
+      required: [policies]
+      properties:
+        policies:
+          type: array
+          items:
+            type: object
+            required: [name, rules]
+            properties:
+              name: { type: string }
+              rules:
+                type: array
+                items:
+                  type: object
+                  required: [path, capabilities, specificity]
+                  properties:
+                    path: { type: string }
+                    capabilities:
+                      type: array
+                      items:
+                        type: string
+                        enum: [read, write, delete, list, undelete]
+                      description: An empty array is an explicit denial.
+                    specificity:
+                      type: integer
+                      description: |
+                        Literal segments in the pattern. The most specific matching rule
+                        wins entirely and inherits nothing from broader rules.

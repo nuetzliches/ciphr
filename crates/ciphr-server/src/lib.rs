@@ -4,18 +4,38 @@
 //! The HTTP API: routing, authentication, authorization, and handlers.
 //!
 //! This is the one process in the system that holds plaintext secrets and key
-//! material. The admin UI and the MCP server are interchangeable attachments
-//! that talk to this API from the outside (ADR-11, ADR-13), which is what
-//! keeps that statement true.
+//! material. The admin UI and the MCP server are interchangeable attachments that
+//! talk to this API from the outside (ADR-11, ADR-13), which is what keeps that
+//! statement true.
 //!
-//! Consequences that shape the code in this crate:
+//! Consequences that shape the code here:
 //!
 //! - Every route except `/v1/health` requires an authenticated identity.
-//! - Administrative reads are authorized through the same evaluator as secret
-//!   reads, as the virtual paths `sys/audit`, `sys/identities`, and
-//!   `sys/policies`. There is no second authorization mechanism and no `admin`
-//!   capability.
-//! - The router calls the path normalization from
-//!   `ciphr-core` — never its own.
-//! - Bulk endpoints write one audit entry per secret served, never one per
-//!   call.
+//! - Administrative reads are authorized through the same evaluator as secret reads,
+//!   as the virtual paths `sys/audit`, `sys/identities`, and `sys/policies`. There is
+//!   no second authorization mechanism and no `admin` capability.
+//! - The router calls the path normalization from `ciphr-core` — never its own.
+//! - Bulk endpoints write one audit entry per secret served, never one per call.
+//! - No response leaves the process, and no change is made, before the audit entry is
+//!   stored. See [`state`] for how reads and writes differ in ordering, and why.
+//!
+//! # Startup
+//!
+//! [`Server::start`] refuses to run rather than starting in a state that cannot keep
+//! its promises. It fails if the configuration has no audit device, if the policy file
+//! does not load, if the store is not initialized, if the master key is absent or
+//! wrong, if an audit device cannot be opened, or if the TLS material is unusable. All
+//! of those are better as a process that does not start than as one that serves
+//! requests it cannot audit.
+
+pub mod api;
+pub mod config;
+pub mod error;
+pub mod server;
+pub mod state;
+pub mod tls;
+
+pub use config::{AuditConfig, Config, SealConfig, StorageBackend, StorageConfig};
+pub use error::{ApiError, ConfigError, StartupError};
+pub use server::Server;
+pub use state::{AppState, Caller};

@@ -17,6 +17,7 @@ use ciphr_core::hex;
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::error::StoreError;
+use crate::sqlite::SqliteStore;
 
 /// An audit device that appends to the `audit_log` table.
 pub struct SqliteAuditDevice {
@@ -372,5 +373,131 @@ mod tests {
         ciphr_audit::AuditDevice::write(&mut device, &record).expect("first write");
         // Two records claiming one position is evidence, not something to overwrite.
         assert!(ciphr_audit::AuditDevice::write(&mut device, &record).is_err());
+    }
+}
+
+/// Filters for reading the audit log.
+///
+/// Server-side filtering exists because the alternative is a client pulling the
+/// whole log and filtering it locally — which for the MCP server would mean pulling
+/// the audit trail into a model context to answer "who read this last week"
+/// (ADR-13), and for the UI would mean shipping megabytes to render a page.
+#[derive(Debug, Clone, Default)]
+pub struct AuditFilter {
+    /// Return at most this many entries. The caller is expected to clamp it.
+    pub limit: u32,
+    /// Only entries with a sequence number greater than this.
+    pub after_seq: Option<u64>,
+    /// Only entries at or after this time, in milliseconds since the Unix epoch.
+    pub since: Option<i64>,
+    /// Only entries for this identity.
+    pub identity: Option<String>,
+    /// Only entries for this exact path.
+    pub path: Option<String>,
+    /// Only allowed entries, or only denied ones.
+    pub allowed: Option<bool>,
+}
+
+impl SqliteStore {
+    /// Read audit entries, oldest first, matching a filter.
+    ///
+    /// Filtering on identity, path, and decision reads inside the stored payload with
+    /// SQLite's JSON functions. That keeps one representation of a record — the bytes
+    /// that were hashed — rather than duplicating fields into columns that could
+    /// disagree with it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Sqlite`] on a database error, or [`StoreError::Corrupt`]
+    /// if a stored row is not readable.
+    pub fn audit_query(&self, filter: &AuditFilter) -> Result<Vec<AuditRow>, StoreError> {
+        let mut statement = self.connection().prepare(
+            "SELECT seq, hash, payload FROM audit_log
+             WHERE (?1 IS NULL OR seq > ?1)
+               AND (?2 IS NULL OR ts >= ?2)
+               AND (?3 IS NULL OR json_extract(payload, '$.entry.principal.name') = ?3)
+               AND (?4 IS NULL OR json_extract(payload, '$.entry.path') = ?4)
+               AND (?5 IS NULL OR json_extract(payload, '$.entry.allowed') = ?5)
+             ORDER BY seq
+             LIMIT ?6",
+        )?;
+
+        let rows = statement.query_map(
+            params![
+                filter
+                    .after_seq
+                    .map(|seq| i64::try_from(seq).unwrap_or(i64::MAX)),
+                filter.since,
+                filter.identity,
+                filter.path,
+                filter.allowed,
+                i64::from(filter.limit),
+            ],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )?;
+
+        let mut records = Vec::new();
+        for row in rows {
+            let (seq, hash, payload) = row?;
+            let seq = u64::try_from(seq).map_err(|_| StoreError::Corrupt {
+                detail: "an audit sequence number is negative".to_owned(),
+            })?;
+            let mut hash_bytes = [0_u8; HASH_LEN];
+            hex::decode_into(&hash, &mut hash_bytes).map_err(|_| StoreError::Corrupt {
+                detail: "a stored audit hash is not a chain hash".to_owned(),
+            })?;
+            records.push(AuditRow {
+                seq,
+                hash: hash_bytes,
+                payload,
+            });
+        }
+        Ok(records)
+    }
+
+    /// Every audit row, oldest first, for `ciphr audit verify`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::audit_query`].
+    pub fn audit_all(&self) -> Result<Vec<AuditRow>, StoreError> {
+        self.audit_query(&AuditFilter {
+            limit: u32::MAX,
+            ..AuditFilter::default()
+        })
+    }
+
+    /// The head of the stored chain, for resuming it at startup.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Corrupt`] if the stored head hash is not a chain hash.
+    pub fn audit_head(&self) -> Result<Option<(u64, [u8; HASH_LEN])>, StoreError> {
+        let row: Option<(i64, String)> = self
+            .connection()
+            .query_row(
+                "SELECT seq, hash FROM audit_log ORDER BY seq DESC LIMIT 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+
+        let Some((seq, hash)) = row else {
+            return Ok(None);
+        };
+        let seq = u64::try_from(seq).map_err(|_| StoreError::Corrupt {
+            detail: "an audit sequence number is negative".to_owned(),
+        })?;
+        let mut bytes = [0_u8; HASH_LEN];
+        hex::decode_into(&hash, &mut bytes).map_err(|_| StoreError::Corrupt {
+            detail: "a stored audit hash is not a chain hash".to_owned(),
+        })?;
+        Ok(Some((seq, bytes)))
     }
 }

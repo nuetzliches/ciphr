@@ -22,6 +22,8 @@ publish      = false
 ciphr-audit  = { path = "crates/ciphr-audit" }
 ciphr-core   = { path = "crates/ciphr-core" }
 ciphr-crypto = { path = "crates/ciphr-crypto" }
+ciphr-policy = { path = "crates/ciphr-policy" }
+ciphr-store  = { path = "crates/ciphr-store" }
 
 # AEAD. Default features are off so that nothing arrives unasked; `zeroize`
 # makes the crate wipe its own key schedule, which is the point of using it.
@@ -61,9 +63,20 @@ subtle = "2.6.1"
 # stored, so verification never re-serializes anything.
 serde_json = "1.0.145"
 
+# The HTTP stack, kept narrow (ADR-9). A well-tested router matters here because
+# authorization is path-based: any divergence between routing normalization and
+# policy normalization is an authorization bypass. `tower-http` is deliberately
+# absent — each middleware layer is a separate decision with its own reason.
+axum   = { version = "0.8.9", default-features = false, features = ["http1", "json", "query", "tokio"] }
+tokio  = { version = "1.53.1", default-features = false, features = ["rt-multi-thread", "macros", "signal", "net", "time"] }
+# TLS terminates at the listener, not at the reverse proxy (ADR-8).
+axum-server    = { version = "0.8.0", default-features = false, features = ["tls-rustls-no-provider"] }
+rustls         = { version = "0.23.43", default-features = false, features = ["ring", "std", "tls12"] }
+
 # Test-only.
 proptest = "1.11.0"
 tempfile = "3.24.0"
+tower    = { version = "0.5.3", features = ["util"] }
 
 [workspace.lints.rust]
 missing_docs          = "warn"
