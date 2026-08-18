@@ -260,6 +260,7 @@ impl AppState {
         match outcome {
             Ok(written) => {
                 self.note_device_outcome(&written.failures);
+                self.explain_the_gap(&written.failures);
                 Ok(())
             }
             Err(AuditError::AllDevicesFailed { failures }) => {
@@ -355,6 +356,77 @@ impl AppState {
         });
 
         self.record(&entry)
+    }
+
+    /// Record a listing, which authorizes **per returned path** rather than once.
+    ///
+    /// Deliberately not `record_outcome`: there is no decision to attach here, and an
+    /// entry that looked like an allow while carrying no rule was a finding. The count
+    /// is what the trail can honestly say about a listing — how much was revealed —
+    /// and its presence is what marks the entry as not being a decision.
+    ///
+    /// Called *after* the listing is produced and *before* it is serialized, so a
+    /// failure to record means nothing was revealed.
+    ///
+    /// # Errors
+    ///
+    /// [`ApiError::AuditUnavailable`] if no device accepted the record.
+    pub fn record_listing(
+        &self,
+        caller: &Caller,
+        prefix: &SecretPath,
+        request: &RequestContext,
+        returned: usize,
+    ) -> Result<(), ApiError> {
+        let entry = Entry::allowed(Action::List)
+            .with_principal(caller.as_principal())
+            .with_path(prefix)
+            .with_results(returned)
+            .with_request(RequestContext {
+                http_status: Some(200),
+                ..request.clone()
+            });
+        self.record(&entry)
+    }
+
+    /// Write one entry per device that refused a record the others accepted.
+    ///
+    /// The chain advances when **any** device accepts, so a refusing device is missing
+    /// that sequence number for good. Verifying its copy later reports a gap, which is
+    /// the same signal the design defines as tampering — and the recovery procedure that
+    /// follows from it commits whoever finds it to treating the surrounding accesses as
+    /// unlogged. For a disk that was briefly full, that is an expensive wrong answer.
+    ///
+    /// These entries are what make the difference recoverable afterwards: the devices
+    /// that *did* accept carry the reason the other one did not.
+    ///
+    /// Deliberately infallible and deliberately not recursive. It writes through the
+    /// sink once and ignores the outcome — if that write also fails there is nothing
+    /// further to try, and retrying or reporting would turn a degraded audit trail into
+    /// a failed request that had already succeeded. The device state on `/v1/health` is
+    /// the other half of this, and it does not depend on this write.
+    fn explain_the_gap(&self, failures: &[ciphr_audit::DeviceFailure]) {
+        if failures.is_empty() {
+            return;
+        }
+        let Ok(mut sink) = self.inner.audit.lock() else {
+            return;
+        };
+        for failure in failures {
+            // The device name goes in the reason, because the name is what a later
+            // reader needs: it identifies which copy has the gap. Not in `channel`,
+            // which means where a request came from -- api, cli, mcp -- and would stop
+            // being filterable if device names were mixed into it.
+            //
+            // The device's own error message is left out. It is an I/O string that
+            // belongs in the operator's logs; the trail needs to say which copy is
+            // incomplete, not why the disk was unhappy.
+            let entry = Entry::denied(
+                Action::AuditDeviceFailed,
+                format!("device-refused: {}", failure.device),
+            );
+            let _ = sink.record(&entry, now_millis());
+        }
     }
 
     /// Record an attempt that failed before any identity was established.

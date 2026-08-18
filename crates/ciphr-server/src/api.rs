@@ -428,14 +428,12 @@ async fn list_paths(
     let caller = authenticate(&state, &headers, Action::List, &request)?;
     let prefix = parse_path(&prefix)?;
 
-    // Recorded before the listing is produced, like every other response. What the
-    // listing revealed is bounded by the caller's policy, which the trail also
-    // records — the entry names the identity, and the identity's rules are in
-    // `/v1/policies`.
-    state.record_outcome(&caller, Action::List, Some(&prefix), &request, 200, None)?;
-
+    // There is no single decision to record here: authorization runs per returned path,
+    // so the listing is produced first and the entry carries how many paths it revealed.
+    // Recording still happens before anything is serialized, so a failure to record
+    // means nothing left the process.
     let paths = state.with_store(|store| store.list(Some(&prefix)).map_err(ApiError::from))?;
-    let visible = paths
+    let visible: Vec<String> = paths
         .into_iter()
         .filter(|path| {
             state
@@ -444,6 +442,8 @@ async fn list_paths(
         })
         .map(|path| path.as_str().to_owned())
         .collect();
+
+    state.record_listing(&caller, &prefix, &request, visible.len())?;
 
     Ok(Json(ListResponse {
         prefix: prefix.as_str().to_owned(),

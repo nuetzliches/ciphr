@@ -213,20 +213,32 @@ mod tests {
 
     #[test]
     fn kat_record_encoding() {
-        // Pins the stored form. A change here means every existing chain fails to
-        // verify, so it must be a decision and never a side effect.
+        // Pins the stored form, so that a change to it is a decision and never a side
+        // effect.
+        //
+        // Corrected 2026-08-18: this comment used to say a change here makes every
+        // existing chain fail to verify. It does not, and the reason is the design in
+        // the module documentation above — verification hashes the *stored bytes* and
+        // re-serializes nothing, so records written under an older shape keep verifying
+        // exactly as they did. What a change here does mean is that records written
+        // before and after differ in shape, which is why every field is written out
+        // including nulls: a reader years later can tell "not applicable" from "this
+        // version did not record it".
+        //
+        // Last changed when `results` was added, for listings, which authorize per
+        // returned path and therefore have no single decision to record.
         let chain = Chain::new();
         let record = chain.encode(&sample_entry(), 1_767_225_599_999).unwrap();
 
         assert_eq!(
             record.payload,
-            r#"{"seq":1,"ts":"2025-12-31T23:59:59.999Z","prev_hash":"0000000000000000000000000000000000000000000000000000000000000000","entry":{"principal":{"name":"deploy-runner","kind":"machine","token_id":"a1b2c3d4"},"action":"read","path":"infra/service-a/DB_PASSWORD","version":1,"allowed":true,"deny_reason":null,"rule":{"policy":"infra-read","pattern":"infra/**"},"request":{"request_id":"r-1","client_ip":"10.0.0.7","user_agent":"curl/8.5.0","http_status":200,"channel":null}}}"#
+            r#"{"seq":1,"ts":"2025-12-31T23:59:59.999Z","prev_hash":"0000000000000000000000000000000000000000000000000000000000000000","entry":{"principal":{"name":"deploy-runner","kind":"machine","token_id":"a1b2c3d4"},"action":"read","path":"infra/service-a/DB_PASSWORD","version":1,"allowed":true,"deny_reason":null,"rule":{"policy":"infra-read","pattern":"infra/**"},"results":null,"request":{"request_id":"r-1","client_ip":"10.0.0.7","user_agent":"curl/8.5.0","http_status":200,"channel":null}}}"#
         );
         assert_eq!(record.hash_hex(), KAT_HASH);
         assert_eq!(record.prev_hash, GENESIS);
     }
 
-    const KAT_HASH: &str = "e7510c2f0500827d9a706398fafbc26911915722c245b4c60f73c5f634e75b62";
+    const KAT_HASH: &str = "20506cb4c414a844c7a205013baac73a267891c34ce0426ac0977f3be7a5a390";
 
     #[test]
     fn absent_fields_are_written_as_null_rather_than_omitted() {

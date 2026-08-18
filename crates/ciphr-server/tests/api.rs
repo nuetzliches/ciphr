@@ -763,3 +763,69 @@ fn health_never_reports_why_a_device_failed() {
         "the reason must stay out of an unauthenticated response, got {text}"
     );
 }
+
+#[test]
+fn a_listing_records_how_much_it_revealed_and_claims_no_rule() {
+    // Finding 4. The entry used to be a plain `Entry::allowed` with no rule attached --
+    // an allow the evaluator never produced, which is the falsifier D4 names for itself.
+    // Listings authorize per returned path, so there is no single decision to record;
+    // what the trail can honestly carry is how many paths were revealed.
+    let harness = Harness::new();
+
+    // `deploy` may list `infra/**` but is denied everything under `infra/ciphr/**`.
+    let (status, body) = harness.get("/v1/list/infra", Some(&harness.deploy_token));
+    assert_eq!(status, StatusCode::OK);
+    let returned = body["paths"].as_array().expect("paths").len();
+
+    let entries = harness.audit_entries();
+    let listing = entries
+        .iter()
+        .rfind(|record| record["entry"]["action"] == "list")
+        .expect("a list entry");
+
+    assert_eq!(
+        listing["entry"]["results"].as_u64(),
+        Some(returned as u64),
+        "the entry must say how many paths the caller was shown"
+    );
+    assert!(
+        listing["entry"]["rule"].is_null(),
+        "a listing attaches no rule, because no single rule decided it"
+    );
+    assert_eq!(listing["entry"]["path"], "infra");
+}
+
+#[test]
+fn a_device_that_refuses_a_record_is_recorded_by_the_ones_that_accepted() {
+    // Finding 8. The chain advances when any device accepts, so a refusing device is
+    // missing that sequence number for good -- and a gap, found later, is
+    // indistinguishable from a deleted entry. The recovery procedure that follows from
+    // that assumes the surrounding accesses were unlogged, which is an expensive answer
+    // to give for a disk that was briefly full. The devices that did accept now carry
+    // the reason the other one did not.
+    let harness = Harness::with_audit(AuditKind::Partial);
+
+    let (status, _) = harness.get(
+        "/v1/secrets/infra/service-a/DB_PASSWORD",
+        Some(&harness.deploy_token),
+    );
+    assert_eq!(status, StatusCode::OK, "one working device still serves");
+
+    let entries = harness.audit_entries();
+    let explanation = entries
+        .iter()
+        .find(|record| record["entry"]["action"] == "audit-device-failed")
+        .expect("the working device must record that the other one refused");
+
+    let reason = explanation["entry"]["deny_reason"]
+        .as_str()
+        .expect("a reason");
+    assert!(
+        reason.contains("always-fails"),
+        "the entry must name which copy has the gap, got {reason}"
+    );
+
+    // It must not claim to be an access by anyone.
+    assert!(explanation["entry"]["principal"].is_null());
+    assert!(explanation["entry"]["path"].is_null());
+}

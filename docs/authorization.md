@@ -99,6 +99,57 @@ This is the behaviour most likely to surprise, and it is deliberate: capabilitie
 across specificity levels would mean a denial could be undone by adding an unrelated broad grant
 somewhere else in the file.
 
+### The second thing worth knowing: specificity counts literals, not breadth
+
+Specificity is **the number of literal segments** in a pattern. Nothing else — not how long the
+pattern is, not where the literals sit, not how many paths it can match. Two patterns that look
+very differently broad can therefore be equally specific:
+
+```toml
+  [[policy.rule]]
+  path         = "infra/**"                 # 1 literal: "infra"
+  capabilities = ["read"]
+
+  [[policy.rule]]
+  path         = "*/*/*/DB_PASSWORD"        # 1 literal: "DB_PASSWORD"
+  capabilities = []
+```
+
+For `infra/host-a/service-b/DB_PASSWORD` **both** patterns match and **both** have specificity 1.
+Rule 3 applies: equally specific rules that disagree produce a denial, with the reason `tie`.
+
+That is safe — it fails closed and it is deterministic — but it is not what the author of those two
+rules expected. They wrote a broad grant and a narrow exception, and the evaluator sees two rules of
+equal weight. The `tie` in the audit trail is the only clue, and it reads like a defect.
+
+**How to write it so it does what you meant.** A cross-cutting exception has to be at least as
+specific as the grant it is meant to override, which means spelling out the literals:
+
+```toml
+  [[policy.rule]]
+  path         = "infra/*/*/DB_PASSWORD"    # 2 literals: "infra" and "DB_PASSWORD"
+  capabilities = []
+```
+
+Now the exception is specificity 2, beats `infra/**` at 1, and wins outright. Both versions deny
+the read — what changes is *why*, and that is the whole difference:
+
+| Exception written as | Specificity | Recorded reason |
+|---|---|---|
+| `*/*/*/DB_PASSWORD` | 1, a tie with `infra/**` | `tie` — the evaluator could not tell which rule was meant |
+| `infra/*/*/DB_PASSWORD` | 2, beats `infra/**` | `not-granted` — the narrow rule decided, as intended |
+
+The second is not merely better documented. A tie is fragile: it holds only as long as no third rule
+of the same specificity appears, and it denies **every** capability where the two rules disagree,
+including ones nobody intended to touch. An explicit specificity ordering keeps deciding the same
+way when the file grows.
+
+**Why it is not simply fixed.** Counting positions instead of segments — a literal near the front
+weighing more than one at the back — would match intuition here and would have to justify itself in
+every other case. Any such change alters authorization outcomes rather than clarifying them, and the
+current rule has the property that matters: when it cannot tell which rule was meant, it refuses.
+Recorded as a documented sharp edge rather than smoothed over.
+
 ## What the tests establish
 
 | Claim | Where |

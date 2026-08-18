@@ -11,6 +11,44 @@ This file is updated in the same commit as the change it describes.
 Phases 0 to 3 are complete. The external review has not taken place; it remains a precondition for
 first production use.
 
+### Changed — the audit record shape, for listings and for device failures
+
+- **Findings 4 and 8.** Two additions to the stored record, both deliberate and both changing the
+  known-answer test in `chain.rs` — which is what that test is for.
+- `results`: how many items an operation returned, set by listing and null elsewhere. `/v1/list`
+  used to write a plain allow with no rule attached, which is the falsifier D4 names for itself: an
+  allow the evaluator never produced. Listings authorize per returned path, so there is no single
+  decision to record; the count is what the trail can honestly carry, and its presence is what marks
+  the entry as not being a decision. The listing is now produced before it is recorded, so the number
+  is true — and still before anything is serialized, so a failure to record reveals nothing.
+- Authorizing the prefix instead was rejected for the reason the plan already gives: `infra/**` does
+  not match `infra`, so a prefix check refuses the listing to exactly the identity allowed to read
+  everything beneath it. The path names are not recorded either: an entry that grows with the size of
+  a listing is a way to make records unbounded.
+- `Action::AuditDeviceFailed`: the devices that accepted a record now record that another one
+  refused it, naming the device. The chain advances when any device accepts, so the refusing one is
+  missing that sequence number for good — and a gap found later is indistinguishable from a deleted
+  entry, which commits whoever finds it to treating the surrounding accesses as unlogged. The trail
+  now explains its own gaps. The write is infallible and non-recursive by design.
+- The `chain.rs` known-answer test carried a comment claiming a change to the stored form makes every
+  existing chain fail to verify. **It does not**, and the reason is the design the module already
+  documents: verification hashes the stored bytes and re-serializes nothing, so older records keep
+  verifying exactly as they did. The comment is corrected.
+
+### Documented — the sharp edge in specificity
+
+- **Finding 5.** `docs/authorization.md` gains a worked example: `infra/**` and `*/*/*/DB_PASSWORD`
+  are both specificity 1, so a broad grant and a cross-cutting exception tie, and a tie denies with
+  the reason `tie` rather than the override the author meant. Writing the exception as
+  `infra/*/*/DB_PASSWORD` makes it specificity 2 and it wins outright.
+- Both spellings deny; what differs is the recorded reason, and the documentation says so rather than
+  implying a behaviour change. A tie is also fragile — it holds only while no third rule of the same
+  specificity appears. Pinned in `decision_table.rs`, because a worked example is only worth having
+  while it stays true.
+- The semantics are unchanged on purpose. Counting positions instead of segments would match
+  intuition in this case and would have to justify itself in every other, and any such change alters
+  authorization outcomes in the crate still waiting for the external review.
+
 ### Changed — path segments are drawn from an allowlist
 
 - Finding 1. The segment rules rejected control characters and whitespace, which let every Unicode

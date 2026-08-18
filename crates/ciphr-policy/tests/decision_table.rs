@@ -371,3 +371,55 @@ fn the_table_covers_every_capability_and_every_deny_reason() {
     // tests cover; it is not in this table because the table's policy set is
     // deliberately consistent.
 }
+
+/// The sharp edge documented in `docs/authorization.md`: specificity counts literal
+/// segments and nothing else, so a broad subtree grant and a narrow cross-cutting
+/// exception can be equally specific and produce a tie rather than the override the
+/// author intended.
+///
+/// Pinned as a test because the worked example in the documentation is only worth
+/// having if it stays true.
+#[test]
+fn a_cross_cutting_exception_ties_until_it_is_made_more_specific() {
+    let template = r#"
+[[identity]]
+name     = "deploy"
+kind     = "machine"
+policies = ["p"]
+
+[[policy]]
+name = "p"
+
+  [[policy.rule]]
+  path         = "infra/**"
+  capabilities = ["read"]
+
+  [[policy.rule]]
+  path         = "PATTERN"
+  capabilities = []
+"#;
+    let target = SecretPath::parse("infra/host-a/service-b/DB_PASSWORD").expect("valid");
+
+    // One literal each: neither wins, so denial does.
+    let tied =
+        PolicySet::from_toml(&template.replace("PATTERN", "*/*/*/DB_PASSWORD")).expect("policies");
+    let decision = tied.evaluate("deploy", &target, Capability::Read);
+    assert_eq!(decision.effect, Effect::Deny);
+    assert_eq!(decision.reason, Some(DenyReason::Tie));
+
+    // Two literals: the exception is more specific and decides on its own.
+    let ordered = PolicySet::from_toml(&template.replace("PATTERN", "infra/*/*/DB_PASSWORD"))
+        .expect("policies");
+    let decision = ordered.evaluate("deploy", &target, Capability::Read);
+    assert_eq!(decision.effect, Effect::Deny);
+    assert_eq!(
+        decision.reason,
+        Some(DenyReason::NotGranted),
+        "the narrow rule must decide, not a tie"
+    );
+    assert_eq!(
+        decision.rule.expect("a rule").specificity,
+        2,
+        "the documented specificity of infra/*/*/DB_PASSWORD"
+    );
+}

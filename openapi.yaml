@@ -648,6 +648,7 @@ components:
                   undelete,
                   init,
                   rotate-master-key,
+                  audit-device-failed,
                   destroy,
                 ]
             path: { type: [string, "null"] }
@@ -655,12 +656,29 @@ components:
             allowed: { type: boolean }
             deny_reason:
               type: [string, "null"]
-              enum: [unknown-identity, no-matching-rule, not-granted, tie, unauthenticated, not-found, write-failed, null]
+              enum: [unknown-identity, no-matching-rule, not-granted, tie, unauthenticated, not-found, write-failed, not-served, null]
+              description: |
+                Stable labels, except for `audit-device-failed` entries, whose reason is
+                `device-refused: <device name>` so a later reader can tell which copy of
+                the trail has a gap.
             rule:
               type: [object, "null"]
               properties:
                 policy: { type: string }
                 pattern: { type: string }
+            results:
+              type: [integer, "null"]
+              format: int32
+              description: |
+                How many items an operation returned, for operations that authorize per
+                returned item rather than through one decision. Set by listing and null
+                everywhere else.
+
+                Its presence marks the entry as *not* carrying an authorization
+                decision, which is why `rule` is null on those entries and why `allowed`
+                there means "the operation ran" rather than "a rule permitted it". The
+                names are deliberately absent: an entry that grew with the size of a
+                listing would make records unbounded.
             request:
               type: object
               properties:

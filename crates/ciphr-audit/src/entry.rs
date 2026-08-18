@@ -41,6 +41,15 @@ pub enum Action {
     RotateMasterKey,
     /// Crypto-shred a version, irreversibly.
     Destroy,
+    /// An audit device refused a record that another device accepted.
+    ///
+    /// Not an operation anybody requested — an event in the trail's own life. It exists
+    /// because the chain advances when *any* device accepts, so the refusing device is
+    /// permanently missing that sequence number, and a gap is indistinguishable from a
+    /// deleted entry afterwards. This entry is what makes the difference recoverable:
+    /// the trail explains its own gaps instead of leaving whoever finds one to guess,
+    /// and guessing wrong means treating a disk hiccup as an unlogged access.
+    AuditDeviceFailed,
 }
 
 impl Action {
@@ -55,6 +64,7 @@ impl Action {
             Self::Init => "init",
             Self::RotateMasterKey => "rotate-master-key",
             Self::Destroy => "destroy",
+            Self::AuditDeviceFailed => "audit-device-failed",
         }
     }
 }
@@ -157,6 +167,19 @@ pub struct Entry {
     pub deny_reason: Option<String>,
     /// The rule that decided it.
     pub rule: Option<DecidingRule>,
+    /// How many items an operation returned, when it authorizes **per returned item**
+    /// rather than through one decision.
+    ///
+    /// Set only by listing. Its presence is what marks the entry as *not* carrying a
+    /// single authorization decision — which is why `rule` is `None` there, and why
+    /// `allowed` on such an entry means "the operation ran", not "a rule permitted it".
+    /// Without this, a listing looked like an allow that no rule had produced, and the
+    /// trail could not say how much had been revealed.
+    ///
+    /// The names themselves are deliberately absent: an audit entry that grew with the
+    /// size of a listing would be a way to make records unbounded, and the caller's
+    /// policy already bounds what those names can be.
+    pub results: Option<u32>,
     /// Where the request came from.
     pub request: RequestContext,
 }
@@ -172,6 +195,7 @@ impl Entry {
             allowed: true,
             deny_reason: None,
             rule: None,
+            results: None,
             request: RequestContext::default(),
         }
     }
@@ -186,6 +210,7 @@ impl Entry {
             allowed: false,
             deny_reason: Some(reason.into()),
             rule: None,
+            results: None,
             request: RequestContext::default(),
         }
     }
@@ -210,6 +235,15 @@ impl Entry {
     #[must_use]
     pub fn with_version(mut self, version: SecretVersion) -> Self {
         self.version = Some(version.get());
+        self
+    }
+
+    /// Record how many items the operation returned.
+    ///
+    /// For operations that authorize per returned item. See [`Entry::results`].
+    #[must_use]
+    pub fn with_results(mut self, count: usize) -> Self {
+        self.results = Some(u32::try_from(count).unwrap_or(u32::MAX));
         self
     }
 
