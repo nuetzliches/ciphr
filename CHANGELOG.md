@@ -8,7 +8,28 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
-Phases 0 to 2 are complete; phase 3 is in progress. There is no HTTP server and no CLI yet.
+Phases 0 to 3 are complete. The external review has not taken place; it remains a precondition for
+first production use.
+
+### Added — a pre-review pass over every claim
+
+- `docs/review-2026-08-18.md`: findings, coverage, and a fitness statement in the form
+  `docs/security-review.md` asks for. It is **not** the external review and says so in its first
+  section: it was produced by the same model that co-authored the code, so it carries the same blind
+  spots and does not discharge plan section 18.
+- **B9 is closed.** All three pinned known-answer vectors were reproduced byte-for-byte by OpenSSL's
+  AES-256-GCM, with the value AAD rebuilt from the prose in `envelope.rs` rather than copied from
+  `AAD_HEX`, plus two negative controls. The known-answer tests now validate the primitive and its
+  plumbing, not only the stored format. This should be struck from the list of known imperfections in
+  `docs/security-review.md` once that document is revised.
+- Eight findings, none of them a break of the envelope scheme or the evaluator. Three are fixes
+  (invisible and confusable characters accepted in paths; partial audit-device failures discarded by
+  the server; a torn line left behind by a failed file-device write), three are decisions
+  (`/v1/list` records an allow no rule produced; specificity ignores pattern breadth; a benign device
+  gap is indistinguishable from a deletion), and two are documentation that describes an ordering the
+  code does not implement.
+- Claims confirmed as stated: A1–A3, A5, A6, B1–B8, B10, C1, C3–C6, D1–D3, D5–D7, E2–E6. The one
+  claim that holds while its surrounding module documentation overstates it is C2.
 
 ### Added — preparation for the external review
 
