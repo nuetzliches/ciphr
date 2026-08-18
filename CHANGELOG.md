@@ -11,6 +11,26 @@ This file is updated in the same commit as the change it describes.
 Phases 0 to 3 are complete. The external review has not taken place; it remains a precondition for
 first production use.
 
+### Added — developer experience as a stated goal, and ADR-14
+
+- Plan section 1 gains a **Developer experience** subsection. Until now usability was not a criterion
+  anywhere in the plan: "convenience" appeared exactly once, as a reason to reject something. That is
+  the `AGENTS.md` rule working as intended, and it is also why the gap ADR-14 records went unnoticed
+  — an unstated goal produces no findings.
+- The section is as much a set of non-goals as goals. Managing secrets, policies, identities, or
+  tokens through a web form stays ruled out by ADR-3 and section 15; environments and folders stay
+  ruled out by the multi-tenancy non-goal; sharing links remain a password manager's job. Asking for
+  any of them is a request to revisit an ADR, not to schedule work.
+- **ADR-14 — `ciphr run` injects secrets into a child process. Proposed, not accepted**, decision
+  required before phase 7. Section 13's route B currently costs one derived image per third-party
+  service, which is why it is the least likely route to be carried out despite applying to the most
+  images. A `run` subcommand that fetches under a prefix and `exec`s the real entrypoint reduces that
+  to a bind-mounted static binary and an overridden `entrypoint:`.
+- The record states four conditions that must hold before it can be accepted — a static musl build,
+  a written-down original entrypoint (which trades a rebuild for a pin, and says so), settled
+  fail-closed behaviour on a failed fetch, and prefix-to-variable-name semantics shared with route
+  C — and three rejected alternatives, including keeping the plan as it stands.
+
 ### Added — a pre-review pass over every claim
 
 - `docs/review-2026-08-18.md`: findings, coverage, and a fitness statement in the form

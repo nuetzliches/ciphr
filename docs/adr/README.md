@@ -1,7 +1,7 @@
 # Architecture decision records
 
-**Status:** current as of 2026-08-18. Thirteen decisions, all accepted; each file carries its own
-date and status.
+**Status:** current as of 2026-08-18. Fourteen decisions: thirteen accepted, one proposed. Each file
+carries its own date and status.
 
 One file per decision. Each records what was decided, why, and what was rejected — the rejected
 options matter as much as the chosen one, because they are what a future reader would otherwise
@@ -26,6 +26,7 @@ parts that later turned out to be wrong.
 | [ADR-11](0011-ui-is-an-optional-separate-package.md) | The admin UI is an optional, separate package | Accepted; phase 5 |
 | [ADR-12](0012-ui-auth-token-paste.md) | UI authentication: token paste in v1 | Accepted; phase 5 |
 | [ADR-13](0013-mcp-separate-stateless-process.md) | MCP server: separate, stateless process | Accepted; post-v1 |
+| [ADR-14](0014-ciphr-run-injects-into-a-child-process.md) | `ciphr run` injects secrets into a child process | **Proposed**; decide before phase 7 |
 
 Two of these carry more weight than the rest, because they describe the properties the project
 exists for: ADR-1 (secrets cannot be logged) and ADR-9 (one path normalizer, shared by router and

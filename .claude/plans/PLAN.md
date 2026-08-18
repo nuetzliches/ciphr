@@ -35,6 +35,44 @@ cannot provide:
 | Multi-tenancy | One organization, one trust boundary. Namespaces would be a data-model feature, not a security boundary. |
 | High availability | Single instance. Failure impact is bounded, see section 17. |
 
+### Developer experience
+
+Added 2026-08-18, after the fact. The three goals above are security properties, and until this
+section existed usability was not a criterion anywhere in this plan. The word "convenience" appeared
+exactly once, as a reason to *reject* something (ADR-11). That is the rule from `AGENTS.md` working
+as intended — decisions are argued from security criteria, not from what feels pleasant — and it is
+also why nobody went looking for the ergonomic gap that ADR-14 records. An unstated goal produces no
+findings.
+
+What developer experience means here, in order of weight:
+
+1. **Getting a value into a process without it resting on disk.** The one item that is also a
+   security property, and the one this plan was missing. See ADR-14 and section 13.
+2. **The audit usable without the CLI.** Already the done-condition of phase 5, already scoped in
+   section 15.
+3. **CLI ergonomics.** Errors that say what to do next, `--dry-run` wherever a mistake is expensive,
+   shell completion. Cheap, and it belongs to whichever phase touches the command anyway rather than
+   to a phase of its own.
+
+What it explicitly does **not** mean. These are decisions, not deferrals, and a request for any of
+them is a request to revisit an ADR rather than to schedule work:
+
+| Not this | Because |
+|---|---|
+| Managing secrets, policies, identities, or tokens through a web form | ADR-3 rules out a policy-write API — the most dangerous API this project could have. Section 15 rules out the rest: the UI reads, and everything that writes stays with the CLI and the API |
+| Environments, folders, projects | Multi-tenancy is a non-goal. The path *is* the hierarchy |
+| Sharing links, secret exchange between people | That is a password manager, and the first non-goal in the table above |
+
+One comparison, stated plainly because it will otherwise be made implicitly: the tools this project
+was measured against are built for teams of developers self-serving secrets across projects and
+environments. This one serves a handful of humans and a set of machines. Copying their ergonomics
+would import answers to problems this system does not have, while missing the one it does — which is
+precisely what happened until ADR-14.
+
+**Timing.** Nothing here is built before phase 4. Item 2 is already scheduled, item 3 rides along
+with whatever touches the command, and item 1 needs a decision *before* phase 7, because it changes
+what that phase is.
+
 ---
 
 ## 2. Why Build This — and the Condition Under Which It Fails
@@ -651,6 +689,11 @@ entrypoint fetches the values, sets them in its own process environment, and `ex
 entrypoint. Result: nothing on disk, nothing in the container config — the value exists only
 in `/proc/<pid>/environ`, which is where it has to be anyway. Costs one derived image per
 third-party service.
+
+That cost is the problem with route B, and it is the route that applies to the most images.
+**ADR-14 proposes `ciphr run` as the generic form of this wrapper** — one statically linked
+binary, bind-mounted, `entrypoint:` overridden — which removes the derived image entirely. The
+decision has to be made before phase 7, because it determines what that phase consists of.
 
 **C — the application itself.** For software you control, the clean route is for the
 application to fetch its secrets from ciphr at startup. This is the actual justification for
