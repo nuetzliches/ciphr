@@ -503,7 +503,7 @@ mod tests {
     fn the_allowed_set_covers_what_paths_actually_contain() {
         for input in [
             "infra/host-a/service-b/DB_PASSWORD",
-            "infra/_shared/otel/OTEL_TOKEN",
+            "infra/_group/service/API_TOKEN",
             "with.dots/and-dashes/and_underscores",
             // Letters of any script, not an ASCII rule.
             "\u{65e5}\u{672c}/x",

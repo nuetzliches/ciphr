@@ -77,8 +77,8 @@ first production use.
 
 ### Added — masking measured on a real runner, and its limit
 
-- Finding 9 in `docs/review-2026-08-18.md`, from a run on Forgejo runner v12.7.2 in the same
-  host-execution mode production jobs use. The premise behind `export --format actions-env` is
+- Finding 9 in `docs/review-2026-08-18.md`, from a run on a real Forgejo runner in the same
+  host-execution mode a deployment uses. The premise behind `export --format actions-env` is
   confirmed: a runtime-fetched value with no mask registered appears in the job log in full, so the
   masking really is the product's job and not the forge's.
 - Every case the format was built for holds — same step, across steps through `$GITHUB_ENV`,
