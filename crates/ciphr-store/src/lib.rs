@@ -52,6 +52,7 @@
 
 pub mod audit;
 pub mod error;
+pub mod lock;
 pub mod migrations;
 pub mod sqlite;
 pub mod store;
@@ -59,6 +60,7 @@ pub mod tokens;
 
 pub use audit::{AuditFilter, AuditRow, SqliteAuditDevice};
 pub use error::StoreError;
+pub use lock::StoreLock;
 pub use migrations::SCHEMA_VERSION;
 pub use sqlite::SqliteStore;
 pub use store::{

@@ -11,7 +11,24 @@ This file is updated in the same commit as the change it describes.
 Phases 0 to 3 are complete. The external review has not taken place; it remains a precondition for
 first production use.
 
-### Known issue — a CLI write while the server runs takes the service down
+### Fixed — one writer per store
+
+- Finding 10. `StoreLock` in `ciphr-store`, taken before the store is opened: by the server for the
+  life of the process, by the CLI for the duration of a command. A second writer is refused with a
+  message that says what to do instead of a permanent `503` afterwards.
+- It adds no constraint that was not already there. A restart was required after any such write
+  anyway, because only a restart re-reads the chain head; the lock moves the discovery earlier.
+- No new dependency: `create_new` for atomicity, `/proc` for liveness.
+- **Two errors only the container caught.** Probing for `/proc` at runtime looked portable and was
+  not — on Windows the path resolved against the drive root and reported a directory, so every
+  holder looked dead and the lock was taken from a live process. And a process id alone is useless in
+  a container, where the server is always process 1: a lock left by a killed container looked alive
+  forever, so nothing could start after an unclean stop. The lock now records the holder's start
+  time from `/proc/<pid>/stat`, verified by killing a container and starting another.
+- Transition cost: a lock file written by an earlier build records only a process id, cannot be
+  verified, and has to be removed by hand once.
+
+### Found — a CLI write while the server runs takes the service down
 
 - Finding 10, reproduced against a running instance: one `ciphr put` from the CLI while the server
   is up turns every subsequent request into `503`, and it does not recover until the process is
@@ -25,9 +42,8 @@ first production use.
 - It matters because the CLI is the documented way to do `token issue`, `import`, `destroy` and
   `rotate-master-key`, two of which are routine. `import` is the migration tool for an existing
   corpus; run against a live server it takes the service down on its first write.
-- Not fixed here. The options differ in what they assume about concurrent writers, which is a design
-  question rather than a patch. Recorded with all three and with what the minimum is: nothing in
-  `docs/`, in the CLI or in the store says these two must not run at once.
+- Fixed in the entry above, after the options were weighed: a lock is the only one that states the
+  assumption rather than working around it.
 
 ### Added — a container image and a release workflow
 

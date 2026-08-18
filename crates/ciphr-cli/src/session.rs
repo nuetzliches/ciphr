@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use ciphr_audit::{Action, AuditSink, Chain, Entry, FileDevice, Principal};
 use ciphr_crypto::{RootKey, Seal, StaticEnvSeal, TokenPepper};
-use ciphr_store::{SqliteAuditDevice, SqliteStore, Store};
+use ciphr_store::{SqliteAuditDevice, SqliteStore, Store, StoreLock};
 
 use crate::error::CliError;
 
@@ -26,6 +26,9 @@ pub(crate) struct Session {
     pub(crate) database: PathBuf,
     /// Where audit entries this session writes will go.
     audit: Option<AuditSink>,
+    /// Held for the lifetime of the session, released when it drops. Never read --
+    /// its existence is the point.
+    _lock: StoreLock,
 }
 
 impl Session {
@@ -36,6 +39,13 @@ impl Session {
     /// Returns [`CliError`] if the database cannot be opened, has never been
     /// initialized, or cannot be unsealed with the master key in the environment.
     pub(crate) fn open(database: &Path, master_key_variable: &str) -> Result<Self, CliError> {
+        // Before anything else. The audit chain is held in memory by whoever has the
+        // store open, so a second writer -- another CLI invocation or a running
+        // server -- would collide on a sequence number and leave the first process
+        // refusing every request until it restarts. Taken here rather than only
+        // around the write, because the CLI audits what it does including reads, so
+        // every command that opens a session is a writer.
+        let lock = StoreLock::acquire(database)?;
         let store = SqliteStore::open(database)?;
         let state = store
             .seal_state()?
@@ -53,6 +63,7 @@ impl Session {
             pepper,
             database: database.to_path_buf(),
             audit: None,
+            _lock: lock,
         })
     }
 

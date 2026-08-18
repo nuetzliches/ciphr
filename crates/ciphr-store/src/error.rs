@@ -12,6 +12,22 @@ use ciphr_crypto::CryptoError;
 /// Something went wrong in the storage layer.
 #[derive(Debug)]
 pub enum StoreError {
+    /// Another process holds the store's lock.
+    ///
+    /// The audit chain is held in memory, so two writers against one store make the
+    /// second one's records collide on a sequence number -- and because the chain
+    /// only advances on a committed record, that repeats until the process
+    /// restarts. Refusing here is what turns that into an error before the fact
+    /// rather than a permanent `503` after it.
+    Locked {
+        /// The process id in the lock file, when it could be read.
+        holder: Option<u32>,
+    },
+    /// The lock file could not be created.
+    Io {
+        /// What went wrong, including the path.
+        detail: String,
+    },
     /// No secret exists at this path.
     NotFound {
         /// The path that was requested.
@@ -109,6 +125,16 @@ pub enum StoreError {
 impl fmt::Display for StoreError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Locked { holder } => match holder {
+                Some(pid) => write!(
+                    f,
+                    "the store is in use by process {pid}; stop it, run this, start it again. Two writers collide on the audit sequence and leave the first one refusing every request."
+                ),
+                None => f.write_str(
+                    "a lock file exists whose holder cannot be verified. If no ciphr process is using this store, remove the '.lock' file beside it.",
+                ),
+            },
+            Self::Io { detail } => f.write_str(detail),
             Self::NotFound { path } => write!(f, "no secret at '{path}'"),
             Self::VersionNotFound { path, version } => {
                 write!(f, "'{path}' has no version {version}")

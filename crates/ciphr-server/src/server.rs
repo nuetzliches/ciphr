@@ -9,7 +9,7 @@
 
 use ciphr_audit::{AuditDevice, AuditSink, Chain, FileDevice};
 use ciphr_policy::PolicySet;
-use ciphr_store::{SqliteAuditDevice, SqliteStore, Store};
+use ciphr_store::{SqliteAuditDevice, SqliteStore, Store, StoreLock};
 
 use crate::api;
 use crate::config::{AuditConfig, Config, SealConfig};
@@ -21,6 +21,9 @@ use crate::tls;
 pub struct Server {
     state: AppState,
     config: Config,
+    /// Held for the life of the process, released when it exits. Never read -- its
+    /// existence is what keeps a second writer out.
+    _lock: StoreLock,
 }
 
 impl Server {
@@ -42,6 +45,14 @@ impl Server {
             })?;
         let policies = PolicySet::from_toml(&policy_text)?;
 
+        // One writer per store, taken before anything else and held for the life of
+        // the process. Without it a `ciphr` command run against this store while the
+        // server is up moves the audit chain's head, the server's next record
+        // collides on a sequence number, and fail-closed refuses every request from
+        // then on -- permanently, because the chain only advances on a committed
+        // record. Refusing to start is the honest failure: a restart was required
+        // after such a write anyway, so this only moves the discovery earlier.
+        let lock = StoreLock::acquire(&config.storage.path)?;
         let store = SqliteStore::open(&config.storage.path)?;
 
         // Unseal. A store that has never been initialized is not a store this server
@@ -67,7 +78,11 @@ impl Server {
         let seal_id = seal_state.seal_id.clone();
         let state = AppState::new(store, sink, policies, root, seal_id);
 
-        Ok(Self { state, config })
+        Ok(Self {
+            state,
+            config,
+            _lock: lock,
+        })
     }
 
     /// The application state, for tests and for anything embedding the server.
