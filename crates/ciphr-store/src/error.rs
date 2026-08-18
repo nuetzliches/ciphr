@@ -45,6 +45,14 @@ pub enum StoreError {
         /// The version that was requested.
         version: SecretVersion,
     },
+    /// No token with this identifier exists.
+    ///
+    /// Only reported for administrative operations such as revoking. Authentication
+    /// never says whether an identifier exists.
+    TokenNotFound {
+        /// The identifier that was requested.
+        token_id: String,
+    },
     /// The store already holds a sealed root key.
     ///
     /// Initializing twice would overwrite the record that every secret in the
@@ -111,6 +119,7 @@ impl fmt::Display for StoreError {
             Self::VersionDestroyed { path, version } => {
                 write!(f, "version {version} of '{path}' was destroyed")
             }
+            Self::TokenNotFound { token_id } => write!(f, "no token with id '{token_id}'"),
             Self::AlreadyInitialized => f.write_str("the store is already initialized"),
             Self::NotInitialized => f.write_str("the store is not initialized"),
             Self::SchemaTooNew { found, supported } => write!(

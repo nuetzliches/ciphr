@@ -72,6 +72,14 @@ impl SqliteStore {
         Ok(Self { connection })
     }
 
+    /// The open connection, for the sibling modules in this crate.
+    ///
+    /// Crate-private: the point of this crate is that SQL lives in one place, and a
+    /// caller that could reach the connection could write its own.
+    pub(crate) fn connection(&self) -> &Connection {
+        &self.connection
+    }
+
     fn secret_id(&self, path: &SecretPath) -> Result<Option<(i64, u32, Rotation)>, StoreError> {
         let row = self
             .connection
@@ -569,7 +577,7 @@ fn to_nonce(bytes: &[u8], what: &str) -> Result<[u8; NONCE_LEN], StoreError> {
 /// A clock that reports a time before the epoch would produce a negative value;
 /// that is stored as-is rather than clamped, because silently rewriting a
 /// timestamp is worse than an obviously wrong one.
-fn now_millis() -> i64 {
+pub(crate) fn now_millis() -> i64 {
     let now = std::time::SystemTime::now();
     match now.duration_since(std::time::UNIX_EPOCH) {
         Ok(elapsed) => i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX),

@@ -50,6 +50,7 @@ pub mod envelope;
 pub mod error;
 pub mod key;
 pub mod seal;
+pub mod token;
 
 pub use envelope::{
     EncryptedValue, NONCE_LEN, WrappedRootKey, decrypt, encrypt, unwrap_root_key, wrap_root_key,
@@ -57,3 +58,7 @@ pub use envelope::{
 pub use error::CryptoError;
 pub use key::{Dek, DekId, ID_LEN, KEY_LEN, MasterKey, RootKey, RootKeyId};
 pub use seal::{Seal, StaticEnvSeal};
+pub use token::{
+    TOKEN_ID_LEN, TOKEN_PREFIX, TOKEN_SECRET_LEN, TOKEN_TEXT_LEN, Token, TokenId, TokenPepper,
+    TokenVerifier,
+};

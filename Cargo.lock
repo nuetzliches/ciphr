@@ -139,8 +139,11 @@ dependencies = [
  "aes-gcm",
  "ciphr-core",
  "getrandom 0.4.3",
+ "hmac",
  "proptest",
  "secrecy",
+ "sha2",
+ "subtle",
  "zeroize",
 ]
 
@@ -237,6 +240,7 @@ dependencies = [
  "block-buffer",
  "const-oid",
  "crypto-common",
+ "ctutils",
 ]
 
 [[package]]
@@ -348,6 +352,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32069d97bb81e38fa67eab65e3393bf804bb85969f2bc06bf13f64aef5aba248"
 dependencies = [
  "hashbrown 0.17.1",
+]
+
+[[package]]
+name = "hmac"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6303bc9732ae41b04cb554b844a762b4115a61bfaa81e3e83050991eeb56863f"
+dependencies = [
+ "digest",
 ]
 
 [[package]]

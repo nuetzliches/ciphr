@@ -8,8 +8,30 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
-Phases 0 to 2. The cryptographic, storage, authorization, and audit layers work and are tested;
-there is no HTTP server and no CLI yet.
+Phases 0 to 2 are complete; phase 3 is in progress. There is no HTTP server and no CLI yet.
+
+### Added — phase 3: authentication
+
+- `ciphr-core`: unpadded base64url, hand-written and checked against the RFC 4648 vectors. Decoding
+  is strict about trailing bits and rejects the padded form, so one token cannot have two spellings
+  that both authenticate.
+- `ciphr-crypto`: tokens shaped `cph_<8 chars id><43 chars secret>` — 256 bits of entropy in the
+  secret half, a non-secret identifier so authentication is an indexed lookup rather than a scan, and
+  a `cph_` prefix that secret scanners recognize. `Token` implements neither `Debug`, `Display` nor
+  `Serialize`; its text form is available once, through a wrapper that wipes itself.
+- Verifiers are `HMAC-SHA256(pepper, secret)` with the pepper derived from the root key under a
+  domain-separating label, so a database-only leak does not permit offline verification of guessed
+  tokens. Password hashing is deliberately absent: there is no dictionary to attack, so Argon2id would
+  cost CPU on every request and buy nothing.
+- Comparison is constant-time through `subtle`, with a test that a difference is detected at every
+  byte position — and a comment saying plainly why that is a behavioural stand-in rather than proof,
+  since a timing assertion in a unit test produces flakiness rather than evidence.
+- `ciphr-store`: migration 003 adds `tokens`, and there is deliberately **no identities table** — the
+  policy file is authoritative for identities (ADR-3), and a second copy would drift. Authentication,
+  issuing, listing, revoking one token, and revoking every token of an identity at once.
+- Every kind of invalid token is indistinguishable to the caller: unknown identifier, wrong secret,
+  expired, revoked. The verifier is compared before expiry and revocation are considered, so timing
+  cannot separate those cases either.
 
 ### Added — phase 2: policy evaluation and the audit trail
 

@@ -16,6 +16,7 @@
 //!   `Serialize`.** Logging a secret is a compile error, not a code-review
 //!   question (ADR-1).
 
+pub mod base64url;
 pub mod capability;
 pub mod hex;
 pub mod path;

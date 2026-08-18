@@ -55,6 +55,7 @@ pub mod error;
 pub mod migrations;
 pub mod sqlite;
 pub mod store;
+pub mod tokens;
 
 pub use audit::{AuditRow, SqliteAuditDevice};
 pub use error::StoreError;
@@ -63,3 +64,4 @@ pub use sqlite::SqliteStore;
 pub use store::{
     EncryptForVersion, SealState, SecretMetadata, Store, StoredVersion, VersionSummary,
 };
+pub use tokens::{Authenticated, TokenRecord};

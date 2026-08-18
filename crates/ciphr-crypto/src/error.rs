@@ -56,6 +56,13 @@ pub enum CryptoError {
         /// Name of the variable that was consulted.
         variable: String,
     },
+    /// A token is not a ciphr token.
+    ///
+    /// One variant for every way a token can be malformed — wrong length, wrong
+    /// prefix, wrong alphabet. Distinguishing them would tell whoever is probing
+    /// which half of their guess was closer, and none of it helps a legitimate
+    /// caller, who either has a token or does not.
+    TokenFormat,
 }
 
 impl fmt::Display for CryptoError {
@@ -76,6 +83,7 @@ impl fmt::Display for CryptoError {
             Self::MasterKeyNotUnicode { variable } => {
                 write!(f, "environment variable {variable} is not valid Unicode")
             }
+            Self::TokenFormat => f.write_str("not a valid token"),
         }
     }
 }

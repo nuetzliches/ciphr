@@ -48,8 +48,15 @@ rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1.0.228", features = ["derive"] }
 toml  = "1.1.4"
 
-# Hashing, for the audit chain.
+# Hashing, for the audit chain and for token verifiers.
 sha2 = "0.11.0"
+# HMAC, for the peppered token verifier. A single-step KDF for the pepper as well:
+# a token is 256 bits of randomness, so password hashing would cost CPU on every
+# request and buy nothing (there is no dictionary to attack).
+hmac = "0.13.0"
+# Constant-time comparison. Token, HMAC, and tag comparisons must not leak where
+# they differ.
+subtle = "2.6.1"
 # JSON, for the audit payload. The bytes that are hashed are the bytes that are
 # stored, so verification never re-serializes anything.
 serde_json = "1.0.145"
