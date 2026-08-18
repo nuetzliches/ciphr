@@ -1,0 +1,12 @@
+# Identifiers that `clippy::doc_markdown` should not demand backticks around.
+# ".." keeps clippy's own default list and extends it.
+doc-valid-idents = [
+    "..",
+    "SQLite",
+    "TOML",
+    "JSONL",
+    "OpenBao",
+    "OpenAPI",
+    "PKCS#11",
+    "ciphr",
+]

@@ -1,0 +1,4 @@
+# Stable options only, so `cargo fmt --check` behaves identically on a stable
+# toolchain in CI and on a developer machine.
+max_width     = 100
+newline_style = "Unix"

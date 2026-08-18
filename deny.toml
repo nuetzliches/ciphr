@@ -1,0 +1,72 @@
+# Supply-chain policy, enforced by `cargo deny check` as a blocking CI gate.
+#
+# The dependency surface is the part of this project that is not under our own
+# review, so it gets an explicit policy rather than a habit. Every entry that
+# loosens something below must carry a reason.
+
+[graph]
+# The targets we actually ship or develop on. Anything platform-specific for a
+# target that is not listed is out of scope for these checks.
+targets = [
+    "x86_64-unknown-linux-gnu",   # server and UI container images
+    "x86_64-unknown-linux-musl",  # static CLI binary used from CI jobs
+    "x86_64-pc-windows-msvc",     # development
+]
+all-features = true
+
+[advisories]
+# Known vulnerabilities are denied by default; these two are not.
+yanked       = "deny"
+unmaintained = "all"
+# Refuse to pass with a stale advisory database — a green check against
+# week-old data is worse than no check, because it looks like a result.
+maximum-db-staleness = "P7D"
+ignore = []
+
+[licenses]
+# Permissive licenses only. Anything copyleft — MPL, LGPL, GPL, AGPL — and
+# anything source-available such as BUSL is deliberately absent: adding one is a
+# decision to be made and recorded in a pull request, not a default.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "CC0-1.0",
+    "Unlicense",
+]
+confidence-threshold = 0.9
+exceptions = []
+
+[licenses.private]
+# Our own crates are `publish = false`, but they are dual licensed and should be
+# held to the same policy as everything else.
+ignore = false
+
+[bans]
+# A duplicate crate version means two copies of the same logic, one of which
+# nobody is watching. Resolve it, or record a `skip` entry with a reason.
+multiple-versions = "deny"
+wildcards         = "deny"
+highlight         = "all"
+
+deny = [
+    # TLS is `rustls` (ADR-8). A transitive OpenSSL binding would add a C
+    # dependency and a second TLS stack to the process that holds plaintext
+    # secrets.
+    { crate = "openssl" },
+    { crate = "openssl-sys" },
+    { crate = "native-tls" },
+]
+skip      = []
+skip-tree = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git      = "deny"
+allow-registry   = ["https://github.com/rust-lang/crates.io-index"]
+allow-git        = []

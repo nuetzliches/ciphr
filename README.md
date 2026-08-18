@@ -4,8 +4,10 @@ A small secret manager for machine identities: key/value secrets, gap-free acces
 and path-based authorization. The name contains *CI* — the primary consumer is a build and
 deploy pipeline, not a human.
 
-> **Status: design phase.** No code yet. The full design lives in
-> [`.claude/plans/PLAN.md`](.claude/plans/PLAN.md).
+> **Status: phase 0 of 7.** The repository skeleton, decision records, threat model, and CI gates
+> are in place; the crates are empty scaffolding. Nothing here is usable yet, and nothing should
+> hold a real secret until the cryptographic and authorization crates have passed external review.
+> The full design lives in [`.claude/plans/PLAN.md`](.claude/plans/PLAN.md).
 
 ## Why this exists
 
@@ -37,6 +39,10 @@ policies. No PKI, no SSH CA, no dynamic secrets. If those are ever needed,
   This is the main reason the implementation language is Rust.
 - **Runner-agnostic CI access.** The API is HTTPS plus a bearer token, so the minimal client
   is `curl`. No agent, no plugin, no forge integration required.
+- **TLS terminates at the service, not at the reverse proxy.** This deviates from the usual
+  arrangement on purpose: the content of these connections is plaintext secrets, and a compromised
+  container on a shared network is a realistic adversary. The proxy connects over HTTPS with a
+  pinned internal certificate ([ADR-8](docs/adr/0008-tls-terminates-at-the-service.md)).
 
 ## Non-goals
 
@@ -46,9 +52,35 @@ multi-tenancy, and high availability. The reasoning for each is in section 1 of 
 ## Honest boundaries
 
 Root on the host reads the master key and process memory. That is a deliberate consequence of
-unattended startup and is not defended against; moving that boundary requires Shamir unsealing
-or an HSM, both of which are retrofittable without a data format change. The full threat model
-is section 3 of the plan.
+choosing unattended startup — an availability decision, not a cryptographic one: the key sits in the
+same mode-0600 environment file as other signing secrets, which is no regression against the status
+quo and no gain either. Moving that boundary requires split-key unsealing or an HSM, both of which
+are retrofittable without a data format change, because the master key wraps exactly one record.
+
+The realistic end state is **one secret per host**, not zero — plus an audit trail, plus rotation,
+plus a bounded blast radius per token. The full threat model, including everything else that is
+deliberately out of scope, is in [`docs/threat-model.md`](docs/threat-model.md).
+
+## Documentation
+
+| Where | What |
+|---|---|
+| [`docs/adr/`](docs/adr/) | The 13 architecture decisions, one file each, with what was rejected and why |
+| [`docs/threat-model.md`](docs/threat-model.md) | Adversaries, defended and undefended boundaries, the availability trade |
+| [`docs/why-build-this.md`](docs/why-build-this.md) | The evaluation of existing tools, and the condition under which this project should be abandoned in favour of OpenBao |
+| [`AGENTS.md`](AGENTS.md) | Working rules for contributors, and the gates that enforce them |
+| [`SECURITY.md`](SECURITY.md) | Disclosure process and what is in scope |
+| [`.claude/plans/PLAN.md`](.claude/plans/PLAN.md) | The full specification: 21 sections, from the cryptographic design to the phase plan |
+
+## Building
+
+```sh
+cargo test --workspace       # the toolchain pin in rust-toolchain.toml is installed automatically
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+```
+
+The complete set of blocking checks, including the supply-chain and source-rule gates, is listed in
+[`AGENTS.md`](AGENTS.md).
 
 ## License
 

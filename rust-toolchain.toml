@@ -1,0 +1,6 @@
+# Pinned so every developer and every CI run compiles with the same compiler.
+# Reproducible builds are a supply-chain requirement here, not a nicety.
+[toolchain]
+channel    = "1.94.0"
+components = ["rustfmt", "clippy"]
+profile    = "minimal"

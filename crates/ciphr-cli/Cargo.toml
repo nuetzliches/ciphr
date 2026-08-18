@@ -1,0 +1,20 @@
+[package]
+name = "ciphr-cli"
+description = "Command-line interface for ciphr."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
+
+# The user-facing command is `ciphr`; the crate name carries the `-cli` suffix
+# so it does not collide with a future facade crate named `ciphr`.
+[[bin]]
+name = "ciphr"
+path = "src/main.rs"
