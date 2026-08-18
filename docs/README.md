@@ -47,6 +47,7 @@ The parts where a mistake is expensive, and where to read before making one.
 | **A secret in a CI job log** | No forge masks a value fetched at runtime. Only the `actions-env` export does, and only if the masks are emitted first. | [operations/cli.md](operations/cli.md) |
 | **A secret in shell history** | A value passed as an argument is readable by every process on the host while the command runs. | [operations/cli.md](operations/cli.md) |
 | **Trusting the wrong boundary** | Assuming the container network is private, or that root on the host is excluded. | [threat-model.md](threat-model.md) |
+| **Going to production unreviewed** | Two crates decide every access, and their failures are silent. An external review is a precondition, not a recommendation. | [security-review.md](security-review.md) |
 | **Building this at all** | A self-built secret manager fails silently. There is a defined point at which abandoning it is correct. | [why-build-this.md](why-build-this.md) |
 
 ## Everything else
@@ -58,6 +59,7 @@ The parts where a mistake is expensive, and where to read before making one.
 | [crypto.md](crypto.md) | The implemented key hierarchy and wire format, and what the known-answer tests pin |
 | [authorization.md](authorization.md) | The policy file, the pattern language, and the four rules of the decision |
 | [fuzzing.md](fuzzing.md) | The three fuzz targets, how to run them, and what the CI gate does and does not prove |
+| [security-review.md](security-review.md) | Scope, claims, and what would falsify them — the working paper for an external reviewer |
 | [why-build-this.md](why-build-this.md) | The evaluation of existing tools and the exit condition |
 | [operations/cli.md](operations/cli.md) | Every command, and the two rules that shape all of them |
 | [operations/](operations/) | Procedures for the things that are hard to undo: the master key, rotating secrets, and the audit trail |

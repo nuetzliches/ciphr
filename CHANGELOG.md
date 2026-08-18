@@ -10,6 +10,19 @@ This file is updated in the same commit as the change it describes.
 
 Phases 0 to 2 are complete; phase 3 is in progress. There is no HTTP server and no CLI yet.
 
+### Added — preparation for the external review
+
+- `docs/security-review.md`: the scope, every claim the code makes, and what would falsify each. It
+  states plainly that it was written by the author and cannot substitute for the review, that a
+  checklist narrows attention, and that design disagreements are findings rather than
+  misunderstandings.
+- It corrects the plan's review scope: section 18 names `ciphr-crypto` and `ciphr-policy`, but path
+  normalization and the glob matcher live in `ciphr-core` — the ADR-9 surface — so that crate is in
+  scope too. About 1500 lines of code in total.
+- The known imperfections are listed up front rather than left to be rediscovered: the known-answer
+  tests are self-generated and validate the format rather than AES-GCM, constant-time behaviour is
+  exercised but not proven, and the hash chain cannot detect a forward rewrite.
+
 ### Added — phase 3: the CLI
 
 - `ciphr`, working on the local store with the master key from the environment: `init`, `put`, `get`,
