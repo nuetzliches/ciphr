@@ -1,0 +1,28 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Frontend
+node_modules/
+ui/dist/
+
+# Local environment and secrets — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local runtime state
+*.db
+*.db-wal
+*.db-shm
+*.jsonl
+
+# Session-local handoff notes, not part of the project record
+HANDOFF.md
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
