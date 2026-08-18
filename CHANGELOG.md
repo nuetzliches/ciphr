@@ -26,7 +26,8 @@ purpose of this phase is that the rules are in place before the code is.
 - CI workflow with blocking gates — `cargo fmt`, `cargo clippy -D warnings`, `cargo test`,
   `cargo deny check`, `cargo audit --deny warnings` — and three source-rule gates in `ci/`: no output
   from library crates, `forbid(unsafe_code)` present in every crate root, and no `v-html` in the
-  future UI. Third-party actions are pinned by commit hash.
+  future UI. Third-party actions are pinned by commit hash, and `cargo-deny` and `cargo-audit` are
+  installed from release binaries pinned by version and SHA-256 rather than compiled in CI.
 - Decision records ADR-1 through ADR-13 in `docs/adr/`, one file each, with an index.
 - `docs/threat-model.md` — adversaries A1 to A8, the boundaries that are deliberately not defended,
   and the availability trade written down as part of the model.

@@ -77,20 +77,12 @@ jobs:
         with:
           persist-credentials: false
 
-      # Tool versions are pinned and part of the cache key, so a new version is
-      # adopted deliberately rather than silently changing what the gate means.
-      - name: Cache supply-chain tools
-        id: tools
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: |
-            ~/.cargo/bin/cargo-deny
-            ~/.cargo/bin/cargo-audit
-          key: supply-chain-tools-${{ runner.os }}-deny0.20.2-audit0.22.2
-
-      - name: Install cargo-deny and cargo-audit
-        if: steps.tools.outputs.cache-hit != 'true'
-        run: cargo install --locked cargo-deny@0.20.2 cargo-audit@0.22.2
+      # Upstream release binaries, pinned by version and SHA-256. Compiling both
+      # tools from source cost 8m47s per cold run and needed a cache to hide it;
+      # this takes seconds and verifies more than `cargo install` does. Versions
+      # and hashes live in the script, and a bump changes both together.
+      - name: Install pinned supply-chain tools
+        run: sh ci/install-supply-chain-tools.sh
 
       # Licenses, advisories, banned and duplicate crates, and source registries.
       - name: cargo deny
