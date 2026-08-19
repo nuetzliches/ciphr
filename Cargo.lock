@@ -254,6 +254,7 @@ dependencies = [
  "secrecy",
  "sha2",
  "subtle",
+ "tempfile",
  "zeroize",
 ]
 

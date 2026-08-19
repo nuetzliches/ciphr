@@ -61,7 +61,8 @@ impl Server {
             .seal_state()?
             .ok_or(StartupError::Store(ciphr_store::StoreError::NotInitialized))?;
         let seal = match &config.seal {
-            SealConfig::StaticEnv { env } => ciphr_crypto::StaticEnvSeal::from_env(env)?,
+            SealConfig::StaticEnv { env } => ciphr_crypto::StaticSeal::from_env(env)?,
+            SealConfig::StaticFile { path } => ciphr_crypto::StaticSeal::from_file(path)?,
         };
         let root = ciphr_crypto::Seal::unseal(&seal, &seal_state.wrapped_root_key)?;
 
@@ -76,7 +77,8 @@ impl Server {
             .map_err(|error| StartupError::Audit(error.to_string()))?;
 
         let seal_id = seal_state.seal_id.clone();
-        let state = AppState::new(store, sink, policies, root, seal_id);
+        let key_source = seal.source().kind().to_owned();
+        let state = AppState::new(store, sink, policies, root, seal_id, key_source);
 
         Ok(Self {
             state,

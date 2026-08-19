@@ -25,7 +25,7 @@ use std::process::ExitCode;
 
 use ciphr_audit::{Action, StoredRecord, verify_from_genesis};
 use ciphr_core::{Plaintext, Rotation, SecretPath, SecretVersion};
-use ciphr_crypto::{RootKey, RootKeyId, Seal, StaticEnvSeal, Token};
+use ciphr_crypto::{RootKey, RootKeyId, Seal, StaticSeal, Token};
 use ciphr_policy::PolicySet;
 use ciphr_store::{AuditFilter, SealState, SqliteStore, Store};
 use clap::{Args, Parser, Subcommand};
@@ -45,6 +45,13 @@ struct Cli {
     /// Environment variable holding the 64-character hexadecimal master key.
     #[arg(long, global = true, default_value = "CIPHR_MASTER_KEY")]
     master_key_env: String,
+
+    /// File holding the master key, such as a secret mounted at /run/secrets.
+    ///
+    /// Preferred over the variable where the deployment allows it: the key then stays out
+    /// of the container configuration and out of /proc/<pid>/environ.
+    #[arg(long, global = true, conflicts_with = "master_key_env")]
+    master_key_file: Option<PathBuf>,
 
     /// Policy file, for commands that need to know which identities exist.
     #[arg(long, global = true, default_value = "policies.toml")]
@@ -151,8 +158,11 @@ enum Command {
     /// Re-wrap the root key under a new master key.
     RotateMasterKey {
         /// Environment variable holding the new master key.
-        #[arg(long)]
-        new_key_env: String,
+        #[arg(long, required_unless_present = "new_key_file")]
+        new_key_env: Option<String>,
+        /// File holding the new master key.
+        #[arg(long, conflicts_with = "new_key_env")]
+        new_key_file: Option<PathBuf>,
     },
 
     /// Write every secret out in plaintext, for migrating away from ciphr.
@@ -260,8 +270,25 @@ fn main() -> ExitCode {
 struct Context {
     database: PathBuf,
     master_key_env: String,
+    master_key_file: Option<PathBuf>,
     policies: PathBuf,
     audit_file: Option<PathBuf>,
+}
+
+impl Context {
+    /// Build the seal from whichever source was configured.
+    ///
+    /// Resolved in one place so that every command reads the key the same way, and so
+    /// that adding a third source later is one change rather than one per command.
+    ///
+    /// clap rejects both flags together, so there is no precedence rule to get wrong:
+    /// a deployment cannot end up using the source nobody thought was active.
+    fn seal(&self) -> Result<StaticSeal, CliError> {
+        match &self.master_key_file {
+            Some(path) => Ok(StaticSeal::from_file(path)?),
+            None => Ok(StaticSeal::from_env(&self.master_key_env)?),
+        }
+    }
 }
 
 #[allow(clippy::too_many_lines)]
@@ -269,6 +296,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
     let Cli {
         database,
         master_key_env,
+        master_key_file,
         policies,
         audit_file,
         command,
@@ -276,12 +304,13 @@ fn run(cli: Cli) -> Result<(), CliError> {
     let cli = Context {
         database,
         master_key_env,
+        master_key_file,
         policies,
         audit_file,
     };
 
     match command {
-        Command::Init => init(&cli.database, &cli.master_key_env),
+        Command::Init => init(&cli),
 
         Command::Put { path, rotation } => {
             let path = SecretPath::parse(&path)?;
@@ -472,18 +501,22 @@ fn run(cli: Cli) -> Result<(), CliError> {
         Command::Import(args) => import(&cli, &args),
         Command::Token(command) => token(&cli, command),
         Command::Audit(command) => audit(&cli, &command),
-        Command::RotateMasterKey { new_key_env } => rotate_master_key(&cli, &new_key_env),
+        Command::RotateMasterKey {
+            new_key_env,
+            new_key_file,
+        } => rotate_master_key(&cli, new_key_env.as_deref(), new_key_file.as_deref()),
         Command::Dump { format, force } => dump(&cli, &format, force),
     }
 }
 
 /// Open the store, unseal it, and attach the audit devices.
 fn open(cli: &Context) -> Result<Session, CliError> {
-    Session::open(&cli.database, &cli.master_key_env)?.with_audit(cli.audit_file.as_deref())
+    Session::open(&cli.database, &cli.seal()?)?.with_audit(cli.audit_file.as_deref())
 }
 
 /// `ciphr init` — generate a root key and seal it.
-fn init(database: &std::path::Path, master_key_variable: &str) -> Result<(), CliError> {
+fn init(cli: &Context) -> Result<(), CliError> {
+    let database = cli.database.as_path();
     let mut store = SqliteStore::open(database)?;
     if store.seal_state()?.is_some() {
         return Err(CliError::AlreadyInitialized {
@@ -491,7 +524,7 @@ fn init(database: &std::path::Path, master_key_variable: &str) -> Result<(), Cli
         });
     }
 
-    let seal = StaticEnvSeal::from_env(master_key_variable)?;
+    let seal = cli.seal()?;
     let root = RootKey::generate()?;
     let root_id = RootKeyId::generate()?;
 
@@ -502,11 +535,15 @@ fn init(database: &std::path::Path, master_key_variable: &str) -> Result<(), Cli
 
     // The first audit entry of a store is its own creation, which is what makes the
     // chain start at something rather than at nothing.
-    let mut session = Session::open(database, master_key_variable)?.with_audit(None)?;
+    let mut session = Session::open(database, &seal)?.with_audit(None)?;
     session.record(&Session::operator_entry(Action::Init, true, None))?;
 
     println!("initialized {}", database.display());
-    println!("root key {root_id}, sealed with {}", seal.id());
+    println!(
+        "root key {root_id}, sealed with {} from {}",
+        seal.id(),
+        seal.source()
+    );
     println!();
     println!("Keep a break-glass copy of the master key outside this host, and not in the");
     println!("same backup as the database: together they are a complete secret store.");
@@ -788,7 +825,11 @@ fn audit(cli: &Context, command: &AuditCommand) -> Result<(), CliError> {
 }
 
 /// `ciphr rotate-master-key`.
-fn rotate_master_key(cli: &Context, new_key_variable: &str) -> Result<(), CliError> {
+fn rotate_master_key(
+    cli: &Context,
+    new_key_variable: Option<&str>,
+    new_key_file: Option<&std::path::Path>,
+) -> Result<(), CliError> {
     let mut session = open(cli)?;
     let state = session
         .store
@@ -797,7 +838,16 @@ fn rotate_master_key(cli: &Context, new_key_variable: &str) -> Result<(), CliErr
             path: cli.database.display().to_string(),
         })?;
 
-    let new_seal = StaticEnvSeal::from_env(new_key_variable)?;
+    // clap guarantees exactly one of the two, so there is no precedence to get wrong.
+    let new_seal = match (new_key_variable, new_key_file) {
+        (_, Some(path)) => StaticSeal::from_file(path)?,
+        (Some(variable), None) => StaticSeal::from_env(variable)?,
+        (None, None) => {
+            return Err(CliError::Audit(
+                "pass --new-key-env or --new-key-file".to_owned(),
+            ));
+        }
+    };
     let rewrapped = new_seal.rewrap(&session.root, state.wrapped_root_key.id)?;
 
     session.record(&Session::operator_entry(
@@ -810,7 +860,10 @@ fn rotate_master_key(cli: &Context, new_key_variable: &str) -> Result<(), CliErr
         wrapped_root_key: rewrapped,
     })?;
 
-    println!("the root key is now sealed with the key in {new_key_variable}");
+    println!(
+        "the root key is now sealed with the key from {}",
+        new_seal.source()
+    );
     println!();
     println!("Nothing was re-encrypted: one record changed. Keep the old key until a");
     println!("restart with the new one has been confirmed.");

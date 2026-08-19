@@ -23,10 +23,10 @@
 //!
 //! ```
 //! use ciphr_core::{Plaintext, SecretPath, SecretVersion};
-//! use ciphr_crypto::{MasterKey, RootKey, RootKeyId, Seal, StaticEnvSeal, decrypt, encrypt};
+//! use ciphr_crypto::{MasterKey, RootKey, RootKeyId, Seal, StaticSeal, decrypt, encrypt};
 //!
 //! // At `init`: a root key is generated and stored only in wrapped form.
-//! let seal = StaticEnvSeal::from_master_key("CIPHR_MASTER_KEY", MasterKey::generate()?);
+//! let seal = StaticSeal::from_master_key("CIPHR_MASTER_KEY", MasterKey::generate()?);
 //! let root = RootKey::generate()?;
 //! let root_id = RootKeyId::generate()?;
 //! let wrapped = seal.rewrap(&root, root_id)?;
@@ -57,7 +57,7 @@ pub use envelope::{
 };
 pub use error::CryptoError;
 pub use key::{Dek, DekId, ID_LEN, KEY_LEN, MasterKey, RootKey, RootKeyId};
-pub use seal::{Seal, StaticEnvSeal};
+pub use seal::{KeySource, Seal, StaticSeal};
 pub use token::{
     TOKEN_ID_LEN, TOKEN_PREFIX, TOKEN_SECRET_LEN, TOKEN_TEXT_LEN, Token, TokenId, TokenPepper,
     TokenVerifier,

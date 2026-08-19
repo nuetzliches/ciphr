@@ -1,8 +1,6 @@
 # The master key
 
-**Status:** current as of 2026-08-18, phase 1. The mechanism is implemented and tested; the CLI that
-will drive it (`ciphr init`, `ciphr rotate-master-key`) arrives in phase 3. Where a procedure has no
-command yet, this document says so instead of inventing one.
+**Status:** current as of 2026-08-19, phase 3. Every procedure here has a command that exists.
 
 This is the highest-consequence thing in the system. Lose it and every secret is unrecoverable —
 there is no reset, no recovery code, and no support channel that can help. Leak it and the database is
@@ -10,9 +8,9 @@ plaintext. Everything below follows from those two sentences.
 
 ## What it is
 
-A 32-byte key, supplied as 64 hexadecimal characters in an environment variable
-(`CIPHR_MASTER_KEY` by default). It wraps the root key and nothing else, so it is never used to
-encrypt a secret directly.
+A 32-byte key, supplied as 64 hexadecimal characters — from a file (preferred) or from an environment
+variable (`CIPHR_MASTER_KEY` by default). It wraps the root key and nothing else, so it is never used
+to encrypt a secret directly.
 
 It is **not** a password. It is not stretched with Argon2 or PBKDF2, because it is not
 human-chosen: it is full-entropy random data, and key derivation would add cost without adding
@@ -33,8 +31,53 @@ pasting it into a chat message or ticket "temporarily". Chat history is a backup
 
 ## Where it lives
 
-In the service environment file, mode `0600`, owned by the account that runs ciphr — the same place
-other signing secrets already live. That is deliberate, and it is worth being clear about what it
+Two sources, both a static key (ADR-5). **Prefer the file** where the deployment allows it:
+
+```toml
+# ciphr.toml — preferred
+[seal]
+type = "static_file"
+path = "/run/secrets/ciphr-master-key"
+
+# ciphr.toml — the older form, still supported
+[seal]
+type = "static_env"
+env  = "CIPHR_MASTER_KEY"
+```
+
+```sh
+ciphr --master-key-file /run/secrets/ciphr-master-key get infra/a/B
+ciphr --master-key-env  CIPHR_MASTER_KEY            get infra/a/B
+```
+
+The two cannot be combined — configuration allows one, and the CLI refuses both flags together. There
+is no precedence rule on purpose: a rule about which source wins is a rule that lets a deployment use
+the key nobody thought was active.
+
+Why the file is better: an environment value is baked into the container configuration when the
+container is created, and that is readable through the runtime's inspect API — by everyone with access
+to the runtime socket, a broader set of principals than root. It is also in `/proc/<pid>/environ`. This
+is the same objection [section 13 of the plan](../../.claude/plans/PLAN.md) raises against passing
+secrets to *other* services through the environment, and it applied to ciphr's own key until now.
+
+Three things the file does **not** change:
+
+- Root on the host reads it either way. Adversary A5 is unchanged.
+- The key is in process memory either way.
+- It is still one bootstrap secret per host.
+
+And one thing that depends on the runtime: **whether the key is at rest on a disk.** Swarm secrets and
+Kubernetes secret volumes are memory-backed, so the file never touches one. Plain Compose outside
+Swarm bind-mounts a real file — still better, because a file carries permission bits and a container
+configuration does not, but not "never at rest". Know which case your deployment is.
+
+A world-readable key file **stops the process**. Group-readable is accepted: root-owned and read by a
+service group is a legitimate arrangement. Windows has no equivalent bit and no check runs there.
+
+## What either source buys, and what it does not
+
+The key sits in a file or a variable that the deployment supplies, mode `0600`, owned by the account
+that runs ciphr — the same place other signing secrets already live. That is deliberate, and it is worth being clear about what it
 buys and does not buy:
 
 - **It buys unattended startup.** A restart at 03:00 does not wait for a human. That is the whole
@@ -79,19 +122,29 @@ The sequence, as implemented in `ciphr-store`:
 2. Unseal the root key with the **old** master key.
 3. Wrap the same root key — same identifier — with the **new** master key.
 4. Replace the seal record.
-5. Put the new key in the environment file and restart.
+5. Put the new key where the deployment reads it, and restart.
 
 Two invariants are enforced rather than trusted: replacing the seal record with one for a *different*
 root key is refused (it would make every secret unreadable, with no error until the first read), and
 so is initializing a store that already has a seal record.
 
-**No CLI command does this yet.** In phase 1 the operation exists as a library call, exercised by
-`crates/ciphr-store/tests/master_key_rotation.rs`. `ciphr rotate-master-key` arrives with the CLI in
-phase 3. Until then, rotation on a live deployment is not a supported procedure — which is fine,
-because there is no live deployment yet.
+```sh
+# with a file — write the new one alongside the old
+printf %s "$(openssl rand -hex 32)" > /run/secrets/ciphr-master-key.new
+chmod 0600 /run/secrets/ciphr-master-key.new
+ciphr --master-key-file /run/secrets/ciphr-master-key       rotate-master-key --new-key-file /run/secrets/ciphr-master-key.new
 
-When it is: keep the old key until the new one is confirmed working. The window between step 4 and a
-successful restart is the one where having discarded the old key too early would be unrecoverable.
+# with a variable
+export CIPHR_NEW_MASTER_KEY=$(openssl rand -hex 32)
+ciphr rotate-master-key --new-key-env CIPHR_NEW_MASTER_KEY
+```
+
+The two sources can be mixed across a rotation — reading the old key from a variable and writing the
+new one to a file is exactly how a deployment migrates from one to the other, and it needs no
+re-encryption.
+
+**Keep the old key until a restart with the new one has been confirmed.** The window between step 4
+and a successful restart is the one where having discarded it too early would be unrecoverable.
 
 ## When it is compromised
 
@@ -107,6 +160,8 @@ cannot simply be replaced: see [rotating-secrets.md](rotating-secrets.md).
 
 | Situation | What you will see | What to do |
 |---|---|---|
+| Key file world-readable | Startup fails naming the file and its mode | `chmod 0600`, or `0640` if a service group needs it |
+| Key file missing or unreadable | Startup fails naming the path and the I/O category, never the content | Check the mount actually landed; a secret that failed to mount looks exactly like this |
 | Variable not set | Startup fails naming the variable | Set it; do not "temporarily" generate a new one — a new key cannot read the existing database |
 | Wrong key, valid format | Unsealing fails as an authentication failure, indistinguishable from a corrupted record | Check you are pointing at the intended environment file before concluding the database is damaged |
 | Key not 64 hex characters | Startup fails with a length or encoding error, never echoing the value | Regenerate as above; watch for a trailing newline or quotes |

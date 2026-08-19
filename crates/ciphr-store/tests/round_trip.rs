@@ -1,13 +1,13 @@
 //! End-to-end behaviour of the store, exercised through the public API only.
 
 use ciphr_core::{Plaintext, Rotation, SecretPath, SecretVersion};
-use ciphr_crypto::{MasterKey, RootKey, RootKeyId, Seal, StaticEnvSeal, decrypt, encrypt};
+use ciphr_crypto::{MasterKey, RootKey, RootKeyId, Seal, StaticSeal, decrypt, encrypt};
 use ciphr_store::{SealState, SqliteStore, Store, StoreError};
 
 /// A store with a root key, as `ciphr init` would leave it.
 fn initialized() -> (SqliteStore, RootKey) {
     let seal =
-        StaticEnvSeal::from_master_key("CIPHR_MASTER_KEY", MasterKey::generate().expect("entropy"));
+        StaticSeal::from_master_key("CIPHR_MASTER_KEY", MasterKey::generate().expect("entropy"));
     let root = RootKey::generate().expect("entropy");
     let id = RootKeyId::generate().expect("entropy");
 
@@ -68,7 +68,7 @@ fn initializing_twice_is_refused() {
         .wrapped_root_key
         .id;
 
-    let seal = StaticEnvSeal::from_master_key("OTHER", MasterKey::generate().expect("entropy"));
+    let seal = StaticSeal::from_master_key("OTHER", MasterKey::generate().expect("entropy"));
     let result = store.initialize(&SealState {
         seal_id: seal.id().to_owned(),
         wrapped_root_key: seal.rewrap(&root, id).expect("wrap"),
@@ -325,7 +325,7 @@ fn a_reopened_database_keeps_everything() {
     let file = directory.path().join("store.db");
 
     let seal =
-        StaticEnvSeal::from_master_key("CIPHR_MASTER_KEY", MasterKey::generate().expect("entropy"));
+        StaticSeal::from_master_key("CIPHR_MASTER_KEY", MasterKey::generate().expect("entropy"));
     let root = RootKey::generate().expect("entropy");
     let id = RootKeyId::generate().expect("entropy");
     let at = path("infra/service-a/DB_PASSWORD");
@@ -346,7 +346,9 @@ fn a_reopened_database_keeps_everything() {
         .seal_state()
         .expect("seal state")
         .expect("initialized");
-    assert_eq!(state.seal_id, "static_env");
+    // The mechanism, not the source: the same key opens the store whether it was read
+    // from the environment or from a file.
+    assert_eq!(state.seal_id, "static");
     assert_eq!(state.wrapped_root_key.id, id);
 
     let unsealed = seal.unseal(&state.wrapped_root_key).expect("unseal");

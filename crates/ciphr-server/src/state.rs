@@ -58,6 +58,7 @@ struct Inner {
     root: RootKey,
     pepper: TokenPepper,
     seal_id: String,
+    key_source: String,
     devices: Mutex<Vec<DeviceHealth>>,
 }
 
@@ -109,6 +110,7 @@ impl AppState {
         policies: PolicySet,
         root: RootKey,
         seal_id: String,
+        key_source: String,
     ) -> Self {
         let pepper = TokenPepper::derive(&root);
         let devices = audit
@@ -128,6 +130,7 @@ impl AppState {
                 root,
                 pepper,
                 seal_id,
+                key_source,
                 devices: Mutex::new(devices),
             }),
         }
@@ -144,6 +147,17 @@ impl AppState {
     }
 
     /// Which seal mechanism this store uses, for the health endpoint.
+    /// Where *this process* read its master key: `env`, `file`, or `supplied`.
+    ///
+    /// Reported separately from the stored seal identifier, because the two legitimately
+    /// differ while a deployment is moving from one source to the other — and that is
+    /// exactly when an operator needs to see which one is actually in use.
+    pub fn key_source(&self) -> &str {
+        &self.inner.key_source
+    }
+
+    /// The seal mechanism recorded in the store — what sealed it, rather than what this
+    /// process is configured with. See [`AppState::key_source`] for the difference.
     pub fn seal_id(&self) -> &str {
         &self.inner.seal_id
     }

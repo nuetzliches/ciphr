@@ -13,7 +13,7 @@ use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 
 use ciphr_audit::{Action, AuditSink, Chain, Entry, FileDevice, Principal};
-use ciphr_crypto::{RootKey, Seal, StaticEnvSeal, TokenPepper};
+use ciphr_crypto::{RootKey, Seal, StaticSeal, TokenPepper};
 use ciphr_store::{SqliteAuditDevice, SqliteStore, Store, StoreLock};
 
 use crate::error::CliError;
@@ -38,7 +38,7 @@ impl Session {
     ///
     /// Returns [`CliError`] if the database cannot be opened, has never been
     /// initialized, or cannot be unsealed with the master key in the environment.
-    pub(crate) fn open(database: &Path, master_key_variable: &str) -> Result<Self, CliError> {
+    pub(crate) fn open(database: &Path, seal: &StaticSeal) -> Result<Self, CliError> {
         // Before anything else. The audit chain is held in memory by whoever has the
         // store open, so a second writer -- another CLI invocation or a running
         // server -- would collide on a sequence number and leave the first process
@@ -53,7 +53,6 @@ impl Session {
                 path: database.display().to_string(),
             })?;
 
-        let seal = StaticEnvSeal::from_env(master_key_variable)?;
         let root = seal.unseal(&state.wrapped_root_key)?;
         let pepper = TokenPepper::derive(&root);
 

@@ -1,9 +1,9 @@
 # The `ciphr` command
 
-**Status:** implemented and tested as of 2026-08-18 (phase 3). Every command below works. Deployment
+**Status:** implemented and tested as of 2026-08-19 (phase 3). Every command below works. Deployment
 — containers, reverse proxy, certificates — is phase 4 and not described here yet.
 
-The CLI works on the **local** store with the master key from the environment. It does not go through
+The CLI works on the **local** store, with the master key from a file or from the environment. It does not go through
 the HTTP API, and that is deliberate: initializing a store, issuing a token, shredding a version,
 verifying the chain, and exporting for migration all need the master key and have no endpoint by
 design (ADR-3). A CLI that spoke HTTP would need a privileged API to do its job — the API this
@@ -45,12 +45,19 @@ purpose.
 |---|---|---|
 | `--database`, `-d` | `ciphr.db` | The store. |
 | `--master-key-env` | `CIPHR_MASTER_KEY` | Variable holding 64 hexadecimal characters. |
+| `--master-key-file` | — | File holding the key instead. Preferred where the deployment allows it; cannot be combined with the variable. See [master-key.md](master-key.md). |
 | `--policies` | `policies.toml` | Needed by `token issue`, which checks the identity exists. |
 | `--audit-file` | — | Also append this session's audit entries to a JSON Lines file. |
 
 ## Starting a store
 
 ```sh
+# preferred: the key in a file the deployment mounts
+printf %s "$(openssl rand -hex 32)" > /run/secrets/ciphr-master-key
+chmod 0600 /run/secrets/ciphr-master-key
+ciphr --database /var/lib/ciphr/store.db --master-key-file /run/secrets/ciphr-master-key init
+
+# or from the environment
 export CIPHR_MASTER_KEY=$(openssl rand -hex 32)
 ciphr --database /var/lib/ciphr/store.db init
 ```
@@ -178,9 +185,14 @@ somewhere outside the store.
 ## Rotating the master key
 
 ```sh
+ciphr rotate-master-key --new-key-file /run/secrets/ciphr-master-key.new
+# or
 export CIPHR_NEW_MASTER_KEY=$(openssl rand -hex 32)
 ciphr rotate-master-key --new-key-env CIPHR_NEW_MASTER_KEY
 ```
+
+The old and the new key may come from different kinds of source, which is how a deployment moves from
+the environment to a file: read the old one from the variable, write the new one to the file, rotate.
 
 One record changes and nothing is re-encrypted — that is what the root key exists for. Keep the old
 key until a restart with the new one has been confirmed; the window between the rewrite and a

@@ -8,6 +8,47 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — the master key may come from a file
+
+- `[seal] type = "static_file"` with a `path`, and `--master-key-file` on the CLI. Recorded as an
+  extension of ADR-5 rather than a new decision: what ADR-5 decides is a *static* key behind a trait,
+  and where that key is read is a property of one implementation. The key bytes are identical either
+  way, and a store sealed through one source opens through the other — there is a test for exactly
+  that.
+- The reason is not only that it is smaller: section 13 of the plan tells consumers not to pass
+  secrets through `environment:`, because the value is baked into the container configuration and is
+  readable through the runtime's inspect API by everyone with socket access — a broader set than root.
+  ciphr was doing that with its own master key. A secret manager whose deployment contradicts its own
+  guidance is hard to argue for.
+- What it removes: the key is no longer in the container configuration or in `/proc/<pid>/environ`.
+  What it does not change, stated in ADR-5 and in the operations guide: root on the host reads the
+  file just as it read the variable, the key is in process memory either way, and it is still one
+  bootstrap secret per host. Whether the key is at rest on a disk depends on the runtime — Swarm and
+  Kubernetes secrets are memory-backed, plain Compose bind-mounts a real file.
+- **Both sources cannot be active at once.** The configuration is one tagged variant and the CLI
+  refuses the two flags together, so there is deliberately no precedence rule: a rule about which
+  source wins is a rule that lets a deployment use the key nobody thought was active.
+- **A world-readable key file stops the process**, rather than producing a warning nobody reads.
+  Group-readable is accepted: root-owned and read by a service group is legitimate, and refusing it
+  would push deployments towards running as root. Windows has no equivalent bit and no check runs
+  there, which is documented rather than silently skipped.
+- Surrounding whitespace is trimmed, so a file written with `echo` is not a different key from one
+  written with `printf %s`.
+- No URL-style `file://` prefix: parsing a source out of a string is the hand-written parsing ADR-2
+  rejected for policies, and the argument applies to configuration too.
+
+### Changed
+
+- `StaticEnvSeal` is now `StaticSeal`, since the name would otherwise describe only one of its two
+  sources. The identifier recorded in a store is `static` rather than `static_env` for the same
+  reason — it names the mechanism, not where the key was read. `static_env` is accepted as equivalent
+  when opening an existing store and is replaced on the next re-wrap.
+- `/v1/health` reports `key_source` (`env`, `file`, or `supplied`) alongside `seal`. The two
+  legitimately differ while a deployment moves between sources, which is exactly when an operator
+  needs to see which one is in effect.
+- `docs/operations/master-key.md` was still describing phase 1, including a rotation procedure that
+  said no CLI command existed for it. Both are corrected.
+
 Phases 0 to 3 are complete. The external review has not taken place; it remains a precondition for
 first production use.
 

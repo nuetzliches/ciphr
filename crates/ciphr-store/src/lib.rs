@@ -20,11 +20,11 @@
 //!
 //! ```
 //! use ciphr_core::{Plaintext, SecretPath, SecretVersion};
-//! use ciphr_crypto::{MasterKey, RootKey, RootKeyId, Seal, StaticEnvSeal};
+//! use ciphr_crypto::{MasterKey, RootKey, RootKeyId, Seal, StaticSeal};
 //! use ciphr_store::{SealState, SqliteStore, Store};
 //!
 //! // `ciphr init`: generate a root key and store it wrapped.
-//! let seal = StaticEnvSeal::from_master_key("CIPHR_MASTER_KEY", MasterKey::generate()?);
+//! let seal = StaticSeal::from_master_key("CIPHR_MASTER_KEY", MasterKey::generate()?);
 //! let root_id = RootKeyId::generate()?;
 //! let root = RootKey::generate()?;
 //!

@@ -56,6 +56,28 @@ pub enum CryptoError {
         /// Name of the variable that was consulted.
         variable: String,
     },
+    /// The file holding the master key could not be read.
+    ///
+    /// Carries the path and the kind of I/O failure, never the content.
+    MasterKeyFileUnreadable {
+        /// Which file.
+        path: String,
+        /// What went wrong, as a category rather than a message that might quote data.
+        reason: String,
+    },
+    /// The file holding the master key is readable by everyone.
+    ///
+    /// Refused rather than warned about: a world-readable master key is unambiguously
+    /// wrong, and a warning in a startup log is a warning nobody reads. Group bits are
+    /// deliberately not checked — a root-owned file read by a service group is a
+    /// legitimate arrangement, and refusing it would push deployments towards running
+    /// as root.
+    MasterKeyFileWorldReadable {
+        /// Which file.
+        path: String,
+        /// The permission bits found.
+        mode: u32,
+    },
     /// A token is not a ciphr token.
     ///
     /// One variant for every way a token can be malformed — wrong length, wrong
@@ -83,6 +105,13 @@ impl fmt::Display for CryptoError {
             Self::MasterKeyNotUnicode { variable } => {
                 write!(f, "environment variable {variable} is not valid Unicode")
             }
+            Self::MasterKeyFileUnreadable { path, reason } => {
+                write!(f, "cannot read the master key file {path}: {reason}")
+            }
+            Self::MasterKeyFileWorldReadable { path, mode } => write!(
+                f,
+                "the master key file {path} is mode {mode:04o} and world-readable;                  restrict it to its owner (and group, if a service needs it)"
+            ),
             Self::TokenFormat => f.write_str("not a valid token"),
         }
     }

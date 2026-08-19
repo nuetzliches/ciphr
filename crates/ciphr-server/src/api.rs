@@ -74,6 +74,12 @@ struct Health {
     status: &'static str,
     sealed: bool,
     seal: String,
+    /// Where this process read its master key: `env`, `file`, or `supplied`.
+    ///
+    /// Not secret, and worth exposing: a deployment that means to keep its key out of
+    /// the container configuration can check that it actually did, rather than assuming
+    /// the configuration file it edited is the one in effect.
+    key_source: String,
     audit_devices: Vec<DeviceHealth>,
     api_version: &'static str,
 }
@@ -220,6 +226,7 @@ async fn health(State(state): State<AppState>) -> Json<Health> {
         // meaningful, and a client should not have to change shape when it does.
         sealed: false,
         seal: state.seal_id().to_owned(),
+        key_source: state.key_source().to_owned(),
         audit_devices: state.audit_devices(),
         api_version: "v1",
     })

@@ -11,7 +11,7 @@
 //! never rotated is the same as a key that cannot be.
 
 use ciphr_core::{Plaintext, SecretPath, SecretVersion};
-use ciphr_crypto::{MasterKey, RootKey, RootKeyId, Seal, StaticEnvSeal, decrypt, encrypt};
+use ciphr_crypto::{MasterKey, RootKey, RootKeyId, Seal, StaticSeal, decrypt, encrypt};
 use ciphr_store::{SealState, SqliteStore, Store, StoreError};
 
 const SECRETS: [(&str, &[u8]); 3] = [
@@ -31,8 +31,8 @@ fn rotating_the_master_key_rewraps_one_record_and_keeps_every_secret_readable() 
 
     let old_master = MasterKey::from_hex(&"11".repeat(32)).expect("valid hex");
     let new_master = MasterKey::from_hex(&"22".repeat(32)).expect("valid hex");
-    let old_seal = StaticEnvSeal::from_master_key("CIPHR_MASTER_KEY", old_master);
-    let new_seal = StaticEnvSeal::from_master_key("CIPHR_MASTER_KEY", new_master);
+    let old_seal = StaticSeal::from_master_key("CIPHR_MASTER_KEY", old_master);
+    let new_seal = StaticSeal::from_master_key("CIPHR_MASTER_KEY", new_master);
 
     let root_id = RootKeyId::generate().expect("entropy");
 
@@ -122,7 +122,7 @@ fn a_replacement_for_a_different_root_key_is_refused() {
     // record for a *different* root key would make every secret in the database
     // undecryptable, with no error until the first read.
     let seal =
-        StaticEnvSeal::from_master_key("CIPHR_MASTER_KEY", MasterKey::generate().expect("entropy"));
+        StaticSeal::from_master_key("CIPHR_MASTER_KEY", MasterKey::generate().expect("entropy"));
     let root = RootKey::generate().expect("entropy");
 
     let mut store = SqliteStore::open_in_memory().expect("open");
@@ -149,7 +149,7 @@ fn a_replacement_for_a_different_root_key_is_refused() {
 #[test]
 fn replacing_the_seal_of_an_uninitialized_store_is_refused() {
     let seal =
-        StaticEnvSeal::from_master_key("CIPHR_MASTER_KEY", MasterKey::generate().expect("entropy"));
+        StaticSeal::from_master_key("CIPHR_MASTER_KEY", MasterKey::generate().expect("entropy"));
     let mut store = SqliteStore::open_in_memory().expect("open");
 
     let result = store.replace_seal(&SealState {
@@ -168,11 +168,11 @@ fn replacing_the_seal_of_an_uninitialized_store_is_refused() {
 #[test]
 fn a_secret_written_after_rotation_reads_alongside_older_ones() {
     // Rotation must not split the database into "before" and "after".
-    let old_seal = StaticEnvSeal::from_master_key(
+    let old_seal = StaticSeal::from_master_key(
         "CIPHR_MASTER_KEY",
         MasterKey::from_hex(&"33".repeat(32)).expect("valid hex"),
     );
-    let new_seal = StaticEnvSeal::from_master_key(
+    let new_seal = StaticSeal::from_master_key(
         "CIPHR_MASTER_KEY",
         MasterKey::from_hex(&"44".repeat(32)).expect("valid hex"),
     );

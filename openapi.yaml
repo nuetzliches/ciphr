@@ -464,7 +464,7 @@ components:
 
     Health:
       type: object
-      required: [status, sealed, seal, audit_devices, api_version]
+      required: [status, sealed, seal, key_source, audit_devices, api_version]
       properties:
         status: { type: string, examples: ["ok"] }
         sealed:
@@ -475,8 +475,20 @@ components:
             seal makes it meaningful, and a client should not have to change shape then.
         seal:
           type: string
-          description: The seal mechanism recorded in the store.
-          examples: ["static_env"]
+          description: |
+            The seal mechanism recorded in the store. `static` for a static key supplied
+            from outside; `static_env` in stores sealed by a build from before the key
+            could come from a file, which names the same mechanism.
+          examples: ["static"]
+        key_source:
+          type: string
+          enum: [env, file, supplied]
+          description: |
+            Where *this process* read its master key. Reported separately from `seal`
+            because the two legitimately differ while a deployment moves from the
+            environment to a file — which is exactly when an operator needs to see which
+            one is in effect. Not secret: it names the source, never the key.
+          examples: ["file"]
         audit_devices:
           type: array
           description: |

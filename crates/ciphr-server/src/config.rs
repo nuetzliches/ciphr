@@ -101,19 +101,33 @@ pub enum StorageBackend {
 }
 
 /// Seal settings.
+///
+/// One variant, so a deployment cannot configure two sources and leave which one wins
+/// to be discovered later. Both are the same mechanism — a static key supplied from
+/// outside — and `static_file` is the better of the two where the deployment allows it
+/// (ADR-5, extension of 2026-08-19).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields, tag = "type", rename_all = "snake_case")]
 pub enum SealConfig {
-    /// Master key from an environment variable (ADR-5).
+    /// Master key from an environment variable.
     StaticEnv {
         /// Which variable to read.
         #[serde(default = "default_master_key_variable")]
         env: String,
     },
+    /// Master key from a file, typically a secret mounted at `/run/secrets/…`.
+    ///
+    /// Keeps the key out of the container configuration and out of
+    /// `/proc/<pid>/environ` — the same objection this project raises against passing
+    /// secrets to other services through the environment.
+    StaticFile {
+        /// Where to read it.
+        path: PathBuf,
+    },
 }
 
 fn default_master_key_variable() -> String {
-    ciphr_crypto::StaticEnvSeal::DEFAULT_VARIABLE.to_owned()
+    ciphr_crypto::StaticSeal::DEFAULT_VARIABLE.to_owned()
 }
 
 /// One audit device.
@@ -278,8 +292,45 @@ rotate_size = "64MB"
 
         // The seal defaults to the documented variable rather than requiring it to be
         // spelled out in every deployment.
-        let SealConfig::StaticEnv { env } = &config.seal;
+        let SealConfig::StaticEnv { env } = &config.seal else {
+            panic!("the example configures the environment source");
+        };
         assert_eq!(env, "CIPHR_MASTER_KEY");
+    }
+
+    #[test]
+    fn the_key_may_come_from_a_file_instead() {
+        let text = COMPLETE.replace(
+            "[seal]
+type = \"static_env\"",
+            "[seal]
+type = \"static_file\"
+path = \"/run/secrets/ciphr-master-key\"",
+        );
+        let config = Config::parse(&text).expect("the file source must load");
+
+        let SealConfig::StaticFile { path } = &config.seal else {
+            panic!("expected the file source");
+        };
+        assert!(path.ends_with("ciphr-master-key"));
+    }
+
+    #[test]
+    fn the_two_key_sources_cannot_both_be_configured() {
+        // One tagged variant, so a deployment cannot leave which source wins to be
+        // discovered later. Adding the other's key to the same table is an error rather
+        // than a preference.
+        let text = COMPLETE.replace(
+            "[seal]
+type = \"static_env\"",
+            "[seal]
+type = \"static_env\"
+path = \"/run/secrets/ciphr-master-key\"",
+        );
+        assert!(matches!(
+            Config::parse(&text),
+            Err(ConfigError::Syntax { .. })
+        ));
     }
 
     #[test]

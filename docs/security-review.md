@@ -136,7 +136,10 @@ which parts do *not* need their attention.
 | C4 | One token string has exactly one spelling: base64url decoding rejects padding and non-zero trailing bits. | Two strings that authenticate as one token. |
 | C5 | A change of seal mechanism re-wraps exactly one record and re-encrypts nothing. | A path where rotation touches ciphertext. Tested by asserting every stored ciphertext is byte-identical after a master key rotation. |
 | C6 | Replacing the seal record with one for a *different* root key is refused. | A way to store a mismatched record — it would make every secret unreadable with no error until the first read. |
-| C7 | *What else.* | |
+| C7 | The master key may be read from a file as well as a variable, and the source is not part of the key: a store sealed through one opens through the other. | A source that changes the key, or a path where the two disagree. |
+| C8 | Both key sources cannot be active at once, so there is no precedence rule to get wrong. | A configuration or command line that accepts both. |
+| C9 | A world-readable key file stops the process; group-readable is accepted deliberately. | A permissive file that starts, or a legitimate group arrangement that is refused. Windows has no check, by documented omission. |
+| C10 | *What else.* | |
 
 ### D. The authorization decision — `ciphr-policy`
 

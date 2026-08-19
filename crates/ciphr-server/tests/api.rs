@@ -13,7 +13,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
 use ciphr_audit::{AuditDevice, AuditSink, Chain, EncodedRecord};
 use ciphr_core::{Plaintext, SecretPath};
-use ciphr_crypto::{MasterKey, RootKey, RootKeyId, Seal, StaticEnvSeal, Token, TokenPepper};
+use ciphr_crypto::{MasterKey, RootKey, RootKeyId, Seal, StaticSeal, Token, TokenPepper};
 use ciphr_server::{AppState, api};
 use ciphr_store::{AuditFilter, SealState, SqliteAuditDevice, SqliteStore, Store};
 use tower::ServiceExt;
@@ -78,7 +78,7 @@ impl Harness {
         let directory = tempfile::tempdir().expect("temp dir");
         let database = directory.path().join("store.db");
 
-        let seal = StaticEnvSeal::from_master_key(
+        let seal = StaticSeal::from_master_key(
             "CIPHR_MASTER_KEY",
             MasterKey::from_hex(&"11".repeat(32)).expect("valid"),
         );
@@ -128,7 +128,14 @@ impl Harness {
         let sink = AuditSink::new(devices, Chain::new()).expect("sink");
 
         let policies = ciphr_policy::PolicySet::from_toml(POLICIES).expect("policies");
-        let state = AppState::new(store, sink, policies, root, "static_env".to_owned());
+        let state = AppState::new(
+            store,
+            sink,
+            policies,
+            root,
+            "static".to_owned(),
+            "supplied".to_owned(),
+        );
 
         Self {
             router: api::router(state),
@@ -231,7 +238,10 @@ fn health_needs_no_token_and_reveals_no_inventory() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["status"], "ok");
     assert_eq!(body["sealed"], false);
-    assert_eq!(body["seal"], "static_env");
+    assert_eq!(body["seal"], "static");
+    // Where the key came from, so a deployment can confirm it is not in the container
+    // configuration rather than assuming the file it edited took effect.
+    assert_eq!(body["key_source"], "supplied");
     assert!(body["audit_devices"].is_array());
     // Nothing has been recorded yet, and that is a third state -- not "healthy".
     assert_eq!(
