@@ -8,6 +8,51 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — `ciphr audit cut` bounds the queryable trail
+
+The `audit_log` table grew for as long as a store existed, and because auditing is fail-closed a full
+volume stops the service serving secrets. This is the bound. It is one operation rather than three,
+because doing any part of it alone is the mistake — a `DELETE` against that table makes everything
+after it unverifiable and reports as tampering afterwards, indistinguishable from a cover-up
+including for the person who ran it.
+
+```sh
+ciphr audit cut --keep 50000 --anchor /path/to/anchors.jsonl --archive /path/to/audit.jsonl
+```
+
+- **`--keep`** is how many of the newest entries stay queryable. A count, not an age: the bound it
+  answers is the size of the table, and age-based retention belongs on the archive where the host's
+  log tooling already does it. A trail shorter than the bound is reported and exits zero — a
+  scheduled cut that failed on a young trail is one somebody switches off.
+- **`--archive` is required**, and it is checked rather than trusted. Every record the cut would
+  remove has to be in the file device's file or one of its rotated siblings, matched by the hash of
+  the line, which for this format means byte-identical. A record that is not there is not removed.
+  `--assume-archived` replaces the check with an assumption — for lines shipped off the host as they
+  are written, or rotated files compressed beyond what this can read — and says so on every run.
+- **`--anchor` is required**, and two lines go into it: the anchor at the cut, synced to disk *before*
+  the records go, and an anchor over what survived, appended after. The first is what the remainder is
+  verified from. The order is the failure mode: a crash between them leaves an anchor over a record
+  still present, which verifies, rather than a cut nothing outside the store can attest to.
+- **`--dry-run`** verifies, checks the archive, prints what would go, and changes nothing.
+- Like `anchor` and `verify`, it needs **neither the store lock nor the master key**, so it runs
+  against a live service. Retention that needs downtime does not get scheduled, and a bound nothing
+  runs is not a bound. It writes no audit entry of its own for the same reason `anchor` does not:
+  that would need the lock the running service holds, and it would move the head just anchored.
+- **Why a command and not a schedule inside the service:** a cut has to be anchored outside the
+  store, and the service is the thing an anchor exists to be independent of.
+
+### Changed — `audit verify` and `audit anchor` know a trail can begin after a cut
+
+- `verify` prints where the trail begins and what the cut removed, and **exits zero on a cut store**.
+  A legitimately cut trail that reported tampering would be a check nobody runs.
+- What it cannot establish alone is stated in the output: the recorded cut is a row in the store,
+  written by whatever can write the store. `verify --anchor` compares that row against the anchor the
+  cut wrote outside and says which of the two answers it got.
+- `audit anchor` works on a cut trail. It would have failed on one — the records no longer start at
+  sequence 1, and an anchor over them has to know where they do start.
+- `/v1/audit` says the same thing in `openapi.yaml`: the trail does not necessarily begin at sequence
+  1, and a client verifying from genesis fails on a cut store, correctly.
+
 ### Added — schema 4 records where the audit log was cut
 
 Nothing cuts it yet; this is the half of retention that has to exist before anything may.

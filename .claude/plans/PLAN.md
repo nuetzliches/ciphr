@@ -502,15 +502,32 @@ forward rewrite — anyone who can write the store can recompute every hash forw
 chain then verifies — so retention and that defence are the same operation when they are done
 together, and two separate ones when they are not.
 
-**Point 3 exists; points 1 and 2 do not.** `ciphr audit anchor` records the head outside the
-store and refuses to append over a contradiction, and `ciphr audit verify --anchor` checks a
-chain against it — including a run of records that begins immediately after an anchored
-sequence, which is what a cut leaves behind. Both read without the store lock and without the
-master key, so an anchor can be taken on a schedule against a running service. **The cut
-itself is not built:** nothing bounds the `sqlite` device and nothing archives what a bound
-would remove, so the table grows without bound and the fill-level health check (section 17)
-stands in for a policy. Anything that trims that table without producing the anchor is exactly
-the chain break above.
+**All three are built.** `ciphr audit cut --keep N --anchor FILE --archive FILE` bounds the
+`sqlite` device, and it does the three as one operation because doing any of them alone is the
+mistake. It verifies the chain, then establishes that every record it would remove is in the
+archive — matched by the hash of the line, so a match is byte-identical — then appends the
+anchor at the cut and syncs it *before* the delete, and appends an anchor over the remainder
+after. Every refusal happens before anything is removed. `audit_cut` (migration 004) holds the
+sequence number and hash the cut ended at, so the routine `verify` on a cut store does not
+report tampering; that row is a claim by whoever can write the store, and the anchor at the same
+sequence is what turns it into evidence — `verify --anchor` compares the two and says which
+answer it got.
+
+Three properties of the cut are decisions rather than implementation:
+
+- **It is a command, not something the service does.** A cut has to be anchored outside the
+  store, and the service is what an anchor exists to be independent of. An anchor the service
+  wrote about its own trail is worth nothing against the service.
+- **It needs neither the store lock nor the master key**, like `anchor` and `verify`, so it runs
+  against a live service. Retention that needs downtime does not get scheduled, and an unrun
+  bound is not one.
+- **It never empties the table.** An empty queryable log has no head, and a service resuming
+  from no head would begin a second chain at sequence one in a table that had a million records.
+
+`--keep` is a count rather than an age: the bound it answers is the size of the queryable
+device, and age-based retention belongs on the archive, where the host's tooling already does
+it. The fill-level health check (section 17) remains necessary — it is what catches a schedule
+that is not keeping up.
 
 ---
 
@@ -667,6 +684,7 @@ ciphr audit tail
 ciphr audit verify                  # verify the hash chain
 ciphr audit anchor --out FILE       # record the head outside the store, section 7
 ciphr audit verify --anchor FILE    # and check the chain against it
+ciphr audit cut --keep N --anchor FILE --archive FILE   # bound the queryable trail, section 7
 ciphr dump --format portable        # exit path, see section 2
 ```
 
@@ -1332,12 +1350,12 @@ The project starts private. These points cost nothing now and would be expensive
 
 ### Open questions that still need work
 
-1. **When the audit cut from section 7 is built.** The anchor half is built (`ciphr audit
-   anchor`); the cut is not. Until it is, the `sqlite` audit table grows without bound, and
-   because the service is fail-closed a full volume is an outage rather than a warning. What is
-   open is whether the cut ships before the phases that multiply the entry rate — and, with it,
-   where a deployment keeps its anchor file, which is the decision that makes the anchor worth
-   taking at all.
+1. **Where a deployment keeps its anchor file, and what runs the cut.** The cut from section 7
+   is built; nothing here decides where it is pointed. Beside the database the anchor file is
+   decoration — whoever can rewrite the trail can rewrite it too — so the open question is which
+   host, backup, or append-only share holds it, and that is a deployment decision recorded where
+   the deployment is documented. The second half is the schedule: a bound nothing runs is not a
+   bound, and the fill-level check is what catches a schedule that is not keeping up.
 2. **Whether the service ever serves a consumer outside its own network** (section 13). Three
    decisions in one — network exposure, a certificate for a name a foreign host resolves, a token
    across a trust boundary — and the answer bounds how far phase 7 can reach.

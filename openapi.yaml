@@ -273,6 +273,12 @@ paths:
         verify the chain itself rather than trusting this endpoint's word about it.
         Filters are applied server-side, because the alternative is a client pulling the
         whole trail to answer a question about part of it.
+
+        **The trail does not necessarily begin at sequence 1.** `ciphr audit cut` bounds
+        the queryable device, and what survives a cut chains to a record that is no
+        longer in it. A client verifying from genesis fails on such a store, which is the
+        correct outcome: the point the remainder starts from is deliberately not served
+        here, because it is only worth anything as the anchor kept outside the store.
       parameters:
         - name: limit
           in: query

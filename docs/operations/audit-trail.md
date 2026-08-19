@@ -1,8 +1,8 @@
 # The audit trail
 
-**Status:** implemented and tested as of 2026-08-18 (phase 2). The chain, the fail-closed sink, the
-file device, and the SQLite device work and are tested. `ciphr audit verify` and `ciphr audit tail`
-arrive with the CLI in phase 3; until then verification is a library call, exercised by the tests.
+**Status:** implemented and tested as of 2026-08-19. The chain, the fail-closed sink, the file
+device, and the SQLite device work and are tested, and so do `ciphr audit tail`, `verify`, `anchor`,
+and `cut` — the last of these is what bounds the queryable trail, and it arrived after the rest.
 
 This is the component the project exists for. Everything below follows from one sentence: **an access
 that could not be logged must not happen.**
@@ -123,26 +123,61 @@ A procedure invented during an incident is a procedure nobody trusts, so here it
 
 ## Retention
 
-**Nothing here deletes anything.** Rotation is by size, the rotated file keeps a timestamp in its
-name, and the `audit_log` table grows for as long as the store exists. That is the current
-behaviour, and it is not a retention policy.
+**Deleting entries is not an option; archiving them is.** The chain verifies a gap-free sequence, so
+a `DELETE` against `audit_log` makes everything after it unverifiable from genesis and reports as a
+`SequenceGap` — a tampering signal. A trail that routinely claims tampering is one nobody reads,
+which is why retention here is one operation rather than a time-based rule pointed at the table:
 
-The shape the policy has to take is recorded in section 7 of the implementation plan: the queryable
-device bounded, the file device unbounded and archived, and — the part that makes the first two safe
-— the head hash, its sequence number, and the date written down **outside the store** at every cut,
-so verification can start from that anchor instead of from genesis. Retention and the defence against
-a forward rewrite are the same operation when they are done together.
+```sh
+ciphr audit cut --keep 50000 \
+  --anchor /mnt/evidence/ciphr-anchors.jsonl \
+  --archive /var/lib/ciphr/audit.jsonl
+```
 
-**The anchor half exists** (`ciphr audit anchor`, above), and `ciphr audit verify --anchor` already
-verifies a run of records that begins immediately after an anchored sequence — which is exactly what
-a cut leaves behind. **The cut itself does not exist.** Nothing bounds the queryable device, and
-nothing archives what a bound would remove.
+Three things have to be true together, and the command does them in this order:
 
-Two consequences for operating this today:
+1. **The queryable device is bounded**, so `/v1/audit` and the viewer stay small and fast. That is
+   `--keep`, a count of the newest entries to leave behind.
+2. **The archive is complete.** Every record the cut would remove is looked for in `--archive` — the
+   file device's file and its rotated siblings — matched by hash, which for this format means the
+   line is byte-identical. A record that is not there is not removed: the cut is refused and nothing
+   changes.
+3. **The cut is anchored outside the store.** The anchor at the cut is appended to `--anchor` and
+   synced to disk *before* the records go, then a second anchor over what survived is appended after.
+   Verification of the remainder starts from the first of those.
 
-- **Do not trim the table by hand.** A `DELETE` against `audit_log` produces exactly the
-  `SequenceGap` from the section above, and afterwards nothing distinguishes a retention run from a
-  cover-up — including for the person who ran it.
-- **Watch the fill level.** Because auditing is fail-closed, a full audit volume stops the service
-  serving secrets. Until the cut above exists, the size of that volume is the only bound on the
-  trail, which makes the fill-level check the thing standing in for a policy.
+Point 3 pays for itself twice, and that is why it is not optional. An anchor outside the store is the
+only defence against a forward rewrite — anyone who can write the store can recompute every hash
+forward, and the chain then verifies. Retention and that defence are the same operation when they are
+done together, and two separate ones when they are not.
+
+**Where the anchor file lives decides what all of this is worth.** Beside the database it is
+decoration: whoever can rewrite the trail can rewrite it too. Another host, a backup, or an
+append-only share is the point. The command says so when it notices the file sitting next to the
+store.
+
+### What a cut trail looks like afterwards
+
+`ciphr audit verify` prints where the trail now begins and how many entries went. It exits zero: a
+legitimately cut store must not report tampering, or the check stops being run. What it cannot do
+alone is tell a cut from a deletion — the store's `audit_cut` row is a claim by whoever can write the
+store, and the routine check rests on it. Passing `--anchor` is what settles that, by comparing the
+row against the anchor the cut wrote outside. The output says which of the two you got.
+
+Two states are refused rather than continued, and both mean records were removed without a cut
+recording it: an `audit_log` that ends at or before the recorded cut, and an empty one behind a
+recorded cut. The service does not start on either. That is the same fail-closed choice as everywhere
+else in this component — a trail that reads as consistent while hiding a removal is worse than an
+outage.
+
+### Still true
+
+- **Do not trim the table by hand.** A bare `DELETE` produces the `SequenceGap` above, and afterwards
+  nothing distinguishes a retention run from a cover-up — including for the person who ran it. `cut`
+  is the difference, because it leaves the anchor behind.
+- **Watch the fill level.** Auditing is fail-closed, so a full audit volume stops the service serving
+  secrets. A bound that nothing runs is not a bound: `cut` belongs in a schedule, and the fill-level
+  check stays the thing that catches the case where the schedule is not keeping up.
+- **The archive itself is unbounded**, and rotated files are shipped and expired by whatever already
+  does that on the host. If that tooling compresses them, `cut` cannot read them — decompress what it
+  needs, or use `--assume-archived` and know what the assumption is.

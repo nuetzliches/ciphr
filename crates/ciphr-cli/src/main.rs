@@ -23,11 +23,11 @@ use std::io::Write as _;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use ciphr_audit::{Action, Start, StoredRecord, verify_from_genesis, verify_with_anchor};
+use ciphr_audit::{Action, Anchor, StoredRecord, verify_from, verify_with_anchor};
 use ciphr_core::{Plaintext, Rotation, SecretPath, SecretVersion};
 use ciphr_crypto::{RootKey, RootKeyId, Seal, StaticSeal, Token};
 use ciphr_policy::PolicySet;
-use ciphr_store::{AuditFilter, SealState, SqliteStore, Store};
+use ciphr_store::{AuditFilter, SealState, SqliteAuditDevice, SqliteStore, Store};
 use clap::{Args, Parser, Subcommand};
 
 use error::{CliError, parse_duration_millis};
@@ -280,6 +280,63 @@ enum AuditCommand {
         /// over a contradiction would give a rewrite a fresh alibi.
         #[arg(long, value_name = "FILE")]
         out: Option<PathBuf>,
+    },
+    /// Bound the queryable trail: remove the oldest entries, keeping the newest.
+    ///
+    /// The trail grows for as long as the store exists, and because auditing is
+    /// fail-closed a full volume stops the service serving secrets. This is the command
+    /// that bounds it — and the reason it is a command rather than something the service
+    /// does on a schedule is that a cut has to be anchored outside the store, and the
+    /// service is the thing an anchor exists to be independent of.
+    ///
+    /// Three things happen, in this order, and each one gates the next:
+    ///
+    /// 1. The chain is verified, including against the anchors already in `--anchor`.
+    /// 2. Every record about to be removed is looked for in `--archive`, by hash.
+    /// 3. The anchor at the cut is appended and synced, the records are removed, and a
+    ///    fresh anchor over what remains is appended.
+    ///
+    /// A refusal at any point leaves the trail exactly as it was.
+    Cut {
+        /// How many of the newest entries stay queryable.
+        ///
+        /// A count rather than an age. The bound this answers is the size of the
+        /// queryable device, and a time-based rule pointed at a hash chain removes a
+        /// varying number of records for reasons unrelated to how large the table is.
+        /// Age-based retention belongs on the archive, where the host's log tooling
+        /// already does it.
+        #[arg(long, value_name = "COUNT", value_parser = clap::value_parser!(u64).range(1..))]
+        keep: u64,
+
+        /// The anchor file, as for `audit anchor --out`. Required.
+        ///
+        /// Removing the oldest records leaves a chain that no longer starts at sequence
+        /// one, so what remains can only be verified from the point the cut ended at.
+        /// Without that point recorded outside this store, the remainder rests on the
+        /// store's own claim about what it removed — which is exactly what a deletion
+        /// dressed up as retention would write.
+        #[arg(long, value_name = "FILE")]
+        anchor: PathBuf,
+
+        /// The file device's audit file, where the removed records must already be.
+        ///
+        /// Its rotated siblings are read as well. Every record the cut would remove has
+        /// to appear there byte for byte, or the cut is refused: the queryable copy may
+        /// be bounded, the evidence may not be thrown away.
+        #[arg(long, value_name = "FILE", required_unless_present = "assume_archived")]
+        archive: Option<PathBuf>,
+
+        /// Cut without checking that the removed records are archived anywhere.
+        ///
+        /// For a deployment whose audit lines are shipped off the host as they are
+        /// written, or whose rotated files are compressed and therefore unreadable here.
+        /// It replaces a check with an assumption, and says so on every run.
+        #[arg(long, conflicts_with = "archive")]
+        assume_archived: bool,
+
+        /// Report what would be removed, and remove nothing.
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -812,6 +869,22 @@ fn audit(cli: &Context, command: &AuditCommand) -> Result<(), CliError> {
     match command {
         AuditCommand::Verify { anchor } => return verify_chain(cli, anchor.as_deref()),
         AuditCommand::Anchor { out } => return take_anchor(cli, out.as_deref()),
+        AuditCommand::Cut {
+            keep,
+            anchor,
+            archive,
+            assume_archived,
+            dry_run,
+        } => {
+            return cut_trail(
+                cli,
+                *keep,
+                anchor,
+                archive.as_deref(),
+                *assume_archived,
+                *dry_run,
+            );
+        }
         AuditCommand::Tail { .. } => {}
     }
 
@@ -847,7 +920,7 @@ fn audit(cli: &Context, command: &AuditCommand) -> Result<(), CliError> {
             Ok(())
         }
 
-        AuditCommand::Verify { .. } | AuditCommand::Anchor { .. } => {
+        AuditCommand::Verify { .. } | AuditCommand::Anchor { .. } | AuditCommand::Cut { .. } => {
             // Handled above, before the session was opened.
             Ok(())
         }
@@ -874,16 +947,29 @@ fn verify_chain(cli: &Context, anchor_file: Option<&std::path::Path>) -> Result<
     let store = SqliteStore::open_read_only(&cli.database)?;
     let rows = store.audit_all()?;
     let records = stored_records(&rows);
+    let cut = store.audit_cut_latest()?;
+    let start = store.audit_start()?;
 
     let anchor = match anchor_file {
         None => None,
         Some(path) => Some(read_anchor(path)?),
     };
 
-    let verified = match &anchor {
-        None => verify_from_genesis(records.iter().copied())?,
-        Some(anchor) => verify_with_anchor(anchor, Start::Genesis, &records)?,
+    // The anchor taken at the cut, if this file holds it. It is a different check from
+    // the newest anchor: this one pins the store's claim about what it removed, and the
+    // newest one pins a record that is still here.
+    let at_cut = match (&cut, anchor_file) {
+        (Some(cut), Some(path)) => anchor_at(path, cut.seq)?,
+        _ => None,
     };
+
+    let verified = match &anchor {
+        None => verify_from(start, records.iter().copied())?,
+        Some(anchor) => verify_with_anchor(anchor, start, &records)?,
+    };
+    if let Some(at_cut) = &at_cut {
+        verify_with_anchor(at_cut, start, &records)?;
+    }
 
     println!("{} entries verify", verified.records);
     println!(
@@ -891,6 +977,14 @@ fn verify_chain(cli: &Context, anchor_file: Option<&std::path::Path>) -> Result<
         ciphr_core::hex::encode(&verified.head_hash),
         verified.head_seq
     );
+    if let Some(cut) = &cut {
+        println!(
+            "the trail begins at sequence {} — cut on {}, {} entries removed",
+            start.first_seq(),
+            ciphr_audit::time::rfc3339_millis(cut.cut_at),
+            cut.removed
+        );
+    }
     println!();
 
     match &anchor {
@@ -911,6 +1005,28 @@ fn verify_chain(cli: &Context, anchor_file: Option<&std::path::Path>) -> Result<
             println!("alone until the next anchor is taken.");
         }
     }
+
+    if let Some(cut) = &cut {
+        println!();
+        if let Some(at_cut) = &at_cut {
+            println!(
+                "The recorded cut agrees with the anchor taken at {} for the same sequence, so",
+                at_cut.taken_at
+            );
+            println!("the point this trail is verified from comes from outside the store as well.");
+        } else {
+            println!("Nothing here checks the recorded cut itself. It is a row in the store,");
+            println!("written by whatever can write the store, and everything above rests on it");
+            println!(
+                "being the truth about sequence {}. The anchor the cut appended is what",
+                cut.seq
+            );
+            println!("settles that — pass the file it went to as --anchor.");
+            if let Some(path) = &cut.anchor {
+                println!("The cut recorded that file as {path}.");
+            }
+        }
+    }
     Ok(())
 }
 
@@ -919,13 +1035,14 @@ fn take_anchor(cli: &Context, out: Option<&std::path::Path>) -> Result<(), CliEr
     let store = SqliteStore::open_read_only(&cli.database)?;
     let rows = store.audit_all()?;
     let records = stored_records(&rows);
+    let start = store.audit_start()?;
 
     // An anchor appended over a chain that contradicts the previous one would hand a
     // rewrite a fresh alibi, so the existing evidence is checked before more is added.
     let previous = match out {
         None => None,
         Some(path) => match std::fs::read_to_string(path) {
-            Ok(text) => ciphr_audit::Anchor::latest(&text)
+            Ok(text) => Anchor::latest(&text)
                 .map_err(|error| CliError::Audit(format!("{}: {error}", path.display())))?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
             Err(error) => return Err(CliError::Io(error)),
@@ -933,8 +1050,8 @@ fn take_anchor(cli: &Context, out: Option<&std::path::Path>) -> Result<(), CliEr
     };
 
     let verified = match &previous {
-        None => verify_from_genesis(records.iter().copied())?,
-        Some(anchor) => verify_with_anchor(anchor, Start::Genesis, &records)?,
+        None => verify_from(start, records.iter().copied())?,
+        Some(anchor) => verify_with_anchor(anchor, start, &records)?,
     };
 
     if verified.head_seq == 0 {
@@ -943,7 +1060,7 @@ fn take_anchor(cli: &Context, out: Option<&std::path::Path>) -> Result<(), CliEr
         ));
     }
 
-    let anchor = ciphr_audit::Anchor::over(&verified, now_millis());
+    let anchor = Anchor::over(&verified, now_millis());
     let line = anchor.encode();
 
     if let Some(path) = out {
@@ -985,9 +1102,9 @@ fn take_anchor(cli: &Context, out: Option<&std::path::Path>) -> Result<(), CliEr
 }
 
 /// The newest anchor in a file, or an error saying the file has none.
-fn read_anchor(path: &std::path::Path) -> Result<ciphr_audit::Anchor, CliError> {
+fn read_anchor(path: &std::path::Path) -> Result<Anchor, CliError> {
     let text = std::fs::read_to_string(path).map_err(CliError::Io)?;
-    ciphr_audit::Anchor::latest(&text)
+    Anchor::latest(&text)
         .map_err(|error| CliError::Audit(format!("{}: {error}", path.display())))?
         .ok_or_else(|| {
             CliError::Audit(format!(
@@ -995,6 +1112,207 @@ fn read_anchor(path: &std::path::Path) -> Result<ciphr_audit::Anchor, CliError> 
                 path.display()
             ))
         })
+}
+
+/// The anchor in a file for one sequence number, if it holds one.
+///
+/// Unlike [`read_anchor`], an unreadable line is skipped rather than fatal: this is a
+/// search through a file that may hold anchors from several formats and several years,
+/// and the answer wanted is "is the one for this sequence here".
+fn anchor_at(path: &std::path::Path, seq: u64) -> Result<Option<Anchor>, CliError> {
+    let text = std::fs::read_to_string(path).map_err(CliError::Io)?;
+    Ok(text
+        .lines()
+        .filter_map(|line| Anchor::parse(line).ok())
+        .find(|anchor| anchor.seq == seq))
+}
+
+/// Append one anchor to a file, creating it if necessary, and get it onto the disk.
+fn append_anchor(path: &std::path::Path, anchor: &Anchor) -> Result<String, CliError> {
+    let line = anchor.encode();
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(CliError::Io)?;
+    writeln!(file, "{line}").map_err(CliError::Io)?;
+    // The anchor at a cut is the only thing that makes the remainder verifiable, and it
+    // is written before the records go. A buffered write would mean the delete could be
+    // durable while the anchor was not.
+    file.sync_all().map_err(CliError::Io)?;
+    Ok(line)
+}
+
+/// A refusal to cut, in the words the store uses for its own refusals.
+///
+/// Whether the reason was found here or in the store, an operator needs to read the same
+/// sentence: the log was not cut, and why. [`CliError::Audit`] is the wrong vocabulary
+/// for it — that one means a record could not be written.
+fn cut_refused(detail: String) -> CliError {
+    CliError::Store(ciphr_store::StoreError::CutRefused { detail })
+}
+
+/// Establish that the records a cut would remove exist outside the queryable device.
+///
+/// The queryable copy may be bounded; the evidence may not be thrown away. Either the
+/// archive is read and every record is found in it, or the caller has said in so many
+/// words that it is trusting something this command cannot see.
+fn require_archived(
+    archive: Option<&std::path::Path>,
+    assume_archived: bool,
+    removing: &[StoredRecord<'_>],
+) -> Result<(), CliError> {
+    let count = removing.len();
+
+    let Some(path) = archive else {
+        assert!(assume_archived, "clap requires one of the two");
+        eprintln!(
+            "--assume-archived: nothing here checked that the {count} entries about to be removed"
+        );
+        eprintln!("exist anywhere else. If they do not, this destroys them permanently.");
+        return Ok(());
+    };
+
+    let files = ciphr_audit::rotation_set(path).map_err(CliError::Io)?;
+    let coverage =
+        ciphr_audit::coverage_of(&files, removing.iter().copied()).map_err(CliError::Io)?;
+
+    if !coverage.is_complete() {
+        let missing = coverage.missing();
+        let shown: Vec<String> = missing.iter().take(5).map(u64::to_string).collect();
+        return Err(cut_refused(format!(
+            "{} of the {count} entries to be removed are not in the archive at {} ({} file(s), \
+             {} lines read); the first missing sequence numbers are {}. Cutting would destroy \
+             them. Point --archive at the file device's file, decompress rotated files it \
+             cannot read, or pass --assume-archived if the lines are shipped off this host as \
+             they are written.",
+            missing.len(),
+            path.display(),
+            coverage.files_read(),
+            coverage.lines_read(),
+            shown.join(", ")
+        )));
+    }
+
+    eprintln!(
+        "archive: all {count} entries found in {} file(s) at {}",
+        coverage.files_read(),
+        path.display()
+    );
+    Ok(())
+}
+
+/// `ciphr audit cut --keep N --anchor FILE (--archive FILE | --assume-archived)`.
+fn cut_trail(
+    cli: &Context,
+    keep: u64,
+    anchor_file: &std::path::Path,
+    archive: Option<&std::path::Path>,
+    assume_archived: bool,
+    dry_run: bool,
+) -> Result<(), CliError> {
+    // Read through a read-only connection, as verifying does: it checks the schema, it
+    // takes no store lock, and it cannot migrate a database the running service is using.
+    let store = SqliteStore::open_read_only(&cli.database)?;
+    let rows = store.audit_all()?;
+    let records = stored_records(&rows);
+    let start = store.audit_start()?;
+
+    // Whatever the anchor file already says has to hold before anything is removed. An
+    // anchor appended over a chain that contradicts the previous one would give a rewrite
+    // a fresh alibi, and a cut made on top of that would take the evidence with it.
+    let previous = match std::fs::read_to_string(anchor_file) {
+        Ok(text) => Anchor::latest(&text)
+            .map_err(|error| CliError::Audit(format!("{}: {error}", anchor_file.display())))?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(CliError::Io(error)),
+    };
+    match &previous {
+        None => verify_from(start, records.iter().copied())?,
+        Some(anchor) => verify_with_anchor(anchor, start, &records)?,
+    };
+
+    let keep_index = usize::try_from(keep).unwrap_or(usize::MAX);
+    if rows.len() <= keep_index {
+        // Not an error. A scheduled cut that failed on a trail shorter than its bound
+        // would be a scheduled cut somebody switches off.
+        eprintln!("{} entries, keeping {keep}: nothing to remove", rows.len());
+        return Ok(());
+    }
+
+    // Everything up to and including this record goes. The anchor is taken over exactly
+    // that prefix, so the anchored sequence is the cut and the first survivor chains to
+    // the anchored hash.
+    let removing = rows.len() - keep_index;
+    let prefix = &records[..removing];
+    let verified = verify_from(start, prefix.iter().copied())?;
+    let cut_seq = verified.head_seq;
+    let anchor = Anchor::over(&verified, now_millis());
+
+    require_archived(archive, assume_archived, prefix)?;
+
+    if dry_run {
+        eprintln!(
+            "would remove {removing} entries up to sequence {cut_seq}, keeping {keep} \
+             (sequences {} to {})",
+            cut_seq + 1,
+            records.last().map_or(cut_seq, |record| record.seq)
+        );
+        eprintln!("would append the anchor below to {}", anchor_file.display());
+        println!("{}", anchor.encode());
+        return Ok(());
+    }
+
+    // The anchor first, and synced, because it is what makes the remainder verifiable. A
+    // crash after this and before the delete leaves an anchor over a record still in the
+    // table, which verifies; the other order leaves records nothing can attest to.
+    let line = append_anchor(anchor_file, &anchor)?;
+
+    let mut device = SqliteAuditDevice::open(&cli.database)?;
+    let cut = device.cut(
+        cut_seq,
+        verified.head_hash,
+        now_millis(),
+        anchor_file.to_str(),
+    )?;
+
+    // What survived was verified above, before anything was removed, so this anchors a
+    // chain that was checked rather than one that is merely present. The cut is when the
+    // trail changed shape, which makes it the moment a head anchor is most worth having —
+    // and appending it here keeps the newest line in the file the one that covers most.
+    let remainder = verify_from(cut.as_start(), records[removing..].iter().copied())?;
+    let head = Anchor::over(&remainder, now_millis());
+    let head_line = append_anchor(anchor_file, &head)?;
+
+    // The records go to standard output alone, so a scheduled job can pipe them
+    // somewhere. Everything a person needs goes to standard error.
+    println!("{line}");
+    println!("{head_line}");
+
+    eprintln!(
+        "removed {} entries through sequence {}; {} remain, from sequence {}",
+        cut.removed,
+        cut.seq,
+        remainder.records,
+        cut.seq + 1
+    );
+    eprintln!(
+        "appended the anchor at the cut and an anchor over the remainder to {}",
+        anchor_file.display()
+    );
+    eprintln!(
+        "this cut is not itself an audit entry: writing one needs the lock the running \
+         service holds, and it would move the head just anchored. The store's record of it \
+         is the audit_cut row, and the anchor above is the copy of that outside the store."
+    );
+    if anchor_file.parent() == std::path::Path::new(&cli.database).parent() {
+        eprintln!(
+            "the anchor file sits beside the store. Whoever can rewrite the trail can \
+             rewrite it too, which is the one thing an anchor is for: keep it on another \
+             host, in a backup, or on an append-only share."
+        );
+    }
+    Ok(())
 }
 
 /// `ciphr rotate-master-key`.

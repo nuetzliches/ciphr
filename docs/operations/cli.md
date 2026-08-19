@@ -195,6 +195,45 @@ filtering prose out of it; everything a person reads goes to standard error. Bot
 Where the file lives is the whole value of the exercise — on the same host as the database, an anchor
 proves nothing.
 
+### Bounding it
+
+```sh
+# keep the newest 50 000 entries queryable; the rest must already be in the archive
+ciphr audit cut --keep 50000 \
+  --anchor /mnt/evidence/ciphr-anchors.jsonl \
+  --archive /var/lib/ciphr/audit.jsonl
+
+# see what that would do, and do none of it
+ciphr audit cut --keep 50000 --anchor … --archive … --dry-run
+```
+
+The `audit_log` table grows for as long as the store exists, and because auditing is fail-closed a
+full volume stops the service serving secrets. `cut` is the bound. Both file arguments are required,
+and each answers a different objection to removing audit records:
+
+- **`--anchor`** is where the anchor at the cut goes. Removing the oldest records leaves a chain that
+  no longer starts at sequence one, so what remains can only be verified from the point the cut ended
+  at — and if that point lives only in the store, it is a claim by whoever can write the store.
+  The command appends **two** lines: the anchor at the cut, and one over what survived.
+- **`--archive`** is the file device's file, rotated siblings included. Every record the cut would
+  remove has to be in there byte for byte, or the cut is refused. The queryable copy may be bounded;
+  the evidence may not be thrown away. `--assume-archived` replaces that check with an assumption,
+  for a deployment whose lines are shipped off the host as they are written or whose rotated files
+  are compressed and therefore unreadable here — it says what it is trusting on every run.
+
+`--keep` is a count, not an age. The bound it answers is how large the queryable table is;
+age-based retention belongs on the archive, where the host's log tooling already does it.
+
+Like `anchor` and `verify`, `cut` needs **neither the store lock nor the master key**, so it runs
+against a live service — a retention job that needed downtime would not get scheduled, and then the
+bound would not exist. It writes no audit entry of its own for the same reason `anchor` does not, and
+its record in the store is the `audit_cut` row. A trail shorter than `--keep` is reported and exits
+zero; every refusal happens before anything is removed.
+
+The reason this is a command and not something the service does on a schedule: a cut has to be
+anchored outside the store, and the service is the thing an anchor exists to be independent of. An
+anchor the service wrote about its own trail is worth nothing against the service.
+
 ## Rotating the master key
 
 ```sh
