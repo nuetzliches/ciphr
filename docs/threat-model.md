@@ -5,7 +5,10 @@ boundaries are settled. The cryptographic, storage, authorization, audit and tra
 exist. **A7 now describes a component that is built:** every countermeasure in that row is
 implemented in `ui/` and the ones that can be gated are gated — see [ui.md](ui.md). **A8 still
 describes one that is not:** the MCP server is post-v1, and its row is a design commitment rather
-than a description.
+than a description. **A9 likewise describes nothing that exists yet:** the leak-report endpoint is
+phase 9 (ADR-16), and until it is built there is no unauthenticated endpoint here except
+`/v1/health`. The row is listed now because it is the only anonymous request path the design will
+ever have, and what defends it was decided before it was built rather than after.
 
 Everything in the design is derived from this document, so it is stated first and stated plainly —
 including the parts where the answer is "not defended against". A security product that lists only
@@ -35,6 +38,7 @@ database, the CLI, the optional read-only UI, and the optional MCP server.
 | A6 | Internal user with partial access | A valid identity with a limited policy | Policy evaluation, audit, no escalation path through the API |
 | A7 | Browser context of the admin UI (XSS, malicious npm dependency) | Runs in the tab of a signed-in human | UI is read-only, reveal is per value, strict CSP, no `v-html`, token in `sessionStorage` rather than a cookie |
 | A8 | LLM client at the MCP server | A valid token, but responses flow into model context and provider logs | Plaintext only through an opt-in capability on narrow paths, metadata by default; MCP context marked in the audit trail |
+| A9 | Anonymous reporter at `POST /v1/report` | Unauthenticated requests carrying a candidate secret value, and whatever volume they can generate | Identical response for a match and a miss, so the endpoint is no oracle; size and rate limits applied before the audit write and before the store lock; one monotonic metadata write per matched version, read by nothing that makes a decision; no path to any tripwire tier above `alert`; off unless a deployment enables it |
 
 ## Deliberately not defended against
 

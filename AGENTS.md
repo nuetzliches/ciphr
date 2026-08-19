@@ -26,6 +26,11 @@ outstanding, in every document that mentions it, until a review has actually tak
 deployment may decide to run without it; that decision is recorded where the deployment is
 documented, and it does not change a line here.
 
+Two phases are planned and not built: **phase 8**, honeypots and tripwires (ADR-15, plan section 22),
+and **phase 9**, the unauthenticated leak-report endpoint (ADR-16, plan section 23). Neither may
+precede the review above — one adds behaviour to the authentication path, the other a key derivation
+and the only anonymous request path that reaches the store — and the plan says why in section 18.
+
 Three things later phases must not undo:
 
 - The router calls the path normalization in `ciphr-core`. Not a copy of it, not a variant that

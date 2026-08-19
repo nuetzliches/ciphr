@@ -5,9 +5,14 @@
 # action, and the MCP server, which is derived from this file rather than written
 # alongside it (ADR-13).
 #
-# `POST /v1/auth/oidc/login` is listed as reserved. It does not exist in v1 and
-# returns 404; it is here so that the path is not claimed for something else by
-# accident when OIDC federation arrives (section 14 of the plan).
+# Four paths are listed as reserved. None of them exists in v1 and all of them return
+# 404; they are here so the names are not claimed for something else by accident when
+# the features arrive: `POST /v1/auth/oidc/login` for OIDC federation (section 14 of
+# the plan), `GET /v1/honeypots` for tripwires (section 22, ADR-15), and
+# `POST /v1/report` with `GET /v1/leaks` for leak reports (section 23, ADR-16).
+#
+# `POST /v1/report` is the reservation that matters beyond tidiness: it is the only
+# route in the design that will ever be unauthenticated besides `/v1/health`.
 openapi: 3.1.0
 
 info:
@@ -355,6 +360,82 @@ paths:
         Listed here so the path is not claimed for something else by accident. It
         returns `404` in v1.
       security: []
+      responses:
+        "404":
+          description: Not implemented in v1.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/report:
+    post:
+      tags: [administration]
+      summary: Reserved. Not implemented in v1.
+      description: |
+        Reserved for leak reports (plan section 23, ADR-16): an unauthenticated drop box
+        that accepts a candidate secret value and, on a match, marks the version it
+        matched as leaked.
+
+        When it exists it will answer `202` with an empty body for a match and a miss
+        alike, and `429` at a rate or size limit. It will never say whether the value
+        matched — an endpoint without a credential may report what the process enforces
+        and not what is stored, and an endpoint that confirms a guess is a guessing
+        machine for any value with little entropy. Matches are visible on the
+        authenticated side only, through `GET /v1/leaks` and the audit trail.
+
+        Listed here so the path is not claimed for something else by accident, and
+        because it is the only route besides `/v1/health` that will ever be
+        unauthenticated. It returns `404` in v1.
+      security: []
+      responses:
+        "404":
+          description: Not implemented in v1.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/leaks:
+    get:
+      tags: [administration]
+      summary: Reserved. Not implemented in v1.
+      description: |
+        Reserved for the operator-facing half of leak reports (plan section 23, ADR-16):
+        the versions a report has matched, when, and the reporter's note.
+
+        Authorized as the virtual path `sys/leaks` through the ordinary policy
+        evaluator, like `sys/audit` — there is no new capability. The mark it reports is
+        metadata and influences no authorization decision, because a value anyone has
+        seen must not become a value anyone can switch off.
+
+        Listed here so the path is not claimed for something else by accident. It
+        returns `404` in v1.
+      responses:
+        "404":
+          description: Not implemented in v1.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/honeypots:
+    get:
+      tags: [administration]
+      summary: Reserved. Not implemented in v1.
+      description: |
+        Reserved for honeypots and tripwires (plan section 22, ADR-15): which paths and
+        tokens are bait, at which trigger tier, and what has been tripped.
+
+        Authorized as the virtual path `sys/honeypots`. This is the only place the
+        honeypot flag is ever visible: it does not appear on a secret read, in
+        `GET /v1/list`, or in `GET /v1/versions`, because bait that announces itself to
+        a caller is not bait. `GET /v1/health` will report *that* a tripwire fired and
+        whether the service is frozen — properties of the process — and never which bait
+        was taken.
+
+        Listed here so the path is not claimed for something else by accident. It
+        returns `404` in v1.
       responses:
         "404":
           description: Not implemented in v1.

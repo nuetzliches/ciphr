@@ -8,6 +8,60 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — two features planned: honeypots (phase 8) and leak reports (phase 9)
+
+Nothing is implemented. Plan sections 22 and 23 hold the designs, ADR-15 and ADR-16 hold the
+decisions, and both records are **Proposed**. The three reserved paths in `openapi.yaml` return `404`
+and say so.
+
+- **Honeypots and tripwires (ADR-15, plan section 22).** Bait in two shapes — a token in the
+  documented format that authenticates nothing, and a secret path no legitimate consumer reads — with
+  a per-honeypot trigger tier of `alert`, `disable-identity`, or `freeze`, defaulting to the mildest.
+  Four properties are the decision rather than the implementation: bait is indistinguishable from the
+  real thing in both response and timing; the trigger fires *after* the policy allowed the read, so
+  there is no honeypot branch in the evaluator and no new capability; each tier is named together with
+  what a false positive costs; and `freeze` is recorded in the store, closes only the value-serving
+  routes, keeps `/v1/health` and the audit trail open, and is cleared on the host alone.
+- **Alerting deliberately means no outbound connection.** No SMTP client, no webhook, no notifier in
+  the process that holds the master key. A tripwire is a field on `/v1/health`, an audit entry, and a
+  marker file; the monitoring section 17 already requires is what turns it into a page. Same reasoning
+  that keeps the v1 audit devices to `sqlite` and `file`.
+- **Leak reports (ADR-16, plan section 23).** One unauthenticated endpoint, `POST /v1/report`, that
+  accepts a candidate secret value and marks the version it matches as leaked. **It never says whether
+  the value matched** — `202` with an empty body for a match and a miss alike, `429` at a limit. An
+  endpoint that confirms a guess is a guessing machine for any value with little entropy, and section
+  10 already draws the line it would cross: an unauthenticated endpoint may report what the process
+  enforces and never what is stored.
+- **Matching goes through a blind index**, `HMAC-SHA256` under a key derived from the root key by the
+  pattern `TokenPepper::derive` already uses, so a report is one indexed lookup instead of a
+  full-corpus decryption. What it adds to the database is stated rather than assumed away: a reader of
+  the file learns which secrets hold *the same* value, and anyone who could attack the index offline
+  can already decrypt every value directly. Rejected: a truncated index or a Bloom filter, because a
+  false leak mark on a `breaks-data` secret invites the rotation that destroys data.
+- **The leaked mark influences no authorization decision**, and here that is the security property
+  rather than tidiness. It can be set by an anonymous request; if it refused reads, anyone who has
+  ever seen a value could switch that secret off for everybody from outside. It sits on the version,
+  so rotation ages it out — and there is deliberately no command that clears it.
+- **The limits run before the audit write and before the store lock.** This is the first request path
+  in the design that reaches the store without an identity, and the service is fail-closed on the
+  audit trail: an anonymous request that writes an audit entry spends a resource whose exhaustion is a
+  total outage. Refusals cost a counter and are summarized once per window, not once each; a
+  concurrency cap keeps anonymous traffic off the mutex authorized reads queue on; and the endpoint is
+  off unless a deployment enables it.
+- **No unauthenticated request reaches a tier above `alert`.** A reported honeypot value is the
+  strongest signal the system can produce and it still only alerts, because otherwise the report
+  endpoint would be a remote off switch operated by whoever holds a leaked value. This is why the two
+  features were designed together and are scheduled in this order.
+- **Threat model:** adversary **A9**, the anonymous reporter, with the row marked as describing
+  nothing that exists yet. **Scheduling:** phase 8 then phase 9, and neither before the external
+  review — one adds behaviour to the authentication path, the other a key derivation in `ciphr-crypto`
+  and the only anonymous path to the store. `docs/security-review.md` records what each would add to
+  the review's scope if it lands first anyway.
+- **Two open questions, added to plan section 21:** whether the value index is written unconditionally
+  (recommended, because a half-indexed corpus makes a miss meaningless and the endpoint is designed
+  not to admit it), and whether `POST /v1/report` needs its own listener — which is the same
+  network-exposure decision as question 2 and has to be answered with it.
+
 ### Fixed — the documented server configuration could not be loaded
 
 - The example in `crates/ciphr-server/src/config.rs` put `policies` after the `[seal]` table. In TOML

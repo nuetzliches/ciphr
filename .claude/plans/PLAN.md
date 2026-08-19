@@ -109,6 +109,7 @@ Stated explicitly, because everything that follows is derived from it.
 | A6 | Internal user with partial access | Valid identity, limited policy | Policy evaluation, audit, no escalation path through the API |
 | A7 | Browser context of the admin UI (XSS, malicious npm dependency) | Runs in the tab of a signed-in human | UI is read-only, reveal is per-value, strict CSP, no `v-html`, token in `sessionStorage` rather than a cookie (section 15) |
 | A8 | LLM client at the MCP server | Valid token, but responses flow into model context and provider logs | Plaintext only via opt-in capability on narrow paths, metadata by default; MCP context marked in the audit (section 16) |
+| A9 | Anonymous reporter at `POST /v1/report` | Unauthenticated requests carrying a candidate value, and whatever volume they can generate | Identical response for a match and a miss, so the endpoint is no oracle; size and rate limits applied *before* the audit write and the store lock; one monotonic metadata write per matched version; no path to any tripwire tier above `alert`; off unless a deployment enables it (section 23) |
 
 ### Deliberately not defended against
 
@@ -642,6 +643,13 @@ therefore forbidden in general; every operation gets its own prefix.
 not exist in v1 — but the path is listed as reserved in `openapi.yaml` from v1 on, so it does
 not get claimed for something else by accident.
 
+**Reserved the same way, for phases 8 and 9:** `GET /v1/honeypots` (section 22), `POST /v1/report`
+and `GET /v1/leaks` (section 23), plus the virtual paths `sys/honeypots` and `sys/leaks`. The virtual
+names cost nothing to reserve now and are already unusable as secrets, because `sys/**` is refused
+for writes. `POST /v1/report` is the one reservation that matters beyond tidiness: it is the only
+route in the design that will ever be unauthenticated besides `/v1/health`, and reserving it names
+that fact in the API document rather than leaving it to be discovered when the route appears.
+
 ---
 
 ## 11. CLI
@@ -1150,6 +1158,8 @@ Every phase ends with something testable. The order is deliberately "crypto firs
 | **5** | Vue UI as its own image (section 15) | The audit is usable without the CLI; the server stack demonstrably runs **without** the UI container; CSP active, `v-html` gate green |
 | **6** | Migrate remaining services and CI jobs | Long-lived forge secrets reduced to one token per repository/host; every value classified (`rotation`) |
 | **7** | Consumption patterns from section 13: `tmpfs` for class A, entrypoint wrappers for class B, SDK integration for first-party services | No plaintext secret left at rest on disk and none in the container config — except the bootstrap token per host |
+| **8** | Honeypots and tripwires (section 22) | A honeypot token authenticates nothing and is refused exactly as any other invalid credential, while producing a distinct audit action and a `tripped` flag on `/v1/health`; a honeypot secret read through the API trips the same way without changing the response the reader sees; `disable-identity` revokes exactly the tripping identity's tokens; `freeze` survives a restart, closes only the routes section 22 names, and is cleared on the host alone; a test proves no tier above `alert` is reachable without an authenticated request |
+| **9** | Leak reports (section 23) | `POST /v1/report` answers `202` for a match and a miss alike and `429` at a limit; a match sets `leaked_at` on the version and shows up in `/v1/leaks` and `ciphr leak list`; a miss leaves nothing behind but a counter; the limiter refuses before any audit device is touched and before the store lock is taken; `ciphr leak reindex` covers versions written before the migration; a test proves `leaked` changes no authorization decision |
 
 **Before phase 4 — the first production use — an external review** of `ciphr-crypto`,
 `ciphr-policy`, and the path, pattern, and secret code in `ciphr-core`. These crates *are* the
@@ -1185,6 +1195,30 @@ review can be arranged at all, that is an argument for falling back to OpenBao (
 4. **Transit engine** (encryption as a service for applications that only need an HMAC or
    encryption key, without ever holding one).
 5. Shamir seal, dynamic secrets, HA.
+
+**How phases 8 and 9 sit against that list.** They are independent of it: neither needs OIDC, an SSO
+session, or the MCP server, and none of those five items needs them. Two constraints fix where they
+can go.
+
+*The earliest.* Both add surface in the places the outstanding review exists for — phase 8 in the
+authentication path, phase 9 in a new key derivation plus the only unauthenticated request path that
+reaches the store — so neither may precede the external review that is already a precondition of
+phase 4. Building a tripwire into an authentication path nobody outside this project has read is the
+wrong order, and it is the order that feels productive.
+
+*The sequence between them.* Phase 8 first, and not because it is smaller. It needs no new
+cryptography, it reuses `revoke_identity_tokens` and the token machinery as they stand, and it
+addresses A3 — which is the adversary phases 4 and 6 actually create, as one token per repository
+and per host spreads across the estate. Phase 9 then strengthens it: the blind index turns "this bait
+is in the wild" into a lookup. Phase 8 does not depend on that, and phase 9 without phase 8 would
+ship the anonymous endpoint before the thing that makes its strongest signal legible.
+
+The honest note against putting phase 8 earlier: honeypot tokens are worth most in the window
+*before* OIDC removes long-lived CI tokens, which argues for pulling them forward into phase 6, when
+those tokens proliferate. That argument loses to the review constraint above, and it loses only to
+that. If the review lands before phase 6 completes, planting an `alert`-tier honeypot token during
+the migration is the natural moment and the plan should be re-read at that point rather than
+followed.
 
 ---
 
@@ -1270,6 +1304,10 @@ The project starts private. These points cost nothing now and would be expensive
 | **Dependency surface of Rust** | Medium | `cargo-deny`, dependency budget, narrow stack (ADR-9) |
 | **XSS in the UI reveals secrets** | Medium | UI read-only, single-value reveal, strict CSP, no `v-html` (CI gate), `sessionStorage` instead of a cookie, separate npm budget (section 15) |
 | **MCP pulls secrets into model contexts and provider logs** | High, once the MCP server exists | Plaintext opt-in per identity and path, metadata by default; MCP context marked in the audit; token passed through rather than a service identity (section 16) |
+| **The report endpoint becomes a confirmation oracle** | High if it answers, and low-entropy values are where it hurts | It never answers: `202` for a match and a miss alike, and the match is visible only on the authenticated side (section 23) |
+| **An anonymous endpoint drives the audit volume** | Medium likelihood, total impact — fail-closed makes a full volume an outage | Size and rate limits ahead of the audit write and the store lock, one aggregate entry per window rather than one per refusal, a concurrency cap, and off by default (section 23) |
+| **A tripwire becomes an availability weapon** | Medium, and it is the failure mode a kill switch invites | `alert` is the default tier and the only one an anonymous report can reach; `freeze` is opt-in per honeypot, serves `/v1/health` and the trail throughout, and is cleared only on the host (section 22) |
+| **The blind index makes low-entropy values guessable offline** | Low, and bounded by the master key | The index key derives from the root key, so anyone who can attack the index can already decrypt every value; what the index genuinely adds is that a database reader sees which values are duplicates (section 23, A4) |
 
 ### Answered since, and where the answer lives
 
@@ -1307,3 +1345,322 @@ The project starts private. These points cost nothing now and would be expensive
    must be a regular capability in the set from section 6, not a special case in the
    evaluator.
 4. **Prove `::add-mask::` on act_runner** (section 14) — the Forgejo half is measured, above.
+5. **Whether the value index of section 23 is written unconditionally.** Writing it on every `put`
+   keeps the corpus matchable and makes `leak reindex` a one-time migration rather than a recurring
+   chore; writing it only where reporting is enabled keeps a value-derived column out of databases
+   that will never use it. The recommendation is unconditional, with the duplicate-visibility cost
+   stated where the schema is documented — a half-indexed corpus is the more dangerous state, because
+   a miss then means nothing and the endpoint cannot say so. Decide before the migration in phase 9,
+   not during it.
+6. **Whether `POST /v1/report` gets its own listener.** A drop box only reports what its reporters can
+   reach, and an internal-only drop box reports nothing an internal identity could not already have
+   produced in the audit trail. Exposing it means a listener on a different boundary from the
+   authenticated API, which is the same three-part decision as question 2 — network exposure, a
+   certificate for a name a foreign host resolves, and what crosses a trust boundary — and it has to
+   be answered with it rather than separately.
+
+---
+
+## 22. Honeypots and Tripwires
+
+Planned, not built. ADR-15 carries the decision; this section carries the design. **Numbered after
+section 21 rather than inserted before it:** section numbers are cited by number from `AGENTS.md`,
+the ADRs, `openapi.yaml`, the changelog and the operations documents, and renumbering would
+invalidate every one of those references to buy an ordering nicety.
+
+### The requirement
+
+A3 — a compromised deploy runner holding a valid token — is defended by policy and recorded by the
+audit trail, and neither of those *notices*. The trail records the accesses; a human has to read it
+and recognize that the pattern is wrong. Section 2 names the unpleasant property this project has:
+its failures are silent. A honeypot is the cheapest way to make one class of them loud.
+
+Bait, in two shapes:
+
+- **A honeypot token.** A credential in the documented format that authenticates nothing. It is
+  planted where a credential should not be but often is: a repository, a job log, an old `.env` on a
+  host, a wiki page. Presenting it is proof that someone read something they should not have.
+- **A honeypot secret.** A real path holding a real-looking, useless value that no legitimate
+  consumer reads. Reading its *value* through the API is proof that an identity is enumerating
+  rather than fetching what it needs.
+
+The two catch different things and neither replaces the other. The token catches whoever scraped a
+place secrets end up in; the secret catches whoever is already inside with a valid identity.
+
+### What must be true of bait
+
+- **Indistinguishable from the real thing.** A honeypot token has the same `cph_` prefix, the same
+  length, and the same alphabet, and it fails exactly as every other invalid token does: `401`, the
+  same body, no hint. A honeypot secret's read returns the ordinary response shape with no extra
+  field. Bait that announces itself is decoration.
+- **No timing difference.** Recognizing a honeypot token happens on the same code path and with the
+  same constant-time comparison as any other token, so an attacker holding several credentials
+  cannot measure which one is bait. `crates/ciphr-store/src/tokens.rs` already has
+  `every_kind_of_invalid_token_looks_the_same`; the honeypot case belongs inside it rather than
+  beside it.
+- **No special case in the evaluator.** A honeypot secret is authorized by the policy like any other
+  path (section 6). The trigger fires *after* an allow, on a value actually served. A rule in the
+  evaluator that knew about honeypots would be exactly the exception the capability set exists to
+  avoid.
+- **Visible where it must be, invisible where it must not.** The honeypot flag appears on the
+  administrative read path (`/v1/honeypots`, `ciphr honeypot list`) and never on the value path, in
+  `/v1/list`, or in `/v1/versions`. An operator has to be able to tell bait from a real secret — a
+  colleague who rotates the honeypot because it looks stale has destroyed it — and a caller must
+  not.
+- **The trigger fires on a value read through the API, and not on a host operation.** `ciphr dump
+  --format portable` and `ciphr export` on the host decrypt by design (sections 2 and 11); a backup
+  that trips every honeypot every night is a honeypot nobody believes. `list` and `versions` do not
+  fire either — enumerating a name is not taking the bait.
+
+### Three tiers, and their blast radius
+
+A trigger is worth what its worst case costs, so each tier is named together with what it does when
+it fires on the wrong thing. **The tier is set per honeypot**, and the default is the mildest one.
+
+| Tier | What happens | Cost of a false positive |
+|---|---|---|
+| `alert` | A distinct audit action, a `tripped` flag with a timestamp on `/v1/health`, and a marker file the deployment's monitoring can watch | A page, and nothing else |
+| `disable-identity` | Additionally revokes every token of the identity that tripped it — `revoke_identity_tokens` already exists | That identity's deploys fail until a token is reissued on the host |
+| `freeze` | Additionally refuses every value read and every write, for every identity, until it is cleared on the host | Every deploy fails; running services are unaffected (section 17) |
+
+**Alerting does not mean an outbound connection.** No SMTP client, no webhook, no notifier in the
+process that holds the master key: each of those is a new egress path out of the one container the
+threat model most wants to keep quiet, and a new dependency in the crates that are hardest to
+review. The alert is a fact on `/v1/health` and an entry in the audit trail, and the monitoring
+section 17 already requires is what turns it into a page. Same reasoning that keeps the audit
+devices to `sqlite` and `file` in v1.
+
+**What `freeze` closes, precisely**, because a half-defined kill switch is worse than none:
+
+- Refused with `503`: `GET /v1/secrets`, `POST /v1/export`, `PUT`, `DELETE`. No value leaves and
+  nothing changes.
+- Still open: `/v1/health`, which says it is frozen and since when; `/v1/audit`, `/v1/list`,
+  `/v1/versions`, `/v1/identities`, `/v1/policies`. A freeze exists to stop exfiltration, and
+  whoever is investigating needs the trail more than ever. None of those serves a value.
+- Unaffected: the CLI on the host. A freeze that locks out the operator is a self-inflicted incident
+  with no way back.
+- **It survives a restart**, recorded in the store rather than in memory. A freeze an attacker
+  clears by crashing the process fires once and never again.
+- **It is cleared on the host and nowhere else** — `ciphr lockdown clear`, audited, never through
+  the API — and it never clears itself on a timer. A tripwire that resets quietly turns an incident
+  into a blip in a graph nobody kept.
+
+### What may never trip a tier above `alert`
+
+An anonymous request. Section 23's drop box accepts candidate values from whoever can reach it, and
+a reported honeypot value is the strongest single signal this system can produce: bait that was
+never legitimately readable is in the wild. It is still only an `alert`. A value the reporter
+already holds must not be able to revoke an identity's tokens or freeze the service, or the report
+endpoint becomes a remote off switch operated by whoever holds a leaked value. The corollary is that
+`disable-identity` and `freeze` require an authenticated request that took the bait, because those
+tiers act on the identity that tripped them.
+
+### API, CLI, configuration, data model
+
+| Method | Path | Capability |
+|---|---|---|
+| `GET` | `/v1/honeypots` | `read` on `sys/honeypots` |
+
+`sys/honeypots` is a virtual path through the ordinary evaluator, like `sys/audit` — no new
+capability and no second authorization mechanism (sections 6 and 10). `PUT` and `DELETE` under
+`sys/**` are already refused, so the name cannot collide with a real secret.
+
+`/v1/health` gains `tripped` and `frozen`. Both are properties of the process and therefore
+permitted on an unauthenticated endpoint by the rule in section 10, and neither names a path or an
+identity: *that* a tripwire fired is what the process is doing, *which* bait was taken is what is
+stored, and that stays behind `/v1/honeypots` and the audit trail.
+
+CLI: `ciphr honeypot add <path> --tier <alert|disable-identity|freeze>`, `ciphr honeypot list`,
+`ciphr token issue <identity> --honeypot`, `ciphr lockdown status`, `ciphr lockdown clear`.
+
+Configuration: none. A honeypot is data — a flag on a secret or on a token — not a listener setting,
+so there is no `[honeypot]` table that can drift out of step with the store.
+
+Data model, additively: `secrets.honeypot_tier TEXT NULL`, `tokens.honeypot INTEGER NOT NULL DEFAULT
+0`, and a `tripwire` table recording each trip (`ts`, `kind`, `path` or `token_id`, `identity`,
+`tier`, `cleared_at`), so that the freeze state and its cause survive a restart.
+
+Audit actions: `honeypot-triggered`, `lockdown-engaged`, `lockdown-cleared`. Additive variants of
+`Action`; verification hashes the stored payload text, so adding them does not disturb an existing
+chain.
+
+### What this does not solve
+
+- **A targeted attacker who reads only what they came for is not caught.** Honeypots detect
+  indiscriminate behaviour — enumeration, scraping, a stolen credential tried everywhere. That is
+  what most real compromise looks like, and it is not what the most capable adversary looks like.
+- **Bait has to be planted where secrets actually leak**, which is a deployment activity and belongs
+  in that deployment's own documentation, not here. This repository can only make bait cheap to
+  create and impossible to distinguish.
+- **A honeypot secret is bait only while nobody depends on it.** The first service that reads it by
+  mistake turns it into a source of false positives, and what prevents that is the visibility rule
+  above, not anything in the code.
+
+---
+
+## 23. Leak Reports: an Anonymous Drop Box
+
+Planned, not built. ADR-16 carries the decision.
+
+### The requirement
+
+A value that has escaped is worth more to whoever finds it than to whoever owns it, and the finder
+usually holds no token here: a developer who spotted a key in a job log, a colleague who found an
+`.env` in a support attachment, someone reading a public repository. Today none of them can tell
+this system anything. The value comes back as a message to a human, if it comes back at all, and the
+store keeps serving it as current.
+
+So: one unauthenticated endpoint that accepts a candidate secret value and, on a match, marks the
+version it matched as `leaked` — evidence for an operator that a rotation is overdue, produced by
+whoever already has the value.
+
+### The oracle problem, and the decision that removes it
+
+An endpoint that answers "yes, that is one of mine" is a confirmation oracle. For a high-entropy
+value that costs little; the requester already had it. For a low-entropy one it is a guessing
+machine: submit `hunter2`, then the fifty thousand most common passwords, and every hit names a live
+value.
+
+Rate limits turn that into a slow guessing machine. Section 10 already contains the sentence that
+decides it properly: an unauthenticated endpoint may report *what the process enforces* and never
+*what is stored*. A match is what is stored.
+
+**The endpoint therefore never answers the question.** `202 Accepted` with an empty body for a match
+and a miss alike; `429` when a limit is reached, because a limiter is a property of the process;
+`400` for a body that is not the documented shape. The lookup runs the same way either way, so there
+is no timing difference to measure.
+
+The cost is real and belongs here rather than in a footnote: a reporter learns that the report was
+accepted and nothing about whether it mattered. A drop box is what is left once an oracle is ruled
+out. The operator-facing half — `/v1/leaks`, `ciphr leak list`, the audit trail — is where a report
+becomes visible, and that half is authenticated.
+
+### Matching without decrypting: a blind index
+
+Matching a candidate against the corpus must not mean decrypting the corpus. A deterministic index
+per stored value makes it one lookup:
+
+- A key derived from the root key, by the same pattern and with a different `info` string than
+  `TokenPepper::derive` already uses. It is not a new construction, and the crate it lives in is
+  already in the mandatory review scope of `docs/security-review.md`.
+- `index = HMAC-SHA256(key, value_bytes)`, computed on write, stored on the version, indexed in
+  SQLite. One HMAC per write on the write path; one indexed lookup and one constant-time comparison
+  per report on the read path.
+
+What that adds to the database, stated plainly rather than assumed away:
+
+- **Two versions holding the same value get the same index.** A reader of the database file (A4)
+  learns which secrets duplicate each other without learning a value. That is new information, and
+  duplicate values across services are exactly what a migration leaves behind.
+- **With the index key, a dictionary attack on a low-entropy value is offline and fast.** The key
+  derives from the root key, so anyone who can run that attack can already decrypt every value
+  directly. The index adds no exposure that holding the master key does not already grant (A4, A5).
+- **Without the key it is an HMAC under an unknown key** — no more useful than the ciphertext beside
+  it.
+
+Rejected: decrypting every current version per report, which turns an anonymous request into a
+full-corpus decryption and hands out a denial-of-service lever. Rejected: a truncated index or a
+Bloom filter for compactness — both produce false positives, and a false `leaked` mark on a
+`breaks-data` secret (section 8) invites precisely the rotation that destroys data.
+
+**Coverage.** Versions written before the migration have no index and cannot match. `ciphr leak
+reindex` computes them on the host with the master key, audited as one entry recording how many
+versions were indexed; it serves nothing and takes no value out of the process. Until it has run, a
+report against an older value is a miss — and because the endpoint answers a miss and a match
+identically, it is a silent one. The reindex is part of enabling the feature, not an optimization.
+
+### What `leaked` means, and the one thing it must never do
+
+The mark sits on the **version**, because a value is what leaked. Rotation writes a new version,
+which is not marked, so the mark ages out through the operation that answers it — and there is
+therefore no command that clears it. An erasable leak mark is a piece of evidence with a delete
+button.
+
+`leaked` is metadata and does **not** influence authorization. `rotation` follows the same rule in
+section 8 for tidiness; here it is load-bearing. If a leaked mark refused reads, anyone who knows a
+value could refuse it to everybody, anonymously, and this endpoint would be a remote switch for
+turning off any secret whose value has ever been seen. The mark drives a warning in the CLI and the
+UI, an audit entry, and a row in `/v1/leaks`. Nothing reads it to decide anything.
+
+### Limits, and why they are load-bearing
+
+This is the first request path in the design that reaches the store without an identity, and the
+service is fail-closed on the audit trail. Both facts point at one failure: an anonymous request
+that writes an audit entry is an anonymous request that consumes audit volume, and a full audit
+volume is a total outage rather than a logging gap (section 7). The limiter is not politeness — it
+is what keeps an unauthenticated endpoint from being a lever on availability.
+
+Ordered, because the order *is* the design:
+
+1. **Body size**, capped before parsing (4 KiB by default). A value that does not fit is a value
+   this endpoint cannot report, which is an acceptable limit for a drop box.
+2. **The limiter, before anything is recorded and before the store lock is taken.** A refused report
+   writes no audit entry and touches no database; it increments a counter.
+3. **One aggregate audit entry per window** stating how many reports were refused, rather than one
+   entry per refusal. Same reasoning as `explain_the_gap` in `crates/ciphr-server/src/state.rs`: the
+   trail says what happened without letting whoever caused it choose how much gets written.
+4. **A concurrency cap** of one or two permits for the endpoint, so anonymous traffic cannot starve
+   authorized requests at the store mutex — secret reads and writes go through that same lock.
+5. **A matched report is audited in full and writes one row.** `leaked_at` is set once and is
+   monotonic, so a repeated report of the same value changes nothing and costs one lookup.
+6. **Off by default in configuration.** The only unauthenticated write path in the system is one a
+   deployment turns on deliberately.
+
+**Per-IP buckets are weaker than they look, and the reason is already in the code.**
+`request_context` in `crates/ciphr-server/src/api.rs` deliberately ignores `X-Forwarded-For`,
+because a header a client controls is a header a client can lie in. The bucket therefore keys on the
+connection address, and behind a reverse proxy every reporter shares one bucket. Where the endpoint
+is reached through a proxy, **the global budget is the real defence** and the per-IP bucket is a
+courtesy to well-behaved clients.
+
+### What the audit records, and what it must not
+
+Recorded: that a report arrived, whether it matched, the matched path and version if it did, the
+client address as the listener saw it, and the report's own random identifier. Channel `report`, so
+reports stay filterable and are never mistaken for an identity's access.
+
+**Never recorded: anything derived from the submitted value** — not the index, not a prefix of it,
+not its length. The `file` device rotates into a backup, which is protected less carefully than the
+database, and a fingerprint of an attacker-chosen candidate written there permanently is a
+dictionary target that outlives the value it describes. A matched entry names the path, which the
+trail records for every other access anyway.
+
+The optional `context` field — free text saying where the value was found — is the one thing that
+makes a report actionable, and it is attacker-controlled text. Capped at 256 characters, kept only
+on a match, and stored on the row rather than in the audit payload, so an anonymous party cannot
+append chosen text to the hash chain.
+
+### API, CLI, configuration, data model
+
+| Method | Path | Capability |
+|---|---|---|
+| `POST` | `/v1/report` | — (no identity; limits instead) |
+| `GET` | `/v1/leaks` | `read` on `sys/leaks` |
+
+`sys/leaks` is a virtual path, as in section 22. No new capability.
+
+CLI: `ciphr leak list` and `ciphr leak reindex`. No `ciphr leak clear`, for the reason above.
+
+```toml
+[report]
+enabled  = false
+max_body = "4KB"
+per_ip   = { requests = 5,   per = "1m" }
+global   = { requests = 100, per = "1h" }
+```
+
+Data model, additively, on `secret_versions`: `value_index BLOB NULL` with an index on it,
+`leaked_at INTEGER NULL`, `leak_reports INTEGER NOT NULL DEFAULT 0`, `leak_context TEXT NULL`.
+
+Audit actions: `report`, `leak-marked`, and one for the aggregate refusal entry.
+
+### What this does not solve
+
+- It finds a value somebody brings back. It finds nothing about a value nobody noticed, which is
+  most of them.
+- A report proves a value was somewhere it should not have been. It says nothing about who put it
+  there; the trail's history of reads is the only thing that narrows that, which is an argument for
+  the retention design in section 7 rather than for this endpoint.
+- **A miss is evidence of nothing.** An unindexed older version, a re-encoded value, a trailing
+  newline — all of them miss, and the endpoint's deliberate silence means a reporter cannot tell
+  "not ours" from "we cannot tell yet".

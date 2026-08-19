@@ -60,6 +60,25 @@ in comments and tests.
 That size is deliberate. If these crates cannot be read end to end by one person in a couple of
 days, something has gone wrong with them, and that is itself worth reporting.
 
+### What two planned features would add, if they are built first
+
+Neither is implemented, and the intended order is the other way round — both ADRs name this review as
+a condition of their own phase, precisely so that a reviewer is not handed the new surface and the old
+surface at once. Recorded here anyway, because a scope that only lists what exists today goes stale
+without anyone noticing:
+
+- **ADR-15, honeypots (phase 8)** adds behaviour to the authentication path in `ciphr-store` — a
+  credential that is recognized and refused rather than merely refused — and a trigger that can revoke
+  tokens or stop the service. The claim to attack is that recognizing bait is indistinguishable from
+  any other rejection, in the response and in the timing.
+- **ADR-16, leak reports (phase 9)** adds a key derivation in `ciphr-crypto` and the only
+  unauthenticated request path that reaches the store. Both are in mandatory scope by their location.
+  The claims to attack are that the endpoint is not an oracle, that the blind index adds no exposure a
+  master-key holder does not already have, and that the limiter runs before anything is recorded.
+
+If either has landed by the time a review takes place, its ADR belongs in the reading order below and
+its claims belong in the sections above.
+
 ### Recommended, second tier
 
 `ciphr-audit` and the authorization and audit wiring in `ciphr-server` (`state.rs`, the handlers in
