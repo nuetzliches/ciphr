@@ -34,7 +34,10 @@
 //! A hash chain in a store an attacker can write to detects *partial* tampering. It
 //! does not detect a complete forward rewrite — see the module documentation on
 //! [`crate::chain`]. Copying the head hash somewhere outside the store is what closes
-//! that gap, and it is an operational step rather than something this code can do.
+//! that gap: [`crate::anchor`] is that copy, and
+//! [`crate::anchor::verify_with_anchor`] is this verification done against one. Where
+//! the copy is kept remains an operational decision, and it is the decision that
+//! decides whether the anchor is worth anything.
 
 use serde::Deserialize;
 

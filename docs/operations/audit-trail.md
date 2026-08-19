@@ -59,15 +59,37 @@ It does **not** detect a complete forward rewrite by someone who can write to th
 recompute every hash from the point they changed onward, and the result verifies. There is a test
 asserting exactly that, so the limitation is stated in code as well as in prose.
 
-Closing that gap needs an anchor **outside** the store:
+Closing that gap needs an anchor **outside** the store. Two ways, and they compose:
 
 - Configure the file device on a filesystem the service account can append to but not rewrite, or
   ship lines off the host as they are written.
-- Record the head hash somewhere else periodically — another host, a ticket, a chat channel with
-  retention. A single 64-character string, kept elsewhere, turns a silent rewrite into a visible
-  contradiction.
+- Record the head hash somewhere else periodically. That one is a command:
 
-Neither is implemented here, because neither is application code. Both are cheap.
+```sh
+# take an anchor: one JSON line on stdout, appended to the file if --out is given
+ciphr audit anchor --out /mnt/evidence/ciphr-anchors.jsonl
+
+# later, verify the chain against the newest anchor in that file
+ciphr audit verify --anchor /mnt/evidence/ciphr-anchors.jsonl
+```
+
+Four things about it are worth knowing before it goes into a schedule:
+
+- **It reads without the lock and without the master key**, so it runs while the server does.
+  Verification hashes stored records; it needs no key, and a reader is not a second writer.
+- **It records no audit entry of its own.** An entry would move the head it just wrote down, and
+  writing one would need the lock the running server holds.
+- **The file it writes has to be somewhere this store's writer cannot reach**, or it proves nothing:
+  another host, a backup, an append-only share. Next to the database it is decoration.
+- **An existing anchor is checked before a new one is appended.** Anchoring over a chain that
+  contradicts the previous anchor would hand a rewrite a fresh alibi, so it refuses instead.
+
+A mismatch reports both of its possible causes, because they cannot be told apart from here: the
+chain was rewritten, or the anchor file belongs to a different store. Both are worth stopping for.
+
+What an anchor covers is the chain **up to the anchored sequence**. Everything after it rests on the
+chain alone until the next anchor, which is the argument for taking them on a schedule rather than
+after an incident.
 
 ## Two devices, one chain
 
@@ -109,8 +131,12 @@ The shape the policy has to take is recorded in section 7 of the implementation 
 device bounded, the file device unbounded and archived, and — the part that makes the first two safe
 — the head hash, its sequence number, and the date written down **outside the store** at every cut,
 so verification can start from that anchor instead of from genesis. Retention and the defence against
-a forward rewrite are the same operation when they are done together. None of that mechanism exists
-yet.
+a forward rewrite are the same operation when they are done together.
+
+**The anchor half exists** (`ciphr audit anchor`, above), and `ciphr audit verify --anchor` already
+verifies a run of records that begins immediately after an anchored sequence — which is exactly what
+a cut leaves behind. **The cut itself does not exist.** Nothing bounds the queryable device, and
+nothing archives what a bound would remove.
 
 Two consequences for operating this today:
 

@@ -25,7 +25,8 @@
 //! changed. Detecting that needs an anchor outside the store — a copy of the head
 //! hash somewhere else, or the file device on a different host. This limitation is
 //! inherent, and stating it is part of the design rather than a caveat to be found
-//! later.
+//! later. [`crate::anchor`] is the copy and the check against it; what it cannot
+//! supply is a second place to keep the copy, which is the part that does the work.
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};

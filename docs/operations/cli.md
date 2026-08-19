@@ -174,13 +174,26 @@ tokens and hoping the list was complete.
 ```sh
 ciphr audit tail -n 50
 ciphr audit verify
+
+# record the head somewhere the writer of this store cannot reach
+ciphr audit anchor --out /mnt/evidence/ciphr-anchors.jsonl
+
+# and check the chain against the newest anchor in that file
+ciphr audit verify --anchor /mnt/evidence/ciphr-anchors.jsonl
 ```
 
 `verify` recomputes every hash and checks that each record chains to its predecessor. What it proves
 and what it does not is printed with the result and explained in
 [audit-trail.md](audit-trail.md): a verified chain shows no entry was removed, edited, or reordered,
-and it does **not** show that nobody rewrote the chain forward. That needs the head hash recorded
-somewhere outside the store.
+and it does **not** show that nobody rewrote the chain forward.
+
+`anchor` is what closes that. It writes one JSON line — sequence number, hash, timestamp — to
+standard output and appends it to `--out`, so a scheduled job can pipe the record on without
+filtering prose out of it; everything a person reads goes to standard error. Both commands read
+**without the store lock and without the master key**, so they work while the server is running, and
+`anchor` deliberately records no audit entry of its own: it would move the head it just wrote down.
+Where the file lives is the whole value of the exercise — on the same host as the database, an anchor
+proves nothing.
 
 ## Rotating the master key
 

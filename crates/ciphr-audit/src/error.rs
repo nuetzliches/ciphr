@@ -96,6 +96,26 @@ pub enum BreakKind {
         /// What the payload says.
         payload_seq: u64,
     },
+    /// The record at an anchored sequence number does not have the anchored hash.
+    ///
+    /// The one break a chain cannot produce on its own: the records are internally
+    /// consistent and contradict evidence kept outside the store. See
+    /// [`crate::anchor`].
+    AnchorMismatch {
+        /// The hash the anchor recorded, hexadecimal.
+        anchored: String,
+        /// The hash the stored record has now, hexadecimal.
+        stored: String,
+    },
+    /// The records in hand cannot be attached to the anchor at all.
+    ///
+    /// Not a verdict about them — a refusal to give one. Reporting success for an
+    /// anchor that was never checked would be the worse answer.
+    AnchorUnreachable {
+        /// The highest sequence number the records in hand reach, or zero if there
+        /// are none.
+        head_seq: u64,
+    },
 }
 
 impl fmt::Display for ChainBreak {
@@ -117,6 +137,17 @@ impl fmt::Display for ChainBreak {
                 f,
                 "the record's own sequence number is {payload_seq}, which disagrees with where \
                  it is stored"
+            ),
+            BreakKind::AnchorMismatch { anchored, stored } => write!(
+                f,
+                "the stored record hashes to {stored}, but an anchor taken outside the store \
+                 recorded {anchored} — either the chain was rewritten, or the anchor belongs \
+                 to a different store"
+            ),
+            BreakKind::AnchorUnreachable { head_seq } => write!(
+                f,
+                "the records in hand reach sequence {head_seq} and neither contain this \
+                 sequence nor continue from it, so the anchor cannot be checked against them"
             ),
         }
     }

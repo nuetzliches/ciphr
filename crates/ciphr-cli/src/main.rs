@@ -23,7 +23,7 @@ use std::io::Write as _;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use ciphr_audit::{Action, StoredRecord, verify_from_genesis};
+use ciphr_audit::{Action, StoredRecord, verify_from_genesis, verify_with_anchor};
 use ciphr_core::{Plaintext, Rotation, SecretPath, SecretVersion};
 use ciphr_crypto::{RootKey, RootKeyId, Seal, StaticSeal, Token};
 use ciphr_policy::PolicySet;
@@ -251,7 +251,36 @@ enum AuditCommand {
         count: u32,
     },
     /// Verify the hash chain from the beginning.
-    Verify,
+    Verify {
+        /// Also check the chain against the newest anchor in this file.
+        ///
+        /// Without it, verification proves that no entry was removed, edited, or
+        /// reordered. With it, it also proves the chain was not rewritten forward up
+        /// to the anchored sequence — which is the part no amount of reading the store
+        /// can establish.
+        #[arg(long, value_name = "FILE")]
+        anchor: Option<PathBuf>,
+    },
+    /// Record the current head of the chain, for keeping outside this store.
+    ///
+    /// Writes one JSON line to standard output, and appends it to `--out` if given.
+    /// The point of an anchor is that the copy lives somewhere the writer of this
+    /// store does not control, so the file belongs on another host or in a backup —
+    /// next to the database it buys nothing.
+    ///
+    /// Reads without taking the store lock and without the master key, so it can run
+    /// while the server does. It records no audit entry of its own: an entry would
+    /// move the head it just wrote down, and it would need the write lock, which the
+    /// running server holds.
+    Anchor {
+        /// Append the anchor to this file, creating it if necessary.
+        ///
+        /// If the file already holds anchors, the newest one is checked against the
+        /// chain first, and nothing is appended if it does not hold. An anchor written
+        /// over a contradiction would give a rewrite a fresh alibi.
+        #[arg(long, value_name = "FILE")]
+        out: Option<PathBuf>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -776,6 +805,16 @@ fn token(cli: &Context, command: TokenCommand) -> Result<(), CliError> {
 
 /// `ciphr audit …`.
 fn audit(cli: &Context, command: &AuditCommand) -> Result<(), CliError> {
+    // Verifying and anchoring read the trail and write nothing, so they neither unseal
+    // the store nor take its lock. That is what lets them run against a live service,
+    // which is when a check is worth having. `tail` still goes through a session,
+    // because it is the browsing command and shares the session's output guards.
+    match command {
+        AuditCommand::Verify { anchor } => return verify_chain(cli, anchor.as_deref()),
+        AuditCommand::Anchor { out } => return take_anchor(cli, out.as_deref()),
+        AuditCommand::Tail { .. } => {}
+    }
+
     let session = open(cli)?;
 
     match command {
@@ -808,27 +847,154 @@ fn audit(cli: &Context, command: &AuditCommand) -> Result<(), CliError> {
             Ok(())
         }
 
-        AuditCommand::Verify => {
-            let rows = session.store.audit_all()?;
-            let verified = verify_from_genesis(rows.iter().map(|row| StoredRecord {
-                seq: row.seq,
-                payload: &row.payload,
-                hash: Some(row.hash),
-            }))?;
-
-            println!("{} entries verify", verified.records);
-            println!(
-                "head {} at sequence {}",
-                ciphr_core::hex::encode(&verified.head_hash),
-                verified.head_seq
-            );
-            println!();
-            println!("A verified chain shows no entry was removed, edited, or reordered. It does");
-            println!("not show that nobody rewrote the whole chain forward, which needs the head");
-            println!("hash recorded somewhere outside this store.");
+        AuditCommand::Verify { .. } | AuditCommand::Anchor { .. } => {
+            // Handled above, before the session was opened.
             Ok(())
         }
     }
+}
+
+/// The stored chain, as verification wants it.
+///
+/// The stored hash is passed along as well as the payload: a stored hash that
+/// disagrees with its own record is evidence in itself, and dropping it here would
+/// discard that.
+fn stored_records(rows: &[ciphr_store::AuditRow]) -> Vec<StoredRecord<'_>> {
+    rows.iter()
+        .map(|row| StoredRecord {
+            seq: row.seq,
+            payload: &row.payload,
+            hash: Some(row.hash),
+        })
+        .collect()
+}
+
+/// `ciphr audit verify [--anchor FILE]`.
+fn verify_chain(cli: &Context, anchor_file: Option<&std::path::Path>) -> Result<(), CliError> {
+    let store = SqliteStore::open_read_only(&cli.database)?;
+    let rows = store.audit_all()?;
+    let records = stored_records(&rows);
+
+    let anchor = match anchor_file {
+        None => None,
+        Some(path) => Some(read_anchor(path)?),
+    };
+
+    let verified = match &anchor {
+        None => verify_from_genesis(records.iter().copied())?,
+        Some(anchor) => verify_with_anchor(anchor, &records)?,
+    };
+
+    println!("{} entries verify", verified.records);
+    println!(
+        "head {} at sequence {}",
+        ciphr_core::hex::encode(&verified.head_hash),
+        verified.head_seq
+    );
+    println!();
+
+    match &anchor {
+        None => {
+            println!("A verified chain shows no entry was removed, edited, or reordered. It does");
+            println!("not show that nobody rewrote the whole chain forward, which needs the head");
+            println!("hash recorded somewhere outside this store: see `ciphr audit anchor`.");
+        }
+        Some(anchor) => {
+            println!(
+                "The chain also agrees with the anchor taken at {} for sequence {}, so it was",
+                anchor.taken_at, anchor.seq
+            );
+            println!(
+                "not rewritten up to that record. Records after sequence {} rest on the chain",
+                anchor.seq
+            );
+            println!("alone until the next anchor is taken.");
+        }
+    }
+    Ok(())
+}
+
+/// `ciphr audit anchor [--out FILE]`.
+fn take_anchor(cli: &Context, out: Option<&std::path::Path>) -> Result<(), CliError> {
+    let store = SqliteStore::open_read_only(&cli.database)?;
+    let rows = store.audit_all()?;
+    let records = stored_records(&rows);
+
+    // An anchor appended over a chain that contradicts the previous one would hand a
+    // rewrite a fresh alibi, so the existing evidence is checked before more is added.
+    let previous = match out {
+        None => None,
+        Some(path) => match std::fs::read_to_string(path) {
+            Ok(text) => ciphr_audit::Anchor::latest(&text)
+                .map_err(|error| CliError::Audit(format!("{}: {error}", path.display())))?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(CliError::Io(error)),
+        },
+    };
+
+    let verified = match &previous {
+        None => verify_from_genesis(records.iter().copied())?,
+        Some(anchor) => verify_with_anchor(anchor, &records)?,
+    };
+
+    if verified.head_seq == 0 {
+        return Err(CliError::Audit(
+            "the chain is empty, so there is no head to anchor".to_owned(),
+        ));
+    }
+
+    let anchor = ciphr_audit::Anchor::over(&verified, now_millis());
+    let line = anchor.encode();
+
+    if let Some(path) = out {
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .map_err(CliError::Io)?;
+        writeln!(file, "{line}").map_err(CliError::Io)?;
+        // Anchors are evidence about writes that already happened. Losing the newest
+        // one to a power failure would leave the trail unanchored without anyone
+        // noticing, so the write is pushed to the device before the command reports
+        // success.
+        file.sync_all().map_err(CliError::Io)?;
+    }
+
+    // The record goes to standard output alone, so that a scheduled job can pipe it
+    // somewhere without filtering prose out of it. Everything a person needs goes to
+    // standard error.
+    println!("{line}");
+
+    eprintln!(
+        "anchored sequence {} over {} verified entries",
+        anchor.seq, verified.records
+    );
+    match out {
+        Some(path) => eprintln!("appended to {}", path.display()),
+        None => eprintln!(
+            "not written to a file: pass --out, and keep it where this store's writer cannot reach"
+        ),
+    }
+    if let Some(previous) = &previous {
+        eprintln!(
+            "the previous anchor, sequence {} from {}, still holds",
+            previous.seq, previous.taken_at
+        );
+    }
+    Ok(())
+}
+
+/// The newest anchor in a file, or an error saying the file has none.
+fn read_anchor(path: &std::path::Path) -> Result<ciphr_audit::Anchor, CliError> {
+    let text = std::fs::read_to_string(path).map_err(CliError::Io)?;
+    ciphr_audit::Anchor::latest(&text)
+        .map_err(|error| CliError::Audit(format!("{}: {error}", path.display())))?
+        .ok_or_else(|| {
+            CliError::Audit(format!(
+                "{} holds no anchor record; run `ciphr audit anchor --out` first",
+                path.display()
+            ))
+        })
 }
 
 /// `ciphr rotate-master-key`.

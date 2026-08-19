@@ -501,10 +501,15 @@ forward rewrite — anyone who can write the store can recompute every hash forw
 chain then verifies — so retention and that defence are the same operation when they are done
 together, and two separate ones when they are not.
 
-**Not in v1.** There is no cut, no archive-on-cut, and no anchor record; the `sqlite` table
-grows without bound, and the fill-level health check (section 17) is what stands in for a
-policy. Anything that trims that table without producing the anchor is exactly the chain break
-above.
+**Point 3 exists; points 1 and 2 do not.** `ciphr audit anchor` records the head outside the
+store and refuses to append over a contradiction, and `ciphr audit verify --anchor` checks a
+chain against it — including a run of records that begins immediately after an anchored
+sequence, which is what a cut leaves behind. Both read without the store lock and without the
+master key, so an anchor can be taken on a schedule against a running service. **The cut
+itself is not built:** nothing bounds the `sqlite` device and nothing archives what a bound
+would remove, so the table grows without bound and the fill-level health check (section 17)
+stands in for a policy. Anything that trims that table without producing the anchor is exactly
+the chain break above.
 
 ---
 
@@ -652,6 +657,8 @@ ciphr identity add deploy-runner --policy infra-read
 ciphr token issue deploy-runner --ttl 90d
 ciphr audit tail
 ciphr audit verify                  # verify the hash chain
+ciphr audit anchor --out FILE       # record the head outside the store, section 7
+ciphr audit verify --anchor FILE    # and check the chain against it
 ciphr dump --format portable        # exit path, see section 2
 ```
 
@@ -1284,11 +1291,12 @@ The project starts private. These points cost nothing now and would be expensive
 
 ### Open questions that still need work
 
-1. **When the audit cut from section 7 is built.** The required shape is settled — bounded
-   queryable device, unbounded archive, head hash anchored outside the store at every cut — and
-   none of it exists. Until it does the `sqlite` audit table grows without bound, and because
-   the service is fail-closed a full volume is an outage rather than a warning. What is open is
-   whether this ships before the phases that multiply the entry rate.
+1. **When the audit cut from section 7 is built.** The anchor half is built (`ciphr audit
+   anchor`); the cut is not. Until it is, the `sqlite` audit table grows without bound, and
+   because the service is fail-closed a full volume is an outage rather than a warning. What is
+   open is whether the cut ships before the phases that multiply the entry rate — and, with it,
+   where a deployment keeps its anchor file, which is the decision that makes the anchor worth
+   taking at all.
 2. **Whether the service ever serves a consumer outside its own network** (section 13). Three
    decisions in one — network exposure, a certificate for a name a foreign host resolves, a token
    across a trust boundary — and the answer bounds how far phase 7 can reach.

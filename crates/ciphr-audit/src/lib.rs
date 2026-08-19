@@ -57,6 +57,7 @@
 //! # Ok::<(), Box<dyn core::error::Error>>(())
 //! ```
 
+pub mod anchor;
 pub mod chain;
 pub mod device;
 pub mod entry;
@@ -65,6 +66,7 @@ pub mod file;
 pub mod time;
 pub mod verify;
 
+pub use anchor::{Anchor, AnchorError, verify_with_anchor};
 pub use chain::{Chain, EncodedRecord, GENESIS, HASH_LEN, hash_payload};
 pub use device::{AuditDevice, AuditSink, Written};
 pub use entry::{Action, DecidingRule, Entry, Principal, RequestContext};

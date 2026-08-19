@@ -47,6 +47,48 @@ impl SqliteStore {
         Self::prepare(Connection::open(path)?)
     }
 
+    /// Open an existing database without writing to it and without migrating it.
+    ///
+    /// For reading the audit trail while the service is running. Verifying a chain or
+    /// taking an anchor over it needs neither the master key nor the write lock — the
+    /// records are not encrypted and hashing them changes nothing — and requiring
+    /// either would mean the trail can only be checked with the service stopped, which
+    /// is the opposite of when a check is wanted.
+    ///
+    /// Two consequences of read-only that are worth knowing before an incident:
+    ///
+    /// - **The schema is checked, not applied.** A database older than this build is
+    ///   opened as it is, so a query against a table a later migration adds fails on
+    ///   the query rather than being fixed silently by the reader.
+    /// - **WAL needs the sidecar files.** SQLite reads a write-ahead-logged database
+    ///   through its `-shm` file, which it may have to create; a directory the reader
+    ///   cannot write to therefore fails to open even though nothing would be written
+    ///   to the database itself. That is SQLite's behaviour rather than a choice here,
+    ///   and it is the reason this returns an error instead of falling back to a
+    ///   read-write connection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::SchemaTooNew`] if the file was written by a newer build,
+    /// or [`StoreError::Sqlite`] if it does not exist or cannot be opened.
+    pub fn open_read_only(path: impl AsRef<Path>) -> Result<Self, StoreError> {
+        let connection = Connection::open_with_flags(
+            path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        connection.busy_timeout(std::time::Duration::from_secs(5))?;
+
+        let found: u32 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        if found > SCHEMA_VERSION {
+            return Err(StoreError::SchemaTooNew {
+                found,
+                supported: SCHEMA_VERSION,
+            });
+        }
+
+        Ok(Self { connection })
+    }
+
     /// Open a database that exists only for the lifetime of this value.
     ///
     /// Used by tests. It is not a "test mode": the schema, the queries, and the

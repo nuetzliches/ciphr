@@ -8,6 +8,42 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — `ciphr audit anchor`, the head of the chain kept outside the store
+
+- **`ciphr audit anchor [--out FILE]`** writes one JSON line — format version, timestamp, sequence
+  number, hash — to standard output and appends it to `--out`. It is the half of the retention design
+  in plan section 7 that closes a gap the chain cannot close itself: a hash chain detects an entry
+  removed, edited, or reordered, but not a forward rewrite by someone who can write the store, because
+  they recompute every hash from the point they changed and the result verifies from genesis. Evidence
+  kept in the same place as the thing it is evidence about is not evidence.
+- **`ciphr audit verify --anchor FILE`** checks the chain against the newest anchor in that file.
+  Two shapes are accepted, and they are the two that occur: the whole chain, where the record at the
+  anchored sequence must hash to the anchored hash; and a run that begins immediately after the
+  anchored sequence, which is what a cut leaves behind — there the anchor is the predecessor the first
+  surviving record must chain to. Anything else is refused as `AnchorUnreachable` rather than passed:
+  an anchor that cannot be attached to the records in hand proves nothing about them.
+- **Both commands read without the store lock and without the master key**, which is what makes them
+  usable at all: verification hashes stored records, so it needs no key, and a reader is not the
+  second writer the lock exists to prevent. `SqliteStore::open_read_only` is new for this, and it does
+  not migrate — a reader that silently upgraded a schema would be a writer. Requiring the lock would
+  have meant the trail could only be checked with the service stopped, which is the opposite of when
+  a check is wanted. There is a test that holds the lock and asserts both commands still work.
+- **Anchoring records no audit entry of its own.** Two reasons, and either would be enough: an entry
+  would move the head the anchor just wrote down, and writing one needs the lock the running server
+  holds.
+- **An existing anchor is verified before a new one is appended**, and nothing is appended if it does
+  not hold. An anchor written over a contradiction would give a rewrite a fresh alibi and leave the
+  file looking healthy. A mismatch names both of its possible causes — the chain was rewritten, or the
+  anchor file belongs to a different store — because from inside the store they are indistinguishable,
+  and both are worth stopping for.
+- **What an anchor covers is the chain up to its sequence number.** Everything after it rests on the
+  chain alone until the next anchor, which is the argument for a schedule rather than for reaching for
+  this after an incident. And the file has to live somewhere the store's writer cannot reach; next to
+  the database it is decoration. `docs/operations/audit-trail.md` and `docs/operations/cli.md` say so
+  where the commands are documented.
+- Not built, and named as such in plan section 7: the cut itself. Nothing bounds the queryable device
+  and nothing archives what a bound would remove, so `audit_log` still grows without bound.
+
 ### Changed — the review requirement says what it binds, and its scope is three crates
 
 - **Four places said the external review is "a precondition for holding real secrets".** The project
