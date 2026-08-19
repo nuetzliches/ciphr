@@ -8,6 +8,28 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — schema 4 records where the audit log was cut
+
+Nothing cuts it yet; this is the half of retention that has to exist before anything may.
+
+- **`audit_cut`**, append-only: when a cut ran, the last sequence number it removed, that record's
+  hash, how many records went, and where the anchor was appended. The hash is what verification of
+  everything after the cut starts from — the first surviving record chains to a record that is no
+  longer in the table, so without it the remainder cannot be checked at all.
+- **The row is a claim, not evidence**, and the migration says so where a reader will meet it.
+  Whoever can write the database can write that row, which is exactly what a deletion dressed up as
+  retention looks like. The anchor outside the store is the copy that makes it more than a claim, and
+  `ciphr audit verify --anchor` compares the two. What the row buys is the other half: without it,
+  the routine check on a legitimately cut store reports tampering, and a trail that cries wolf is one
+  nobody reads.
+- **Opening a store whose log contradicts its cut record fails.** A log that ends at or before a
+  recorded cut means records that survived the cut were removed afterwards without one; an empty log
+  behind a recorded cut is a state cutting cannot produce, because a cut never empties the table.
+  Both refuse rather than resume — resuming would silently start a second chain in a table that
+  already had a history, or make the removal invisible. This is the same fail-closed choice the audit
+  sink makes, applied at startup.
+- A cut is one transaction: the records go and the record of them going lands, or neither happens.
+
 ### Added — the viewer can be published where a private deployment can pull it
 
 - `.forgejo/workflows/build-ui-image.yml` builds the viewer image on a `ui-v*` tag and pushes it to

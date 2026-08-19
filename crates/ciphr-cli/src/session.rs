@@ -12,7 +12,7 @@
 use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 
-use ciphr_audit::{Action, AuditSink, Chain, Entry, FileDevice, Principal};
+use ciphr_audit::{Action, AuditSink, Entry, FileDevice, Principal};
 use ciphr_crypto::{RootKey, Seal, StaticSeal, TokenPepper};
 use ciphr_store::{SqliteAuditDevice, SqliteStore, Store, StoreLock};
 
@@ -85,10 +85,7 @@ impl Session {
             })?));
         }
 
-        let chain = match self.store.audit_head()? {
-            None => Chain::new(),
-            Some((seq, hash)) => Chain::resume(seq, hash),
-        };
+        let chain = self.store.audit_chain()?;
         self.audit = Some(
             AuditSink::new(devices, chain).map_err(|error| CliError::Audit(error.to_string()))?,
         );

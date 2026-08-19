@@ -100,6 +100,15 @@ pub enum StoreError {
         /// What was wrong.
         detail: String,
     },
+    /// A cut of the queryable audit log was refused, and nothing was removed.
+    ///
+    /// Separate from [`Self::Corrupt`] because it is the opposite finding: the store is
+    /// intact and the *cut* was wrong. Every refusal here happens before the delete, so
+    /// the trail is exactly as it was.
+    CutRefused {
+        /// Why, in terms an operator can act on.
+        detail: String,
+    },
     /// A migration failed. Nothing from it has been applied.
     Migration {
         /// Which migration.
@@ -156,6 +165,9 @@ impl fmt::Display for StoreError {
                 write!(f, "'{path}' has exhausted its version numbers")
             }
             Self::Corrupt { detail } => write!(f, "stored data is malformed: {detail}"),
+            Self::CutRefused { detail } => {
+                write!(f, "the audit log was not cut: {detail}")
+            }
             Self::Migration {
                 version,
                 name,

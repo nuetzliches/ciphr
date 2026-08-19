@@ -7,7 +7,7 @@
 //! come before the ones that need a master key, so an operator with a typo does not
 //! have to supply a key to find out.
 
-use ciphr_audit::{AuditDevice, AuditSink, Chain, FileDevice};
+use ciphr_audit::{AuditDevice, AuditSink, FileDevice};
 use ciphr_policy::PolicySet;
 use ciphr_store::{SqliteAuditDevice, SqliteStore, Store, StoreLock};
 
@@ -67,12 +67,11 @@ impl Server {
         let root = ciphr_crypto::Seal::unseal(&seal, &seal_state.wrapped_root_key)?;
 
         // Audit devices, and the chain they continue. Resuming from the stored head
-        // means a restart does not begin a second history in the same table.
+        // means a restart does not begin a second history in the same table; a stored
+        // head that contradicts a recorded cut means records were removed without one,
+        // and `audit_chain` refuses rather than continuing over the hole.
         let devices = open_devices(&config)?;
-        let chain = match store.audit_head()? {
-            None => Chain::new(),
-            Some((seq, hash)) => Chain::resume(seq, hash),
-        };
+        let chain = store.audit_chain()?;
         let sink = AuditSink::new(devices, chain)
             .map_err(|error| StartupError::Audit(error.to_string()))?;
 
