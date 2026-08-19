@@ -1,0 +1,121 @@
+# Builds the container image and pushes it to the Forgejo registry.
+#
+# ── Why this file exists at all ───────────────────────────────────────────────
+# `.github/workflows/release.yml` already builds this image and pushes it to
+# GHCR. That is the intended home. This file is a **temporary duplicate** for one
+# reason: the repository is private, so its GHCR package is private too, and the
+# deployment host has no GHCR credentials -- it authenticates to
+# `git.nuetzliche.it` and nothing else.
+#
+# The alternative was making the GHCR package public while the source stays
+# private. That was considered and rejected: publishing the artefact of an
+# unreviewed cryptographic implementation invites someone to run it, and plan
+# section 18 makes the external review a precondition for production use --
+# which is a property of the software, not of one deployment. A public image
+# from a private repository is also unauditable, which is the posture this
+# project rejects everywhere else.
+#
+# **Delete this file once the repository is public.** Then the GHCR package can
+# be public too, `release.yml` is the single publisher again, and the deployment
+# pulls from there.
+#
+# ── What this workflow does NOT do ────────────────────────────────────────────
+# It does not run the test suite, and it cannot: the gates live in
+# `.github/workflows/ci.yml` and run on GitHub, where the tag is pushed first.
+# `release.yml` calls them before building; nothing here can.
+#
+# The consequence is a rule rather than a mechanism: **a tag produces an image
+# here whether or not GitHub's run was green.** The GitHub run is the gate. Do
+# not bump `CIPHR_TAG` in the deployment until it has passed.
+name: Build and push to the Forgejo registry
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Tag to build, e.g. v0.1.0. Required -- there is no latest."
+        type: string
+        required: true
+
+env:
+  REGISTRY: git.nuetzliche.it
+  IMAGE: git.nuetzliche.it/nuts/ciphr
+
+jobs:
+  image:
+    name: Build and push
+    runs-on: baumeister-runner
+    steps:
+      # No `uses:` anywhere in this infrastructure: the runner has no node, so
+      # every step is a shell step and the checkout is a plain clone. The token
+      # is injected by Forgejo.
+      - name: Check out the tag
+        run: |
+          set -eu
+          case "${{ github.ref }}" in
+            refs/tags/*) version="${{ github.ref }}"; version="${version#refs/tags/}" ;;
+            *)           version="${{ github.event.inputs.version }}" ;;
+          esac
+          if [ -z "$version" ]; then
+            echo "no version: this workflow builds tags, never a branch tip" >&2
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+          # Full clone with tags. A shallow one cannot check out a tag reliably,
+          # and the saving is irrelevant for a repository this size.
+          git clone "https://oauth2:${GITHUB_TOKEN}@${REGISTRY}/nuts/ciphr.git" workspace
+          cd workspace
+          git checkout "tags/${version}"
+          echo "built from $(git rev-parse HEAD)"
+
+      - name: Log in to the registry
+        env:
+          REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+        run: |
+          set -eu
+          if [ -z "${REGISTRY_PASSWORD:-}" ]; then
+            echo "REGISTRY_PASSWORD is empty. Forgejo keeps secrets and variables in" >&2
+            echo "separate namespaces, and a value stored as a variable is invisible" >&2
+            echo "to secrets.*. It also has to be visible in THIS repository's scope," >&2
+            echo "so set it organisation-wide or add it here." >&2
+            exit 1
+          fi
+          printf '%s' "$REGISTRY_PASSWORD" | docker login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
+
+      # One tag, and deliberately no `:latest`. This is the one service in the
+      # fleet that can read every secret in it; an image reference that can move
+      # under the deployment's feet is exactly what it must not have. Every
+      # running container therefore corresponds to a tag someone signed off.
+      - name: Build and push
+        run: |
+          set -eu
+          cd workspace
+          docker build \
+            --label "org.opencontainers.image.source=https://github.com/nuetzliches/ciphr" \
+            --label "org.opencontainers.image.version=${VERSION#v}" \
+            --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \
+            -t "${IMAGE}:${VERSION#v}" \
+            .
+          docker push "${IMAGE}:${VERSION#v}"
+
+      - name: Report what was pushed
+        run: |
+          set -eu
+          cd workspace
+          digest=$(docker inspect --format '{{index .RepoDigests 0}}' "${IMAGE}:${VERSION#v}" 2>/dev/null || echo "unknown")
+          {
+            echo "### Pushed"
+            echo
+            echo '```'
+            echo "${IMAGE}:${VERSION#v}"
+            echo "$digest"
+            echo '```'
+            echo
+            echo "The deployment pins this by tag in \`.env.example\`."
+            echo "Do not bump it until the GitHub CI run for \`${VERSION}\` is green --"
+            echo "this workflow does not check that and cannot."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -8,6 +8,26 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — a second, temporary publisher for the private phase
+
+- `.forgejo/workflows/build-images.yml` builds the image and pushes it to the internal registry the
+  deployment host already authenticates to. `release.yml` and GHCR remain the intended home; this
+  exists only because a private repository has a private GHCR package and the host has no
+  credentials for it.
+- Making the GHCR package public instead was considered and rejected. Nothing in the image is
+  secret — no configuration, no keys, and the release binaries embed no paths from this
+  workspace — but publishing the artefact of an unreviewed cryptographic implementation invites
+  someone to run it, and plan section 18 makes the review a precondition for production use, which
+  is a property of the software rather than of one deployment. A public image from a private
+  repository is also unauditable.
+- **The file carries its own deletion condition**: once the repository is public, the GHCR package
+  can be public, `release.yml` is the single publisher again, and this goes.
+- It pushes **one tag and no `latest`**. This is the one service that can read every secret in a
+  deployment; an image reference that can move underneath it is exactly what it must not have.
+- It also states what it cannot do: the gates run on GitHub, so a tag produces an image here whether
+  or not that run was green. The GitHub run is the gate, and the deployment must not bump its pin
+  until it has passed.
+
 Nothing yet.
 
 ## [0.1.0] — 2026-08-19
