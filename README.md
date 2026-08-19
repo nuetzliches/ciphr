@@ -4,11 +4,12 @@ A small secret manager for machine identities: key/value secrets, gap-free acces
 and path-based authorization. The name contains *CI* — the primary consumer is a build and
 deploy pipeline, not a human.
 
-> **Status: phase 3 of 7.** Usable end to end: envelope encryption with master key rotation, SQLite
-> with migrations, the policy evaluator, the fail-closed hash-chained audit trail, the HTTPS API with
-> token authentication, and the `ciphr` CLI. Not yet deployed anywhere, and nothing should hold a
-> real secret until the cryptographic and authorization crates have passed external review — that
-> review is a precondition for phase 4. The full design lives in
+> **Status: v0.1.0, phase 3 of 7.** Usable end to end: envelope encryption with master key
+> rotation, SQLite with migrations, the policy evaluator, the fail-closed hash-chained audit trail,
+> the HTTPS API with token authentication, and the `ciphr` CLI. **v0.1.0 is the artifact the external
+> review is performed against, not a production release** — that review of the cryptographic and
+> authorization crates is a precondition for holding real secrets
+> ([`docs/security-review.md`](docs/security-review.md)). The full design lives in
 > [`.claude/plans/PLAN.md`](.claude/plans/PLAN.md).
 
 ## Why this exists

@@ -8,6 +8,18 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.0] — 2026-08-19
+
+The first tagged version. It is the artifact the external review is performed against, **not** a
+release for production use: the review of `ciphr-crypto`, `ciphr-policy`, and the reviewed parts of
+`ciphr-core` is a precondition for holding real secrets (plan section 18, `docs/security-review.md`).
+
+Phases 0 to 3 of the plan are complete — the cryptographic layer, the store, the policy evaluator,
+the audit trail, the HTTPS API with token authentication, and the CLI. 255 tests, three fuzz targets,
+and a pre-review pass whose ten findings are recorded in `docs/review-2026-08-18.md`.
+
 ### Added — the master key may come from a file
 
 - `[seal] type = "static_file"` with a `path`, and `--master-key-file` on the CLI. Recorded as an
@@ -507,4 +519,5 @@ first production use.
   decision.
 - `AGENTS.md` with the working rules, and `SECURITY.md` with the disclosure process and scope.
 
-[Unreleased]: https://github.com/nuetzliches/ciphr/commits/main
+[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.1.0...main
+[0.1.0]: https://github.com/nuetzliches/ciphr/releases/tag/v0.1.0
