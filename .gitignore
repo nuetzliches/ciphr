@@ -23,6 +23,7 @@ ui/dist/
 HANDOFF.md
 
 # Editors and OS
+*.stackdump
 .DS_Store
 .idea/
 .vscode/
