@@ -38,7 +38,14 @@ on:
 
 env:
   REGISTRY: git.nuetzliche.it
-  IMAGE: git.nuetzliche.it/nuts/ciphr-ui
+  # Nested, to match what GHCR gets from `${{ github.repository }}/ui`: one name
+  # for one artifact in both registries, and the relationship to the service
+  # visible in the name. `nuts/ciphr-ui` would read like a second repository
+  # sitting beside `nuts/ciphr`, which is the wrong picture -- the viewer is a
+  # directory in the same repository, released on its own tag namespace.
+  # Forgejo's registry supports nested image names, which is what makes the two
+  # registries able to agree.
+  IMAGE: git.nuetzliche.it/nuts/ciphr/ui
 
 jobs:
   image:

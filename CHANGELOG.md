@@ -15,6 +15,10 @@ This file is updated in the same commit as the change it describes.
   private repository means a private GHCR package, and the deployment host authenticates to one
   registry that is not GHCR. Both files go away when the repository is public and the GitHub workflows
   become the single publishers again.
+- The image path is nested — `<registry>/<owner>/ciphr/ui`, matching what GHCR derives from the
+  repository name. A flat `ciphr-ui` reads like a second repository beside `ciphr`, and the viewer is
+  not one: it is a directory in this repository with its own tag namespace and its own release
+  decision (ADR-11). One artifact should not have two names.
 - The build context is `ui/` alone. This image is static files and a web server, and it has no reason
   to be able to see the crates.
 - It refuses a tag that is not `ui-v*`, because the two tag namespaces are the mechanism that keeps
