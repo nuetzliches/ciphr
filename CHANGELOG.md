@@ -8,6 +8,23 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — the strict policy broke the viewer's own dev server
+
+- The Content-Security-Policy sat in `ui/index.html`, so `npm run dev` served it too — and the dev
+  server does not serve the built artifact. It assembles the page in the browser, where Vite's HMR
+  client applies styles by creating elements at runtime, which `style-src 'self'` refuses. The page
+  arrived unstyled with `Applying inline style violates … 'style-src 'self''` on the console.
+- The policy is now defined once in `vite.config.ts` and injected into the **built** document by a
+  build-only plugin. Production and `vite preview` keep it; the dev server runs without it. That is
+  the honest split rather than the tempting one: with the policy in the source document, the fix a
+  developer reaches for is `unsafe-inline` — in production, where it matters.
+- **This was shipped in `fa5ca00` and the verification did not catch it**, because that verification
+  drove the built bundle behind the container's headers. It never loaded the dev server, which is the
+  one way most people will meet this package first. Both paths are now checked in a browser.
+- CI checks the built document for the policy: the directives have to be there, an `unsafe-` keyword
+  fails the job, and so does a missing policy — which is what removing the plugin would look like.
+  Proven by removing it and watching the check fail.
+
 ### Added — two features planned: honeypots (phase 8) and leak reports (phase 9)
 
 Nothing is implemented. Plan sections 22 and 23 hold the designs, ADR-15 and ADR-16 hold the

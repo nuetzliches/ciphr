@@ -115,13 +115,36 @@ jobs:
         working-directory: ui
         run: npm run build
 
-      # The bundle must stay servable under the policy the container sends. An
-      # inline script or inline style would need 'unsafe-inline', and that is the
-      # weakening this checks for rather than trusts.
-      - name: No inline script or style in the built bundle
+      # The bundle must stay servable under the policy the container sends, and it
+      # must carry that policy itself: a bundle served by anything other than this
+      # project's container would otherwise lose it silently. Both are checked
+      # against the built document, because that is what a deployment serves — the
+      # dev server assembles the page in the browser and is deliberately without a
+      # policy (see vite.config.ts).
+      - name: The built bundle carries the policy and no inline script or style
         working-directory: ui
         run: |
           set -eu
+          # The policy attribute itself, not the file: the document carries comments
+          # that name the keywords this must refuse, and a grep over the whole file
+          # would read the explanation as the thing it warns about.
+          policy=$(grep -o 'http-equiv="Content-Security-Policy" content="[^"]*"' dist/index.html | head -1)
+          if [ -z "$policy" ]; then
+            echo >&2 "dist/index.html carries no Content-Security-Policy: the build plugin is gone"
+            exit 1
+          fi
+          for directive in "default-src &#39;none&#39;" "script-src &#39;self&#39;" "connect-src &#39;self&#39;"; do
+            case "$policy" in
+              *"$directive"*) ;;
+              *) echo >&2 "the policy is missing: $directive"; exit 1 ;;
+            esac
+          done
+          case "$policy" in
+            *unsafe-inline* | *unsafe-eval*)
+              echo >&2 "the policy has been weakened with an unsafe- keyword: $policy"
+              exit 1
+              ;;
+          esac
           if grep -nE '<script[^>]*>[^<[:space:]]' dist/index.html; then
             echo >&2 "an inline script in dist/index.html would need 'unsafe-inline' in the CSP"
             exit 1
@@ -130,7 +153,7 @@ jobs:
             echo >&2 "an inline style in dist/index.html would need 'unsafe-inline' in the CSP"
             exit 1
           fi
-          echo "no inline script or style"
+          echo "policy present, nothing inline"
 
       # Advisories for the frontend tree, separate from cargo-audit. High and
       # above fails: the viewer runs in a tab that may hold a plaintext secret.

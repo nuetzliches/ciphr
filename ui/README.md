@@ -17,6 +17,12 @@ npm run build          # vue-tsc --noEmit && vite build  →  dist/
 npm run typecheck      # just the type check
 ```
 
+`npm run dev` serves a page assembled in the browser and therefore **without** the
+Content-Security-Policy: Vite's HMR client applies styles at runtime, which `style-src 'self'`
+refuses. The policy is defined in `vite.config.ts`, injected into the built document, and sent as a
+header by the container — so what needs checking against it is the output of `npm run build`, not the
+dev server. CI does exactly that.
+
 The dev proxy verifies the service's certificate, because ADR-8 leaves no room for `--insecure`
 anywhere. Point Node at the CA and, if the service is elsewhere, name it:
 
@@ -28,7 +34,7 @@ CIPHR_URL=https://ciphr.internal:4400 npm run dev
 ## Layout
 
 ```
-index.html            the document, with the CSP repeated as a meta element
+index.html            the document. No CSP here on purpose: it is injected into the build
 public/favicon.svg    served from 'self'; not a data: URI, because img-src allows neither
 src/main.ts           mounts the app, and unregisters any stray service worker
 src/App.vue           the shell: gate, header, one view at a time via v-if

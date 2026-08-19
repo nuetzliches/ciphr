@@ -93,7 +93,7 @@ The full check is `ciphr audit verify`. The one that survives a forward rewrite 
 | Plaintext leaves state when you leave the view | Views are switched with `v-if`, so leaving destroys the component; `onUnmounted` clears the value as well |
 | Plaintext never reaches a URL, `localStorage`, or global state | Routing carries a view name and nothing else; nothing writes a value anywhere |
 | No copy button | Deliberate. The clipboard is a place a value survives the tab, the session, and the reader's attention, with no expiry. Taking a value somewhere is what the CLI is for |
-| Strict CSP | `default-src 'none'`, `script-src 'self'`, `connect-src 'self'`, no `unsafe-inline`, no `unsafe-eval`. Sent as a header by the container and repeated in the document, so a bundle served by something else keeps it |
+| Strict CSP | `default-src 'none'`, `script-src 'self'`, `connect-src 'self'`, no `unsafe-inline`, no `unsafe-eval`. Defined once in `vite.config.ts`, sent as a header by the container (`nginx.conf`) and injected into the **built** document, so a bundle served by something else keeps it. CI fails if the built document loses it or gains an `unsafe-` keyword |
 | No `v-html`, no `innerHTML` | `ci/check-no-v-html.sh`, a blocking CI gate |
 | No inline styles | `style-src 'self'` refuses them; the build emits one stylesheet and the code uses classes, never `:style` |
 | No service worker, no offline cache | None is registered, `main.ts` unregisters any it finds from an earlier deployment, and the container refuses to serve one. A cached response to a secret read is a secret without an expiry date |
@@ -103,6 +103,14 @@ The full check is `ciphr audit verify`. The one that survives a forward rewrite 
 `frame-ancestors` is in the header only, deliberately: browsers ignore it in a `<meta>` element and
 log an error saying so, and a page that complains about its own policy on every load teaches whoever
 reads that console to ignore it. Framing is refused by the header and by `X-Frame-Options`.
+
+**The dev server runs without the policy, and that is not a gap being tolerated quietly.** `npm run
+dev` does not serve the built artifact — it assembles the page in the browser, and Vite's HMR client
+applies styles by creating elements at runtime, which `style-src 'self'` refuses. With the policy in
+the source document, development means an unstyled page and a console full of violations, and the fix
+a developer reaches for under that pressure is `unsafe-inline` in production. So the policy is
+injected at build time instead, and what gets verified — in CI and by hand — is the built bundle,
+which is what a deployment serves.
 
 ## Running it in development
 
