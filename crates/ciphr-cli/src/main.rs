@@ -535,7 +535,14 @@ fn init(cli: &Context) -> Result<(), CliError> {
 
     // The first audit entry of a store is its own creation, which is what makes the
     // chain start at something rather than at nothing.
-    let mut session = Session::open(database, &seal)?.with_audit(None)?;
+    //
+    // It has to reach the file device too, and passing `None` here meant it never did:
+    // every store's `audit.jsonl` began at sequence 2, whose `prev_hash` names a record
+    // the file does not contain. The archived copy was therefore not verifiable from its
+    // own beginning -- which is the only thing an archived hash chain is for. Measured on
+    // a deployed store before it was noticed in the code, and unfixable there afterwards,
+    // because a chain is precisely what cannot be amended.
+    let mut session = Session::open(database, &seal)?.with_audit(cli.audit_file.as_deref())?;
     session.record(&Session::operator_entry(Action::Init, true, None))?;
 
     println!("initialized {}", database.display());
