@@ -8,6 +8,24 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — `init` records the store's own creation to every audit device
+
+- `ciphr init` called `.with_audit(None)` and therefore ignored `--audit-file`, while every other
+  command honoured it. The first record of every chain — the creation of the store itself — reached
+  the SQLite device only (`0f711ce`, recorded here after the fact; the commit carried no entry).
+- The damage is to the archived copy, which is the whole purpose of the file device: its first line
+  is sequence 2, and that record's `prev_hash` names an entry the file does not contain. An archive
+  that cannot be verified from its own beginning has lost the one property an archived hash chain
+  has.
+- **Stores that are already initialized keep the gap.** A chain is exactly the thing that cannot be
+  amended after the fact, so nothing is backfilled and nothing attempts to be. Verification against
+  the SQLite device is unaffected and remains the authoritative check; an archive from before this
+  fix has to be verified from sequence 2 onwards, knowing why.
+- Found on a deployed store rather than in the code — `audit.jsonl` began at sequence 2. The first
+  guess was a forgotten flag, and measuring against a throwaway store with the flag set disproved
+  it. The test drives the built binary, because `init` is private to a binary crate and the
+  observable behaviour is a flag's effect on a file.
+
 ### Added — a second, temporary publisher for the private phase
 
 - `.forgejo/workflows/build-images.yml` builds the image and pushes it to the internal registry the
@@ -27,8 +45,6 @@ This file is updated in the same commit as the change it describes.
 - It also states what it cannot do: the gates run on GitHub, so a tag produces an image here whether
   or not that run was green. The GitHub run is the gate, and the deployment must not bump its pin
   until it has passed.
-
-Nothing yet.
 
 ## [0.1.0] — 2026-08-19
 
