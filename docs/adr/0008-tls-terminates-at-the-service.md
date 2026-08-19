@@ -41,6 +41,11 @@ entire eavesdropping position.
   self-signed certificate with pinning. That choice also determines CA distribution to CI clients and
   interacts with the UI origin question (ADR-11).
 
+**Answered since.** That last bullet is settled in
+[ADR-17](0017-certificate-provenance.md) — a name-constrained private CA for the machine path, a
+public certificate for the browser. It is left standing as written, because the format keeps the
+open question where it was open.
+
 ## Rejected alternatives
 
 **Plaintext behind the proxy, like everything else.** Cheaper and conventional, but it leaves secrets

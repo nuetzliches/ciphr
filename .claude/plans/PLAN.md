@@ -1331,16 +1331,29 @@ The project starts private. These points cost nothing now and would be expensive
 
 - **Source of the TLS certificate for ADR-8** — answered 2026-08-18 at the deployment layer: a
   dedicated CA with a mounted leaf, pinned by CA rather than by leaf, and no ACME client in the
-  service. The reasoning is deployment-specific and belongs there; two consequences belong here.
-  First, because the pin is the CA, a leaf can be replaced without touching a single client —
-  the service needs nothing beyond loading two PEM files, which it already does. Second, **the
-  leaf has to carry the loopback name in its SAN**, because ADR-8 forbids `--insecure` in every
-  example and the container health check speaks to the service over TLS. CA distribution to CI
-  clients stays what section 14 says it is: a non-secret variable.
-- **UI origin** — same-origin through the reverse proxy, with a second leaf from the same CA
-  (one key per holder). This was the recommendation and is now the decision; it no longer blocks
-  anything, because the machine path terminates TLS at the service and does not depend on it.
-  Deferred until section 15 is built, not open.
+  service. Written up as **ADR-17** on 2026-08-19, together with the recurring counter-proposal it
+  rejects — public names for the internal services and certificates from a public CA over ACME
+  DNS-01, where only the challenge record is public. It is rejected because `--cacert` *replaces*
+  the trust set rather than extending it, so the private CA is one key under this deployment's
+  control where the WebPKI is roughly 150 roots, on the one hop whose content is plaintext secrets;
+  and because ACME there would publish internal names to CT, require a DNS credential able to
+  rewrite public DNS, and put an account key and a writable certificate path next to the plaintext.
+  Three consequences belong here. First, because the pin is the CA, a leaf can be replaced without
+  touching a single client — the service needs nothing beyond loading two PEM files, which it
+  already does. Second, **the leaf has to carry the loopback name in its SAN**, because ADR-8
+  forbids `--insecure` in every example and the container health check speaks to the service over
+  TLS. Third, **the CA carries X.509 name constraints and goes into no system or browser trust
+  store** — an unconstrained root in a trust store is the attack surface the counter-proposal is
+  actually reaching for, and it is the one thing a private CA can genuinely get wrong. CA
+  distribution to CI clients stays what section 14 says it is: a non-secret variable.
+- **UI origin** — same-origin through the reverse proxy. The certificate for that origin is
+  **not** a second leaf from the internal CA, which is what this list said until 2026-08-19: the
+  client there is a browser whose trust store must not be touched, and a private leaf reaches it
+  only through an installed root or through a click-through warning on the page where someone
+  pastes a bearer token (ADR-12). It gets a publicly resolvable name and a public certificate over
+  ACME DNS-01 at the proxy instead (ADR-17), which also makes that renewal automatic rather than an
+  operational task. The proxy's own hop to ciphr keeps the internal leaf, so the machine path is
+  untouched and still does not depend on any of this. Deferred until section 15 is built, not open.
 - **`::add-mask::` on a Forgejo runner** — measured 2026-08-18 on a real runner rather than
   simulated: effective for every ordinary case, with one measured exception under `set -x`,
   where bash re-quotes a value containing a single quote or a tab and the runner's literal

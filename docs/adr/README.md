@@ -1,7 +1,7 @@
 # Architecture decision records
 
-**Status:** current as of 2026-08-19. Sixteen decisions: thirteen accepted, three proposed. Each file
-carries its own date and status.
+**Status:** current as of 2026-08-19. Seventeen decisions: fourteen accepted, three proposed.
+Each file carries its own date and status.
 
 One file per decision. Each records what was decided, why, and what was rejected — the rejected
 options matter as much as the chosen one, because they are what a future reader would otherwise
@@ -29,6 +29,7 @@ parts that later turned out to be wrong.
 | [ADR-14](0014-ciphr-run-injects-into-a-child-process.md) | `ciphr run` injects secrets into a child process | **Proposed**; decide before phase 7 |
 | [ADR-15](0015-honeypots-and-what-a-tripwire-may-do.md) | Honeypots, and what a tripwire may do | **Proposed**; decide before phase 8 |
 | [ADR-16](0016-leak-reports-are-a-one-way-drop-box.md) | Leak reports are a one-way drop box, matched through a blind index | **Proposed**; decide before phase 9 |
+| [ADR-17](0017-certificate-provenance.md) | Certificate provenance: a private CA for machines, a public certificate for the browser | Accepted |
 
 Two of these carry more weight than the rest, because they describe the properties the project
 exists for: ADR-1 (secrets cannot be logged) and ADR-9 (one path normalizer, shared by router and

@@ -8,6 +8,30 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Documented — where the certificates come from, and why not from a public CA
+
+- **ADR-17** answers the question ADR-8 left open. The machine path — CI clients and the reverse
+  proxy — keeps a private CA with the pin on the CA rather than the leaf; the browser path gets a
+  publicly resolvable name and a public certificate over ACME DNS-01 at the proxy. That second half
+  revises what plan section 21 said, which was a second leaf from the internal CA for the viewer.
+- **The private CA is the narrower trust set, not the wider one**, and the record says so plainly
+  because the opposite is the intuitive reading. `--cacert` replaces the trust store for that call
+  instead of extending it, so a CI client trusts exactly one key this deployment holds, where a
+  public certificate would mean trusting every WebPKI root — on the one hop whose content is
+  plaintext secrets. ACME there would additionally publish internal names to Certificate
+  Transparency, require a credential that can rewrite public DNS, and put an account key and a
+  writable certificate path beside the plaintext.
+- **Two conditions make that answer true, so they are part of the decision rather than advice:** the
+  CA carries X.509 name constraints, and it goes into no system or browser trust store. An
+  unconstrained root in a trust store is a universal key for everything that machine speaks — the
+  real attack surface behind the question, and the one thing a private CA can genuinely get wrong.
+  A CA already issued without constraints is re-issued before the deployment holds real secrets.
+- **The browser is the case that inverts the argument**, which is why it gets the other answer: a
+  private leaf reaches it only through an installed root or a click-through warning on the page
+  where someone pastes a bearer token (ADR-12), and a user trained to dismiss that warning has lost
+  more than the certificate protects.
+- No code changes. The service still loads two PEM files and acquires no ACME client.
+
 ### Added — `ciphr audit cut` bounds the queryable trail
 
 The `audit_log` table grew for as long as a store existed, and because auditing is fail-closed a full
