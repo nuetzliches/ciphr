@@ -101,8 +101,22 @@ A procedure invented during an incident is a procedure nobody trusts, so here it
 
 ## Retention
 
-Not yet decided, and listed as an open question in the plan. What is decided: rotation is by size,
-the rotated file keeps a timestamp in its name, and nothing here deletes anything. Whatever policy is
-chosen has to answer two questions — how long entries are kept, and what proves that a deletion was
-the policy rather than a cover-up. The second is why the head hash belongs somewhere outside the
-store before retention is enabled.
+**Nothing here deletes anything.** Rotation is by size, the rotated file keeps a timestamp in its
+name, and the `audit_log` table grows for as long as the store exists. That is the current
+behaviour, and it is not a retention policy.
+
+The shape the policy has to take is recorded in section 7 of the implementation plan: the queryable
+device bounded, the file device unbounded and archived, and — the part that makes the first two safe
+— the head hash, its sequence number, and the date written down **outside the store** at every cut,
+so verification can start from that anchor instead of from genesis. Retention and the defence against
+a forward rewrite are the same operation when they are done together. None of that mechanism exists
+yet.
+
+Two consequences for operating this today:
+
+- **Do not trim the table by hand.** A `DELETE` against `audit_log` produces exactly the
+  `SequenceGap` from the section above, and afterwards nothing distinguishes a retention run from a
+  cover-up — including for the person who ran it.
+- **Watch the fill level.** Because auditing is fail-closed, a full audit volume stops the service
+  serving secrets. Until the cut above exists, the size of that volume is the only bound on the
+  trail, which makes the fill-level check the thing standing in for a policy.

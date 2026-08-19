@@ -8,6 +8,34 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Changed — two limits the first migration exposed are written down
+
+- **`docs/operations/audit-trail.md` no longer says retention is undecided.** The shape is settled
+  and recorded in section 7 of the plan — queryable device bounded, file device unbounded and
+  archived, and the head hash plus its sequence number written outside the store at every cut, so
+  verification starts from that anchor instead of from genesis. **None of that mechanism exists.**
+  The document now describes what the software does: nothing deletes, and `audit_log` grows for as
+  long as the store does. Two consequences are named with it — a hand-rolled `DELETE` produces the
+  same `SequenceGap` as tampering, so afterwards nothing distinguishes a retention run from a
+  cover-up; and while auditing is fail-closed, the size of the audit volume is the only bound on the
+  trail.
+- **The plan gained "The consumer on another host" (section 13).** All three consumption routes
+  assume the consumer runs where the service is reachable, and a deployment that terminates TLS at
+  the service and publishes no port beyond its own host has no route for one that does not. The
+  consequence is about retirement rather than convenience: a value with several consumers stops being
+  duplicated only once *every* one of them can fetch it, so one consumer out of reach keeps the old
+  copy authoritative — and a path prefix for shared values buys ordering, not retirement, while that
+  is true. What this bounds is phase 7 rather than phase 6: a deploy that renders configuration from
+  one reachable runner and copies it onward can still retire a forge secret for a host that never
+  reaches the service, while runtime fetching cannot be delegated that way.
+- **Three entries left the plan's open-questions list with their answers** (section 21): the source
+  of the TLS certificate for ADR-8, the UI origin, and `::add-mask::` on a Forgejo runner. The first
+  keeps the two consequences that belong to this repository rather than to a deployment — a leaf is
+  replaceable without touching a client because the pin is the CA, and the leaf must carry the
+  loopback name in its SAN because ADR-8 forbids `--insecure` and the health check speaks TLS to
+  itself. The third stays half-answered on purpose: **act_runner is still unproven**, and "both are
+  act derivatives" is the assumption that list refused to make about the Forgejo runner.
+
 ### Added — the changelog rule is enforced rather than trusted
 
 - `ci/check-changelog.sh` fails a commit that changes `crates/` without changing this file, and it

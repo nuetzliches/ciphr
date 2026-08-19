@@ -479,6 +479,33 @@ Enforced by the payload struct containing only formattable types, while secret t
 `sqlite` (its own table) and `file` (JSON Lines). Size-based rotation, `SIGHUP` reopens the
 file. `syslog` and `http` later.
 
+### Retention, and the anchor at the cut
+
+Deleting old entries is not an option; archiving them is. The chain verifies a gap-free
+sequence, so removing entries makes everything after them unverifiable from genesis, and
+`audit verify` reports the hole as `SequenceGap` — a tampering signal. An audit trail that
+routinely claims tampering is one nobody reads, which is why a time-based retention policy
+cannot simply be pointed at the queryable device.
+
+The required shape:
+
+1. **The queryable device (`sqlite`) is bounded**, so `/v1/audit` and the UI stay small and
+   fast.
+2. **The archive device (`file`) is unbounded** and rotates by size; rotated files go to the
+   deployment's backup. The evidence stays complete, just not queryable.
+3. **At every cut, the head hash, its sequence number, and the date are recorded outside the
+   store.** Verification then starts from that anchor instead of from genesis.
+
+Point 3 pays for itself twice. An anchor outside the store is the only defence against a
+forward rewrite — anyone who can write the store can recompute every hash forward, and the
+chain then verifies — so retention and that defence are the same operation when they are done
+together, and two separate ones when they are not.
+
+**Not in v1.** There is no cut, no archive-on-cut, and no anchor record; the `sqlite` table
+grows without bound, and the fill-level health check (section 17) is what stands in for a
+policy. Anything that trims that table without producing the anchor is exactly the chain break
+above.
+
 ---
 
 ## 8. Data Model
@@ -743,6 +770,25 @@ considerably more informative.
 stays outside the threat model deliberately. The gain is that plaintext no longer rests on
 disk, no longer lands in filesystem backups, and is no longer exposed through the container
 runtime's inspect API.
+
+### The consumer on another host
+
+All three routes assume the consumer runs where the service is reachable. A deployment that
+terminates TLS at the service (ADR-8) and publishes no port beyond its own host has no route at
+all for a consumer elsewhere, and that decides which values can be **retired** rather than
+merely re-homed: a value with several consumers stops being duplicated only once *every* one of
+them can fetch it, so a single consumer out of reach keeps the old copy alive and authoritative.
+A path prefix for shared values buys ordering while that is true, not retirement — it is not
+wrong, it just promises something the topology does not yet supply.
+
+Three decisions stand between here and a consumer beyond the service's own network, and none of
+them has been made: network exposure, a certificate for a name that a foreign host resolves
+(ADR-8, and the CA distribution in section 14), and handing a token across a trust boundary.
+Route C is the same corner from the other side — an application that fetches its own secrets has
+to reach the service from wherever it runs. What this bounds is **phase 7**, not phase 6: a
+deploy that renders configuration from one reachable runner and copies it onward can retire a
+forge secret for a host that never reaches the service itself. Runtime fetching cannot be
+delegated that way, which is why the routes above are where the topology starts to bite.
 
 ### The honest target
 
@@ -1197,16 +1243,38 @@ The project starts private. These points cost nothing now and would be expensive
 | **XSS in the UI reveals secrets** | Medium | UI read-only, single-value reveal, strict CSP, no `v-html` (CI gate), `sessionStorage` instead of a cookie, separate npm budget (section 15) |
 | **MCP pulls secrets into model contexts and provider logs** | High, once the MCP server exists | Plaintext opt-in per identity and path, metadata by default; MCP context marked in the audit; token passed through rather than a service identity (section 16) |
 
+### Answered since, and where the answer lives
+
+- **Source of the TLS certificate for ADR-8** — answered 2026-08-18 at the deployment layer: a
+  dedicated CA with a mounted leaf, pinned by CA rather than by leaf, and no ACME client in the
+  service. The reasoning is deployment-specific and belongs there; two consequences belong here.
+  First, because the pin is the CA, a leaf can be replaced without touching a single client —
+  the service needs nothing beyond loading two PEM files, which it already does. Second, **the
+  leaf has to carry the loopback name in its SAN**, because ADR-8 forbids `--insecure` in every
+  example and the container health check speaks to the service over TLS. CA distribution to CI
+  clients stays what section 14 says it is: a non-secret variable.
+- **UI origin** — same-origin through the reverse proxy, with a second leaf from the same CA
+  (one key per holder). This was the recommendation and is now the decision; it no longer blocks
+  anything, because the machine path terminates TLS at the service and does not depend on it.
+  Deferred until section 15 is built, not open.
+- **`::add-mask::` on a Forgejo runner** — measured 2026-08-18 on a real runner rather than
+  simulated: effective for every ordinary case, with one measured exception under `set -x`,
+  where bash re-quotes a value containing a single quote or a tab and the runner's literal
+  substring match therefore misses it (`docs/review-2026-08-18.md`, finding 9). **act_runner is
+  still unproven** — "both are act derivatives" is the assumption this list refused to make
+  about the Forgejo runner, and it stays refused here.
+
 ### Open questions that still need work
 
-1. **Source of the TLS certificate for ADR-8** — an internal CA from the reverse proxy, or a
-   mounted self-signed certificate with pinning? Also determines CA distribution to CI clients
-   (section 14) and the UI origin question below.
-2. **UI origin: same-origin through the reverse proxy, or a separate host with CORS?**
-   (section 15) Same-origin is the recommendation because it removes CORS entirely.
-3. **Audit retention** — duration and rotation strategy are not yet fixed.
-4. **Name of the MCP plaintext capability** (section 16) — an implementation detail, but it
+1. **When the audit cut from section 7 is built.** The required shape is settled — bounded
+   queryable device, unbounded archive, head hash anchored outside the store at every cut — and
+   none of it exists. Until it does the `sqlite` audit table grows without bound, and because
+   the service is fail-closed a full volume is an outage rather than a warning. What is open is
+   whether this ships before the phases that multiply the entry rate.
+2. **Whether the service ever serves a consumer outside its own network** (section 13). Three
+   decisions in one — network exposure, a certificate for a name a foreign host resolves, a token
+   across a trust boundary — and the answer bounds how far phase 7 can reach.
+3. **Name of the MCP plaintext capability** (section 16) — an implementation detail, but it
    must be a regular capability in the set from section 6, not a special case in the
    evaluator.
-5. **Prove `::add-mask::` on Forgejo runner and act_runner** (section 14) — the precondition
-   for CI jobs not writing runtime-fetched secrets into job logs. Belongs in phase 3 or 4.
+4. **Prove `::add-mask::` on act_runner** (section 14) — the Forgejo half is measured, above.
