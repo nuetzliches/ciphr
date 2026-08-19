@@ -58,6 +58,7 @@
 //! ```
 
 pub mod anchor;
+pub mod archive;
 pub mod chain;
 pub mod device;
 pub mod entry;
@@ -67,6 +68,7 @@ pub mod time;
 pub mod verify;
 
 pub use anchor::{Anchor, AnchorError, verify_with_anchor};
+pub use archive::{Coverage, coverage_of, rotation_set};
 pub use chain::{Chain, EncodedRecord, GENESIS, HASH_LEN, hash_payload};
 pub use device::{AuditDevice, AuditSink, Written};
 pub use entry::{Action, DecidingRule, Entry, Principal, RequestContext};
