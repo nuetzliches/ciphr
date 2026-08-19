@@ -628,9 +628,25 @@ ciphr audit verify                  # verify the hash chain
 ciphr dump --format portable        # exit path, see section 2
 ```
 
-`import --from-dotenv` is the migration tool for an existing corpus: non-interactive,
-`--dry-run` shows the target paths without writing, and `--rotation-map` classifies according
-to section 8. It reads a file and therefore does not violate the argument rule below.
+`import --from-dotenv` is the migration tool for an existing corpus: non-interactive, and
+`--dry-run` shows the target paths without writing. It reads a file and therefore does not
+violate the argument rule below.
+
+**Two corrections from the first real migration, 2026-08-19.** Both were found downstream, and
+both are stated here because this paragraph is what a reader plans against.
+
+`--rotation-map` **does not exist.** `ImportArgs` has `--rotation`, which sets one class for the
+whole import, and section 8 exists precisely because one corpus mixes classes -- a single `.env`
+was observed carrying both `volume-bound` and `rotatable`. Until the flag exists the safe order
+is to import with the most dangerous class and then downgrade per path, never the reverse: a
+wrong `rotatable` reads as "safe to rotate" and invites the one action that destroys data.
+Deciding whether to build the flag belongs before a migration, not during one.
+
+And `--from-dotenv` presumes there is a file. A service whose container definition reads
+variables straight from the deploying process's environment has no `.env` at all, so this route
+has no source for it and every value goes in through `put`. That is not a defect in the flag;
+it is a gap in the migration story, and it is the majority case for anything deployed by CI
+rather than by hand. Whatever closes it is the same question ADR-14 asks about route B.
 
 Two rules. Values are **never** accepted as arguments — they would end up in shell history and
 in `/proc` — but via stdin or an interactive prompt. And output containing secrets checks
