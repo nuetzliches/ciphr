@@ -73,6 +73,25 @@ fn has_cut_table(connection: &Connection) -> Result<bool, StoreError> {
     Ok(found.is_some())
 }
 
+/// The refusal a database that cannot record a cut has earned, or `Ok(())`.
+///
+/// Checked twice on the way to a cut, and the message lives here so the two cannot come
+/// to disagree. The first check belongs to the caller, *before* it writes the anchor: a
+/// refusal discovered afterwards would leave an anchor in the file for a cut that never
+/// happened. The second is inside the transaction, so this crate's own API stays safe for
+/// a caller that skipped the first.
+fn require_cut_table(connection: &Connection) -> Result<(), StoreError> {
+    if has_cut_table(connection)? {
+        return Ok(());
+    }
+    Err(StoreError::CutRefused {
+        detail: "this database has no table to record a cut in: it was migrated by a build from \
+                 before cutting existed, and removing records without recording where would leave \
+                 the remainder unverifiable"
+            .to_owned(),
+    })
+}
+
 /// The most recently recorded cut, or `None` if the log has never been cut.
 ///
 /// `None` also for a database whose schema predates the table, per [`has_cut_table`].
@@ -304,14 +323,7 @@ impl SqliteAuditDevice {
         let through = i64::try_from(through_seq)
             .map_err(|_| refused(format!("sequence {through_seq} is out of range")))?;
 
-        if !has_cut_table(&self.connection)? {
-            return Err(refused(
-                "this database has no table to record a cut in: it was migrated by a build from \
-                 before cutting existed, and removing records without recording where would \
-                 leave the remainder unverifiable"
-                    .to_owned(),
-            ));
-        }
+        require_cut_table(&self.connection)?;
 
         // `Immediate`, so the write lock is taken at the start rather than upgraded
         // half-way through. Upgrading is what deadlocks against the process appending to
@@ -844,6 +856,44 @@ mod tests {
     }
 
     #[test]
+    fn a_database_that_cannot_record_a_cut_refuses_before_it_removes_anything() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("store.db");
+        store_with_records(&path, 4);
+
+        // A database migrated by a build from before cutting existed. Dropping the table
+        // is how a test reaches that state; an upgrade that has not restarted the service
+        // yet is how an operator does.
+        rusqlite::Connection::open(&path)
+            .expect("open")
+            .execute("DROP TABLE audit_cut", [])
+            .expect("drop");
+
+        // The store answers before the caller writes an anchor, which is the point: the
+        // same refusal arriving after one would leave a line in the anchor file for a cut
+        // that never happened.
+        let store = SqliteStore::open_read_only(&path).expect("open read-only");
+        let early = store
+            .require_audit_cut_support()
+            .expect_err("a database with no cut table cannot be cut");
+        assert!(
+            matches!(early, StoreError::CutRefused { .. }),
+            "got {early:?}"
+        );
+
+        let mut device = SqliteAuditDevice::open(&path).expect("reopen");
+        let hash = hash_at(&device, 2);
+        let refused = device
+            .cut(2, hash, 1, None)
+            .expect_err("and cutting refuses again inside the transaction");
+        assert!(
+            matches!(refused, StoreError::CutRefused { .. }),
+            "got {refused:?}"
+        );
+        assert_eq!(device.len().expect("count"), 4, "nothing was removed");
+    }
+
+    #[test]
     fn a_log_emptied_behind_a_recorded_cut_refuses_to_resume() {
         let directory = tempfile::tempdir().expect("temp dir");
         let path = directory.path().join("store.db");
@@ -1003,6 +1053,19 @@ impl SqliteStore {
     /// Returns [`StoreError::Corrupt`] if the stored row is not readable.
     pub fn audit_cut_latest(&self) -> Result<Option<AuditCut>, StoreError> {
         latest_cut_of(self.connection())
+    }
+
+    /// Refuse now if this database cannot record a cut.
+    ///
+    /// For calling **before** the anchor is written. Cutting checks this again inside its
+    /// transaction, but by then an anchor for the cut is already in a file, and an anchor
+    /// for a cut that never happened is a line somebody has to explain later.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::CutRefused`] if the schema predates the table that records cuts.
+    pub fn require_audit_cut_support(&self) -> Result<(), StoreError> {
+        require_cut_table(self.connection())
     }
 
     /// Where verification of this store's queryable trail begins.

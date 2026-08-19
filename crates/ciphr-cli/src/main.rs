@@ -1214,6 +1214,12 @@ fn cut_trail(
     // Read through a read-only connection, as verifying does: it checks the schema, it
     // takes no store lock, and it cannot migrate a database the running service is using.
     let store = SqliteStore::open_read_only(&cli.database)?;
+
+    // Asked first, because it is the one refusal that would otherwise arrive after the
+    // anchor was written — and an anchor in the file for a cut that never happened is a
+    // line somebody has to explain later. Cutting asks again inside its transaction.
+    store.require_audit_cut_support()?;
+
     let rows = store.audit_all()?;
     let records = stored_records(&rows);
     let start = store.audit_start()?;
