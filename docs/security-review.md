@@ -14,6 +14,15 @@ author cannot substitute for someone else reading it.
 Plan section 18 makes the review a *precondition* for first production use and says self-review is
 not sufficient; this document exists to make that review cheap, not to replace it.
 
+**Who the condition binds.** It binds *this project*. It cannot bind an operator, and it does not
+try to: nothing in the software refuses to serve a real secret because a review is outstanding, and
+a deployment may legitimately decide the risk is acceptable for what it holds and how far its blast
+radius reaches. Such a decision belongs in that deployment's own documentation — dated, saying what
+it covers and what would reverse it — and it does not reach back into this document. **The status
+line above changes when a review has happened, and for no other reason.** Neither the pre-review
+pass below nor uneventful time in production moves it, and a reviewer should treat both as evidence
+about the code rather than about the condition.
+
 **A pre-review pass has since been made against this list** and is recorded in
 [`review-2026-08-18.md`](review-2026-08-18.md). It does not discharge the precondition either — it
 came from the same model that co-authored the code, so it carries the same blind spots — but it

@@ -47,7 +47,7 @@ The parts where a mistake is expensive, and where to read before making one.
 | **A secret in a CI job log** | No forge masks a value fetched at runtime. Only the `actions-env` export does, and only if the masks are emitted first. | [operations/cli.md](operations/cli.md) |
 | **A secret in shell history** | A value passed as an argument is readable by every process on the host while the command runs. | [operations/cli.md](operations/cli.md) |
 | **Trusting the wrong boundary** | Assuming the container network is private, or that root on the host is excluded. | [threat-model.md](threat-model.md) |
-| **Going to production unreviewed** | Two crates decide every access, and their failures are silent. An external review is a precondition, not a recommendation. | [security-review.md](security-review.md) |
+| **Going to production unreviewed** | Three crates decide every access, and their failures are silent. The external review is a precondition that has not been met — proceeding is an accepted risk, not a cleared one. | [security-review.md](security-review.md) |
 | **Building this at all** | A self-built secret manager fails silently. There is a defined point at which abandoning it is correct. | [why-build-this.md](why-build-this.md) |
 
 ## Everything else

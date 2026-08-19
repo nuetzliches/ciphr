@@ -13,8 +13,12 @@ token authentication, and the `ciphr` CLI. `openapi.yaml` is maintained from her
 
 Phase 4 is the first production integration: one low-risk service drawing its secrets from ciphr,
 with the way back tested and `::add-mask::` demonstrated on a real runner. **Before phase 4 an
-external review of `ciphr-crypto` and `ciphr-policy` is a precondition** — those two crates are the
-project, and self-review is not sufficient.
+external review of `ciphr-crypto`, `ciphr-policy`, and the path and pattern code in `ciphr-core` is
+a precondition** — those are the crates that decide every access, and self-review is not sufficient.
+**The review has not happened.** That requirement binds this repository: it stays stated as
+outstanding, in every document that mentions it, until a review has actually taken place. A
+deployment may decide to run without it; that decision is recorded where the deployment is
+documented, and it does not change a line here.
 
 Three things later phases must not undo:
 

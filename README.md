@@ -7,8 +7,9 @@ deploy pipeline, not a human.
 > **Status: v0.1.0, phase 3 of 7.** Usable end to end: envelope encryption with master key
 > rotation, SQLite with migrations, the policy evaluator, the fail-closed hash-chained audit trail,
 > the HTTPS API with token authentication, and the `ciphr` CLI. **v0.1.0 is the artifact the external
-> review is performed against, not a production release** — that review of the cryptographic and
-> authorization crates is a precondition for holding real secrets
+> review is performed against, not a production release — and that review has not happened.** Until
+> it does, the three crates that decide every access are verified by nobody but their author, and a
+> deployment holding real secrets before then has accepted that risk rather than met a condition
 > ([`docs/security-review.md`](docs/security-review.md)). The full design lives in
 > [`.claude/plans/PLAN.md`](.claude/plans/PLAN.md).
 

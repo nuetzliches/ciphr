@@ -1141,10 +1141,28 @@ Every phase ends with something testable. The order is deliberately "crypto firs
 | **6** | Migrate remaining services and CI jobs | Long-lived forge secrets reduced to one token per repository/host; every value classified (`rotation`) |
 | **7** | Consumption patterns from section 13: `tmpfs` for class A, entrypoint wrappers for class B, SDK integration for first-party services | No plaintext secret left at rest on disk and none in the container config — except the bootstrap token per host |
 
-**Before phase 4 — the first production use — an external review** of `ciphr-crypto` and
-`ciphr-policy`. These two crates *are* the project; everything else is packaging. Self-review
-is not sufficient here. If no review can be arranged, that is an argument for falling back to
-OpenBao (section 2).
+**Before phase 4 — the first production use — an external review** of `ciphr-crypto`,
+`ciphr-policy`, and the path, pattern, and secret code in `ciphr-core`. These crates *are* the
+project; everything else is packaging.
+
+**The scope is three crates, not the two this section named until 2026-08-19.** Path
+normalization and the glob matcher live in `ciphr-core`, and normalization is the single function
+ADR-9 identifies as the place where routing and authorization can silently disagree — a review
+scoped from the earlier wording would have missed that surface entirely.
+`docs/security-review.md` carries the full scope and a falsification criterion per claim.
+
+Self-review is not sufficient here, and operational experience does not substitute either. The
+two find different things: running the service surfaced a defect in the audit chain that no
+reading of the crypto would have caught. But it exercises the paths a deployment happens to
+take, and an attacker is not restricted to those.
+
+**This requirement binds the project, not an operator.** Nothing in the software refuses to hold
+a real secret because a review is outstanding, and a deployment may decide the risk is
+acceptable for what it holds. That decision is legitimate, and it belongs in that deployment's
+own documentation — dated, saying what it covers and what would reverse it. What this repository
+must not do is restate the requirement as satisfied because someone chose to proceed: the status
+in `docs/security-review.md` changes when a review has happened and for no other reason. If no
+review can be arranged at all, that is an argument for falling back to OpenBao (section 2).
 
 **After v1, in this order:**
 

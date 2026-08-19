@@ -8,6 +8,30 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Changed — the review requirement says what it binds, and its scope is three crates
+
+- **Four places said the external review is "a precondition for holding real secrets".** The project
+  cannot enforce that — nothing in the software refuses to serve a value because a review is
+  outstanding — so stated that way the sentence describes a gate that does not exist, and the first
+  deployment to proceed without the review turns it into a false claim rather than an accepted risk.
+  `README.md`, `AGENTS.md`, `docs/crypto.md` and the risk table in `docs/README.md` now say the review
+  **has not happened**, that the crates deciding every access are verified by nobody but their author
+  until it does, and that proceeding anyway is an accepted risk rather than a met condition.
+- **`docs/security-review.md` states who the condition binds:** this project. An operator's decision
+  to run without the review belongs in that deployment's documentation — dated, with what it covers
+  and what reverses it — and does not reach back into this repository. The status line there changes
+  when a review happens and for no other reason; neither the pre-review pass nor uneventful time in
+  production moves it.
+- **The mandatory scope is three crates, not two** (plan section 18, `AGENTS.md`, `docs/crypto.md`).
+  `docs/security-review.md` has said so since it was written: path normalization and the glob matcher
+  live in `ciphr-core`, and normalization is the one function ADR-9 names as the place where routing
+  and authorization can silently disagree. The plan and the summaries quoting it still named
+  `ciphr-crypto` and `ciphr-policy` alone, so a review scoped from the plan would have missed the
+  ADR-9 surface entirely.
+- Plan section 18 also records what operational experience is worth here: it finds defects a review
+  would not — the audit-chain fix above is one — and still does not discharge the requirement, because
+  it exercises the paths a deployment happens to take rather than the ones an attacker chooses.
+
 ### Changed — two limits the first migration exposed are written down
 
 - **`docs/operations/audit-trail.md` no longer says retention is undecided.** The shape is settled

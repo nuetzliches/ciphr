@@ -127,6 +127,8 @@ Error types carry paths, identities, versions, and lengths. They never carry a v
   control depend on it (ADR-4).
 - **It does not defend against side channels beyond timing in credential comparison.** No protection
   against cache-timing or speculative-execution attacks.
-- **It has not been reviewed externally yet.** That review of `ciphr-crypto` and `ciphr-policy` is a
-  precondition for the first production use, and until it happens this design should be treated as
-  unverified by anyone but its author.
+- **It has not been reviewed externally yet.** That review — of `ciphr-crypto`, `ciphr-policy`, and
+  the path and pattern code in `ciphr-core` — is a precondition for first production use that has not
+  been met, and until it happens this design should be treated as unverified by anyone but its
+  author. An operator may decide the risk is acceptable for what their deployment holds; that
+  decision does not change this line.
