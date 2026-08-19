@@ -11,6 +11,12 @@ Phases 0 to 3 are complete. Every crate except `ciphr-sdk` is implemented and te
 cryptographic layer, the store, the policy evaluator, the audit trail, the HTTP server with TLS and
 token authentication, and the `ciphr` CLI. `openapi.yaml` is maintained from here on.
 
+**Phase 5 is built:** the read-only viewer in `ui/`, its own package and its own image, released on
+its own cadence (`ui-v*` tags). It is documented in [`docs/ui.md`](docs/ui.md), and the rules it is
+held to are in the enforced list below. Phase 5's other condition holds by construction rather than
+by test: the server has no code that serves the viewer, so a stack without that container is not a
+stack with a feature switched off.
+
 Phase 4 is the first production integration: one low-risk service drawing its secrets from ciphr,
 with the way back tested and `::add-mask::` demonstrated on a real runner. **Before phase 4 an
 external review of `ciphr-crypto`, `ciphr-policy`, and the path and pattern code in `ciphr-core` is
@@ -64,9 +70,27 @@ cargo audit --deny warnings
 sh ci/check-no-print.sh          # no stdout/stderr from library crates
 sh ci/check-forbid-unsafe.sh     # #![forbid(unsafe_code)] in every crate root
 sh ci/check-no-v-html.sh         # no v-html / innerHTML in ui/
+sh ci/check-ui-budget.sh         # one runtime dependency, no install scripts, integrity hashes
 sh ci/check-docs.sh              # every doc under docs/ carries a date
 sh ci/check-changelog.sh         # a commit touching crates/ also touches CHANGELOG.md
 ```
+
+The viewer has its own CI job, its own pinned Node version, and its own budget, because it is its own
+package (ADR-11). Locally:
+
+```sh
+cd ui && npm ci --ignore-scripts && npm run build && npm audit --audit-level=high
+```
+
+Four rules for `ui/` that are not obvious from the code, and one of which no gate can catch:
+
+- **Only documented v1 endpoints.** An endpoint that exists for the viewer alone means the CLI cannot
+  do something the viewer can, which is the coupling ADR-11 exists to prevent.
+- **No inline script, no inline style.** `style-src 'self'` refuses a `style` attribute, so a `:style`
+  binding is a broken page rather than a slow one. Conditional appearance is a class.
+- **Revealed plaintext stays in component state**, never in a store, `localStorage`, a URL, or the
+  clipboard — there is deliberately no copy button, and the reasoning is in `SecretsView.vue`.
+- **No service worker.** A cached response to a secret read is a secret without an expiry date.
 
 `check-changelog.sh` takes a range in CI and defaults to `HEAD` locally, so running it bare after a
 commit answers "did I forget?". A change under `crates/` with genuinely no observable effect opts out

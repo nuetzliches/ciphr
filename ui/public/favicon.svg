@@ -1,0 +1,23 @@
+<!--
+  A closed shackle over a "c". Self-hosted rather than inlined as a data URI, because
+  `img-src 'self'` is the whole policy here and a data: allowance would be a hole opened
+  for an icon.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="ciphr">
+  <rect width="32" height="32" rx="6" fill="#1f5f8b" />
+  <path
+    d="M11 13v-2a5 5 0 0 1 10 0v2"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="2.4"
+    stroke-linecap="round"
+  />
+  <rect x="8" y="13" width="16" height="12" rx="2.5" fill="#ffffff" />
+  <path
+    d="M19.5 17.4a3.6 3.6 0 1 0 0 4.2"
+    fill="none"
+    stroke="#1f5f8b"
+    stroke-width="2.2"
+    stroke-linecap="round"
+  />
+</svg>

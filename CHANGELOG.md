@@ -8,6 +8,53 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — the viewer, phase 5
+
+- **`ui/` is a read-only browser view of a deployment**: the audit trail with server-side filters,
+  secret metadata with a per-value reveal, identities, policies, and health. Vue 3.5.41 and one
+  runtime dependency, built with Vite, served by its own container (`ui/Dockerfile`,
+  nginx-unprivileged) and released on its own tag namespace (`ui-v*`,
+  `.github/workflows/release-ui.yml`). ADR-11's third argument, made concrete: an npm advisory must
+  not force a new server image and therefore not a restart of the service whose restart demands the
+  most care. Documented in `docs/ui.md`.
+- **It cannot write anything.** No secret, no policy, no identity, no token. That keeps the reach of
+  an XSS finding at "read what the signed-in human is allowed to read anyway", and it is why no
+  policy-write API had to exist for the viewer to be useful (ADR-3).
+- **Sign-in is a pasted token** for an identity of kind `human`, held in `sessionStorage` and gone
+  when the tab closes (ADR-12). No cookie, so the CSRF class does not exist rather than being
+  mitigated. The shape is checked before any request, so a truncated paste fails locally instead of
+  producing an audit entry for an authentication that never had a chance; the header shows the
+  token's non-secret identifier, the same one the trail records.
+- **The security requirements of plan section 15 are structural where they can be.** Views are
+  switched with `v-if`, so leaving one destroys its component and revealed plaintext with it. There
+  is one reveal at a time and no bulk form, even though `/v1/export` exists. There is deliberately no
+  copy button: the clipboard is a place a value survives the tab, the session, and the reader's
+  attention, with no expiry.
+- **A strict Content-Security-Policy**, sent by the container and repeated in the document so a
+  bundle served by something else keeps it: `default-src 'none'`, `script-src 'self'`,
+  `connect-src 'self'`, no `unsafe-inline`, no `unsafe-eval`. The build emits no inline script and no
+  inline style, and CI fails if one appears. `frame-ancestors` is in the header only, because
+  browsers ignore it in a meta element and log an error saying so — a page that complains about its
+  own policy teaches whoever reads that console to ignore it.
+- **No service worker**, and `main.ts` unregisters any it finds from an earlier deployment on the
+  same origin; the container refuses to serve one. A cached response to a secret read is a secret
+  without an expiry date.
+- **`ci/check-ui-budget.sh`** is the viewer's own dependency budget, separate from the Rust one as
+  plan section 15 requires: exactly one runtime dependency, a ceiling on the whole tree, no package
+  with an install script, and every package resolved from the public registry with an integrity hash.
+  CI installs with `npm ci --ignore-scripts` and runs `npm audit --audit-level=high`.
+- **The chain badge says what it proves.** A page of records is checked for linkage — consecutive
+  sequence numbers, each record naming its predecessor's hash — and the viewer does not recompute
+  hashes: doing that in a browser means re-serializing parsed JSON and hoping the encoder agrees byte
+  for byte with the server's, which is a second implementation of the hashed form and the same class
+  of mistake as a second path normalizer. With a narrowing filter applied the check is skipped and
+  says so, because a filtered page is a selection rather than a run. The full check is
+  `ciphr audit verify`, and the one that survives a forward rewrite is `--anchor`.
+- Verified in a real browser under the deployment's own policy — same origin, `/v1` proxied to a live
+  service over HTTPS with a verified certificate — not only type-checked: every view renders, the
+  reveal works and does not survive navigation, sign-out clears storage, no service worker is
+  registered, and the console is free of errors and failed requests.
+
 ### Fixed — `/v1/audit` returns the bytes it says it returns
 
 - The endpoint promised each record as "the exact JSON that was hashed, so a client can verify the

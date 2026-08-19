@@ -1,9 +1,11 @@
 # Threat model
 
-**Status:** current as of 2026-08-19, phase 3 of 7. The adversaries and boundaries are settled. The
-defences that exist are the cryptographic, storage, authorization, audit and transport ones; the
-rows for the admin UI (A7) and the MCP server (A8) describe components that are not built yet, and
-the rest arrive with the phases that build them.
+**Status:** current as of 2026-08-19, phases 0-3 released and phase 5 built. The adversaries and
+boundaries are settled. The cryptographic, storage, authorization, audit and transport defences
+exist. **A7 now describes a component that is built:** every countermeasure in that row is
+implemented in `ui/` and the ones that can be gated are gated — see [ui.md](ui.md). **A8 still
+describes one that is not:** the MCP server is post-v1, and its row is a design commitment rather
+than a description.
 
 Everything in the design is derived from this document, so it is stated first and stated plainly —
 including the parts where the answer is "not defended against". A security product that lists only

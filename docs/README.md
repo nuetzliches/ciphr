@@ -1,7 +1,7 @@
 # Documentation
 
-**Status:** current as of 2026-08-18, phase 3 of 7. Describes what is built, and says so where
-something is not.
+**Status:** current as of 2026-08-19, phases 0-3 released and phase 5 built. Describes what is
+built, and says so where something is not.
 
 ## The rules this documentation is held to
 
@@ -47,6 +47,7 @@ The parts where a mistake is expensive, and where to read before making one.
 | **A secret in a CI job log** | No forge masks a value fetched at runtime. Only the `actions-env` export does, and only if the masks are emitted first. | [operations/cli.md](operations/cli.md) |
 | **A secret in shell history** | A value passed as an argument is readable by every process on the host while the command runs. | [operations/cli.md](operations/cli.md) |
 | **Trusting the wrong boundary** | Assuming the container network is private, or that root on the host is excluded. | [threat-model.md](threat-model.md) |
+| **Revealing a secret in a browser** | Plaintext in a DOM has its own class of failure: an XSS finding, a cached response, a value left on a screen. What the viewer does about each, and what it refuses to do at all. | [ui.md](ui.md) |
 | **Going to production unreviewed** | Three crates decide every access, and their failures are silent. The external review is a precondition that has not been met — proceeding is an accepted risk, not a cleared one. | [security-review.md](security-review.md) |
 | **Building this at all** | A self-built secret manager fails silently. There is a defined point at which abandoning it is correct. | [why-build-this.md](why-build-this.md) |
 
@@ -54,13 +55,14 @@ The parts where a mistake is expensive, and where to read before making one.
 
 | Document | What it is for |
 |---|---|
-| [adr/](adr/) | The thirteen architecture decisions, one file each, including what was rejected and why |
-| [threat-model.md](threat-model.md) | Adversaries A1–A8, the boundaries deliberately not defended, and the availability trade |
+| [adr/](adr/) | The sixteen architecture decisions, one file each, three of them proposed rather than accepted, including what was rejected and why |
+| [threat-model.md](threat-model.md) | Adversaries A1–A9, the boundaries deliberately not defended, and the availability trade |
 | [crypto.md](crypto.md) | The implemented key hierarchy and wire format, and what the known-answer tests pin |
 | [authorization.md](authorization.md) | The policy file, the pattern language, and the four rules of the decision |
 | [fuzzing.md](fuzzing.md) | The three fuzz targets, how to run them, and what the CI gate does and does not prove |
 | [security-review.md](security-review.md) | Scope, claims, and what would falsify them — the working paper for an external reviewer |
 | [why-build-this.md](why-build-this.md) | The evaluation of existing tools and the exit condition |
+| [ui.md](ui.md) | The read-only viewer: the five views, the security properties and where each is enforced, and how it is deployed |
 | [operations/cli.md](operations/cli.md) | Every command, and the two rules that shape all of them |
 | [operations/](operations/) | Procedures for the things that are hard to undo: the master key, rotating secrets, and the audit trail |
 | [`../openapi.yaml`](../openapi.yaml) | The HTTP API, maintained in the same commit as the code |
@@ -70,6 +72,8 @@ The parts where a mistake is expensive, and where to read before making one.
 
 ## What is not documented yet, and why
 
-Deployment — containers, the reverse proxy, certificates — and the admin UI. Those are phases 4 and
-5. The HTTP API is documented in `openapi.yaml` rather than here, because it is generated from and
+Deployment: containers, the reverse proxy, and certificates. That is phase 4, and it is documented
+where a deployment lives rather than here — the product documentation deliberately carries no
+organization-specific hostnames or paths. The viewer arrived in phase 5 and is documented in
+[ui.md](ui.md). The HTTP API is documented in `openapi.yaml` rather than here, because it is
 maintained beside the code.

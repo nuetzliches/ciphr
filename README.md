@@ -4,9 +4,11 @@ A small secret manager for machine identities: key/value secrets, gap-free acces
 and path-based authorization. The name contains *CI* — the primary consumer is a build and
 deploy pipeline, not a human.
 
-> **Status: v0.1.0, phase 3 of 7.** Usable end to end: envelope encryption with master key
-> rotation, SQLite with migrations, the policy evaluator, the fail-closed hash-chained audit trail,
-> the HTTPS API with token authentication, and the `ciphr` CLI. **v0.1.0 is the artifact the external
+> **Status: v0.1.0 released, phase 5 built and unreleased.** Usable end to end: envelope encryption
+> with master key rotation, SQLite with migrations, the policy evaluator, the fail-closed
+> hash-chained audit trail, the HTTPS API with token authentication, and the `ciphr` CLI. Since
+> v0.1.0: the audit anchor (`ciphr audit anchor`) and the read-only browser viewer in
+> [`ui/`](ui/), which ships as its own image and is released on its own cadence. **v0.1.0 is the artifact the external
 > review is performed against, not a production release — and that review has not happened.** Until
 > it does, the three crates that decide every access are verified by nobody but their author, and a
 > deployment holding real secrets before then has accepted that risk rather than met a condition
@@ -43,6 +45,11 @@ policies. No PKI, no SSH CA, no dynamic secrets. If those are ever needed,
   This is the main reason the implementation language is Rust.
 - **Runner-agnostic CI access.** The API is HTTPS plus a bearer token, so the minimal client
   is `curl`. No agent, no plugin, no forge integration required.
+- **The viewer is a separate container, and read-only.** It cannot write a secret, change a policy,
+  or issue a token, and the server has no mode that serves it — so asset handling never runs in the
+  process that holds plaintext ([ADR-11](docs/adr/0011-ui-is-an-optional-separate-package.md),
+  [`docs/ui.md`](docs/ui.md)). Sign-in is a pasted token in `sessionStorage`; there is no cookie, so
+  there is no CSRF class to mitigate.
 - **TLS terminates at the service, not at the reverse proxy.** This deviates from the usual
   arrangement on purpose: the content of these connections is plaintext secrets, and a compromised
   container on a shared network is a realistic adversary. The proxy connects over HTTPS with a
@@ -85,19 +92,27 @@ deliberately out of scope, is in [`docs/threat-model.md`](docs/threat-model.md).
 | [`docs/authorization.md`](docs/authorization.md) | The policy file, the pattern language, and the four rules of the decision |
 | [`docs/security-review.md`](docs/security-review.md) | What an external reviewer should attack, and what would falsify each claim |
 | [`docs/operations/cli.md`](docs/operations/cli.md) | Every `ciphr` command, and the two rules that shape all of them |
+| [`docs/ui.md`](docs/ui.md) | The viewer: what it shows, what it refuses to do, and how it is deployed |
 | [`openapi.yaml`](openapi.yaml) | The HTTP API |
 | [`docs/operations/`](docs/operations/) | Procedures for what is hard to undo: the master key, and rotating secrets that break things |
 | [`docs/threat-model.md`](docs/threat-model.md) | Adversaries, defended and undefended boundaries, the availability trade |
 | [`docs/why-build-this.md`](docs/why-build-this.md) | The evaluation of existing tools, and the condition under which this project should be abandoned in favour of OpenBao |
 | [`AGENTS.md`](AGENTS.md) | Working rules for contributors, and the gates that enforce them |
 | [`SECURITY.md`](SECURITY.md) | Disclosure process and what is in scope |
-| [`.claude/plans/PLAN.md`](.claude/plans/PLAN.md) | The full specification: 21 sections, from the cryptographic design to the phase plan |
+| [`.claude/plans/PLAN.md`](.claude/plans/PLAN.md) | The full specification: 23 sections, from the cryptographic design to the phase plan |
 
 ## Building
 
 ```sh
 cargo test --workspace       # the toolchain pin in rust-toolchain.toml is installed automatically
 cargo clippy --workspace --all-targets --all-features -- -D warnings
+```
+
+The viewer is its own package with its own toolchain and its own dependency budget:
+
+```sh
+cd ui && npm ci && npm run build      # type checks with vue-tsc, then builds
+sh ci/check-ui-budget.sh              # one runtime dependency, no install scripts, integrity hashes
 ```
 
 The complete set of blocking checks, including the supply-chain and source-rule gates, is listed in

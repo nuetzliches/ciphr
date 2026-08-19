@@ -77,6 +77,67 @@ jobs:
       - name: Documentation carries dates
         run: sh ci/check-docs.sh
 
+  # The viewer is its own package with its own toolchain and its own budget
+  # (ADR-11, plan section 15), so it is its own job. A UI change that breaks the
+  # bundle must not be reported as a Rust failure, and a Rust change must not
+  # wait for npm.
+  ui:
+    name: Viewer build and dependency budget
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      # Pinned exactly, for the reason rust-toolchain.toml pins the compiler: a
+      # floating toolchain lets CI go red without a code change, and a gate
+      # nobody trusts is a gate nobody reads. A bump is a deliberate commit.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      # `npm ci` refuses to update the lockfile, and `--ignore-scripts` keeps a
+      # dependency from running arbitrary code during install. The budget gate
+      # below fails if a package that needs an install script ever arrives, so
+      # this cannot silently start being wrong.
+      - name: Install exactly the locked tree
+        working-directory: ui
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Dependency budget
+        run: sh ci/check-ui-budget.sh
+
+      # Type check and build in one step, the same script the image build runs,
+      # so an image cannot be produced from code that does not type check.
+      - name: Type check and build
+        working-directory: ui
+        run: npm run build
+
+      # The bundle must stay servable under the policy the container sends. An
+      # inline script or inline style would need 'unsafe-inline', and that is the
+      # weakening this checks for rather than trusts.
+      - name: No inline script or style in the built bundle
+        working-directory: ui
+        run: |
+          set -eu
+          if grep -nE '<script[^>]*>[^<[:space:]]' dist/index.html; then
+            echo >&2 "an inline script in dist/index.html would need 'unsafe-inline' in the CSP"
+            exit 1
+          fi
+          if grep -rnE '<style|style="' dist/index.html; then
+            echo >&2 "an inline style in dist/index.html would need 'unsafe-inline' in the CSP"
+            exit 1
+          fi
+          echo "no inline script or style"
+
+      # Advisories for the frontend tree, separate from cargo-audit. High and
+      # above fails: the viewer runs in a tab that may hold a plaintext secret.
+      - name: npm audit
+        working-directory: ui
+        run: npm audit --audit-level=high
+
   changelog:
     name: Shipped code carries a changelog entry
     # A tag rebuilds code that already passed this gate on main, and the range a

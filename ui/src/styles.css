@@ -1,0 +1,326 @@
+/*
+ * One stylesheet, loaded from 'self'.
+ *
+ * No inline `style` attributes anywhere in this package: `style-src 'self'` refuses them,
+ * and the alternative — allowing hashes or `unsafe-inline` — would weaken the policy for
+ * a convenience. Anything conditional is a class.
+ *
+ * Colours are declared for both schemes. An operator reading an audit trail at night
+ * should not be handed a white page, and a viewer that respects the system setting needs
+ * no toggle, no stored preference, and no code.
+ */
+
+:root {
+  --bg: #fbfbfa;
+  --panel: #ffffff;
+  --border: #d9d7d2;
+  --text: #1b1b1a;
+  --muted: #6b6a66;
+  --accent: #1f5f8b;
+  --allow: #1f6b3a;
+  --deny: #a3341f;
+  --warn: #8a5a00;
+  --code-bg: #f2f1ee;
+
+  color-scheme: light dark;
+  font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17181a;
+    --panel: #1f2124;
+    --border: #34373b;
+    --text: #e8e8e6;
+    --muted: #9a9a96;
+    --accent: #7fb2d6;
+    --allow: #77c491;
+    --deny: #e8907c;
+    --warn: #d9b25f;
+    --code-bg: #26282c;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+code,
+.mono {
+  font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+  font-size: 0.92em;
+}
+
+/* Header and navigation ---------------------------------------------------- */
+
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: baseline;
+  padding: 0.85rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.brand {
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.brand .role {
+  font-weight: 400;
+  color: var(--muted);
+  margin-left: 0.4rem;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.tabs button {
+  border: 1px solid transparent;
+  background: none;
+  color: var(--muted);
+  padding: 0.3rem 0.7rem;
+  border-radius: 5px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.tabs button:hover {
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.tabs button.on {
+  color: var(--text);
+  border-color: var(--border);
+  background: var(--bg);
+  font-weight: 600;
+}
+
+.session {
+  margin-left: auto;
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+  color: var(--muted);
+}
+
+main {
+  padding: 1.25rem;
+  max-width: 1400px;
+}
+
+/* Panels, forms, tables --------------------------------------------------- */
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 1rem 1.1rem;
+  margin-bottom: 1.1rem;
+}
+
+h1 {
+  font-size: 1.3rem;
+  margin: 0 0 0.35rem;
+}
+
+h2 {
+  font-size: 1.05rem;
+  margin: 0 0 0.6rem;
+}
+
+p.lead {
+  color: var(--muted);
+  margin: 0 0 1rem;
+  max-width: 78ch;
+}
+
+form.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  align-items: flex-end;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+input,
+select {
+  font: inherit;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  min-width: 12ch;
+}
+
+input.wide {
+  min-width: 34ch;
+}
+
+button {
+  font: inherit;
+  padding: 0.4rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+button:disabled {
+  cursor: default;
+  color: var(--muted);
+}
+
+button.primary {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.9rem;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.35rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+th {
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+tr.picked td {
+  background: var(--code-bg);
+}
+
+td.num,
+th.num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Status words ------------------------------------------------------------ */
+
+.allow {
+  color: var(--allow);
+  font-weight: 600;
+}
+
+.deny {
+  color: var(--deny);
+  font-weight: 600;
+}
+
+.warn {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.badge {
+  display: inline-block;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.1rem 0.6rem;
+  font-size: 0.82rem;
+}
+
+.error {
+  border: 1px solid var(--deny);
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  margin: 0.75rem 0;
+  color: var(--deny);
+}
+
+.note {
+  color: var(--muted);
+  font-size: 0.87rem;
+  max-width: 90ch;
+}
+
+/* The sign-in gate ------------------------------------------------------- */
+
+.gate {
+  max-width: 46rem;
+  margin: 3.5rem auto;
+  padding: 0 1.25rem;
+}
+
+.gate form {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  margin: 1rem 0;
+}
+
+/* Revealed plaintext ----------------------------------------------------- */
+
+.reveal {
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  padding: 0.75rem 0.9rem;
+  margin-top: 0.9rem;
+}
+
+.reveal pre {
+  margin: 0.5rem 0 0;
+  padding: 0.6rem 0.7rem;
+  background: var(--code-bg);
+  border-radius: 5px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.split {
+  display: flex;
+  gap: 1.1rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.split > * {
+  flex: 1 1 22rem;
+  min-width: 0;
+}

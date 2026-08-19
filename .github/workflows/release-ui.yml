@@ -1,0 +1,111 @@
+# Builds and publishes the viewer image, on its own cadence.
+#
+# Separate from release.yml because that separation is the third argument in
+# ADR-11: an npm advisory or a layout fix must not force a new server image, and
+# therefore must not force a restart of the one service in the deployment whose
+# restart demands the most care. Two images, two tag namespaces, two release
+# decisions.
+#
+# Tags are `ui-v*` (for example `ui-v0.1.0`), which is what keeps `v*` meaning
+# the service. A tag that meant both would put us back where we started.
+#
+# Third-party actions are pinned to a commit hash rather than a tag, for the
+# reason ci.yml gives: a tag can be moved. Single architecture for the reason
+# release.yml gives: one amd64 host pulls this.
+#
+# **No Forgejo counterpart, yet.** `.forgejo/workflows/build-images.yml` exists
+# for the service because a private repository means a private GHCR package that
+# the deployment host cannot pull. The same limitation applies here — it just has
+# no cost until the viewer is actually deployed there, and building an internal
+# publishing path for an image nothing pulls is the kind of infrastructure that
+# rots unnoticed. Add it in the commit that deploys the viewer.
+name: Release the viewer
+
+on:
+  push:
+    tags: ["ui-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: release-ui-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY_IMAGE: ghcr.io/${{ github.repository }}/ui
+
+jobs:
+  # The same gates as everything else. The viewer job in that workflow is the
+  # one that matters here, and calling the whole thing keeps one definition of
+  # "green" rather than a second, drifting copy.
+  verify:
+    name: Verify before publishing
+    uses: ./.github/workflows/ci.yml
+
+  image:
+    name: Build and publish
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Derive the version
+        id: version
+        run: |
+          set -euo pipefail
+          ref='${{ github.ref }}'
+          case "$ref" in
+            refs/tags/ui-v*) version="${ref#refs/tags/ui-v}" ;;
+            # A manual run has no tag. It still produces an image, but one that
+            # cannot be mistaken for a release: no `latest`, and a name that says
+            # where it came from.
+            *)               version="0.0.0-dev.${GITHUB_SHA::7}" ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "release=${{ startsWith(github.ref, 'refs/tags/ui-v') }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The build context is ui/ and nothing else: this image is static files and
+      # a web server, and it has no business being able to see the crates.
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: ui
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.REGISTRY_IMAGE }}:${{ steps.version.outputs.version }}
+            ${{ steps.version.outputs.release == 'true' && format('{0}:latest', env.REGISTRY_IMAGE) || '' }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.title=ciphr-ui
+            org.opencontainers.image.description=Read-only viewer for a ciphr deployment: audit trail, secret metadata, identities, policies, health.
+            org.opencontainers.image.licenses=MIT OR Apache-2.0
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=release-ui
+          cache-to: type=gha,mode=max,scope=release-ui
+
+      # A deployment pins the digest rather than the tag. The argument is weaker
+      # here than for the service — this container holds nothing — but a viewer
+      # that can be swapped under a signed-in human is still a place to paste a
+      # token into, so it is pinned the same way.
+      - name: Report the digest
+        run: |
+          echo "### Published" >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo '${{ env.REGISTRY_IMAGE }}:${{ steps.version.outputs.version }}' >> "$GITHUB_STEP_SUMMARY"
+          echo '${{ steps.build.outputs.digest }}' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!--
+      The same policy the UI container sends as a header (see nginx.conf). Duplicated
+      here on purpose: a bundle served by something other than that container — a
+      developer's `vite preview`, someone's own web server — keeps the policy with it
+      rather than silently losing it. Where the two can differ they must not, so any
+      change belongs in both places.
+
+      `default-src 'none'` means every fetch type has to be named. `connect-src 'self'`
+      is what makes the deployment shape explicit: the API is reached same-origin
+      through the reverse proxy, so the viewer needs no cross-origin permission at all
+      and CORS never enters the picture.
+
+      One directive is deliberately absent here and present in the header:
+      `frame-ancestors` is ignored when it arrives in a meta element, and a browser logs
+      an error saying so. A page that complains about its own policy on every load
+      teaches whoever reads that console to ignore it. Framing is refused by the header
+      and by `X-Frame-Options`, both of which the container sends.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="robots" content="noindex, nofollow" />
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>ciphr — viewer</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
