@@ -8,6 +8,18 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — the viewer can be published where a private deployment can pull it
+
+- `.forgejo/workflows/build-ui-image.yml` builds the viewer image on a `ui-v*` tag and pushes it to
+  the internal registry, exactly as `build-images.yml` does for the service and for the same reason: a
+  private repository means a private GHCR package, and the deployment host authenticates to one
+  registry that is not GHCR. Both files go away when the repository is public and the GitHub workflows
+  become the single publishers again.
+- The build context is `ui/` alone. This image is static files and a web server, and it has no reason
+  to be able to see the crates.
+- It refuses a tag that is not `ui-v*`, because the two tag namespaces are the mechanism that keeps
+  the release cadences apart (ADR-11) and a manual run naming the wrong one would quietly undo that.
+
 ### Fixed — the strict policy broke the viewer's own dev server
 
 - The Content-Security-Policy sat in `ui/index.html`, so `npm run dev` served it too — and the dev

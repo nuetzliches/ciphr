@@ -1,0 +1,125 @@
+# Builds the viewer image and pushes it to the Forgejo registry.
+#
+# ── Why this file exists ──────────────────────────────────────────────────────
+# The same reason `build-images.yml` exists for the service:
+# `.github/workflows/release-ui.yml` publishes this image to GHCR, and that is
+# its intended home, but the repository is private -- so its GHCR package is
+# private too, and the deployment host authenticates to `git.nuetzliche.it` and
+# nothing else.
+#
+# **Delete this file once the repository is public.** Then `release-ui.yml` is
+# the single publisher again and the deployment pulls from there.
+#
+# ── What this workflow does NOT do ────────────────────────────────────────────
+# It does not run the gates: they live in `.github/workflows/ci.yml` and run on
+# GitHub, where the tag is pushed first. `release-ui.yml` calls them before
+# building; nothing here can.
+#
+# The consequence is a rule rather than a mechanism: **a tag produces an image
+# here whether or not GitHub's run was green.** The GitHub run is the gate. Do
+# not bump the pin in the deployment until it has passed.
+#
+# ── Why the viewer has its own tags ──────────────────────────────────────────
+# `ui-v*`, not `v*`. ADR-11: an npm advisory or a layout fix must not force a new
+# server image and therefore not a restart of the service whose restart demands
+# the most care. Two images, two tag namespaces, two release decisions. The two
+# patterns cannot collide, because a ref starting with `ui-` does not match `v*`.
+name: Build and push the viewer to the Forgejo registry
+
+on:
+  push:
+    tags: ["ui-v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Tag to build, e.g. ui-v0.1.0. Required -- there is no latest."
+        type: string
+        required: true
+
+env:
+  REGISTRY: git.nuetzliche.it
+  IMAGE: git.nuetzliche.it/nuts/ciphr-ui
+
+jobs:
+  image:
+    name: Build and push
+    runs-on: baumeister-runner
+    steps:
+      # No `uses:` anywhere in this infrastructure: the runner has no node, so
+      # every step is a shell step and the checkout is a plain clone. The token
+      # is injected by Forgejo.
+      - name: Check out the tag
+        run: |
+          set -eu
+          case "${{ github.ref }}" in
+            refs/tags/*) version="${{ github.ref }}"; version="${version#refs/tags/}" ;;
+            *)           version="${{ github.event.inputs.version }}" ;;
+          esac
+          if [ -z "$version" ]; then
+            echo "no version: this workflow builds tags, never a branch tip" >&2
+            exit 1
+          fi
+          case "$version" in
+            ui-v*) ;;
+            *) echo "'$version' is not a viewer tag: those are ui-v<version>" >&2; exit 1 ;;
+          esac
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+          git clone "https://oauth2:${GITHUB_TOKEN}@${REGISTRY}/nuts/ciphr.git" workspace
+          cd workspace
+          git checkout "tags/${version}"
+          echo "built from $(git rev-parse HEAD)"
+
+      - name: Log in to the registry
+        env:
+          REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+        run: |
+          set -eu
+          if [ -z "${REGISTRY_PASSWORD:-}" ]; then
+            echo "REGISTRY_PASSWORD is empty. Forgejo keeps secrets and variables in" >&2
+            echo "separate namespaces, and a value stored as a variable is invisible" >&2
+            echo "to secrets.*. It also has to be visible in THIS repository's scope," >&2
+            echo "so set it organisation-wide or add it here." >&2
+            exit 1
+          fi
+          printf '%s' "$REGISTRY_PASSWORD" | docker login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
+
+      # The build context is `ui/` and nothing else. This image is static files
+      # and a web server; it has no business being able to see the crates, and a
+      # narrower context is also the cheaper build.
+      #
+      # One tag, and deliberately no `:latest` -- the same argument the service
+      # image makes. This container holds nothing, but it is where a human pastes
+      # a token, so an image reference that can move under the deployment's feet
+      # is not something it should have either.
+      - name: Build and push
+        run: |
+          set -eu
+          cd workspace
+          docker build \
+            --label "org.opencontainers.image.source=https://github.com/nuetzliches/ciphr" \
+            --label "org.opencontainers.image.title=ciphr-ui" \
+            --label "org.opencontainers.image.version=${VERSION#ui-v}" \
+            --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \
+            -t "${IMAGE}:${VERSION#ui-v}" \
+            ui
+          docker push "${IMAGE}:${VERSION#ui-v}"
+
+      - name: Report what was pushed
+        run: |
+          set -eu
+          cd workspace
+          digest=$(docker inspect --format '{{index .RepoDigests 0}}' "${IMAGE}:${VERSION#ui-v}" 2>/dev/null || echo "unknown")
+          {
+            echo "### Pushed"
+            echo
+            echo '```'
+            echo "${IMAGE}:${VERSION#ui-v}"
+            echo "$digest"
+            echo '```'
+            echo
+            echo "The deployment pins this in its compose file."
+            echo "Do not bump it until the GitHub CI run for \`${VERSION}\` is green --"
+            echo "this workflow does not check that and cannot."
+          } >> "$GITHUB_STEP_SUMMARY"
