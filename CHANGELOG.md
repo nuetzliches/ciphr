@@ -57,7 +57,9 @@ ciphr audit cut --keep 50000 --anchor /path/to/anchors.jsonl --archive /path/to/
   the records go, and an anchor over what survived, appended after. The first is what the remainder is
   verified from. The order is the failure mode: a crash between them leaves an anchor over a record
   still present, which verifies, rather than a cut nothing outside the store can attest to.
-- **`--dry-run`** verifies, checks the archive, prints what would go, and changes nothing.
+- **`--dry-run`** verifies, checks the archive, prints what would go, and changes nothing. Every
+  refusal behaves the same way: nothing is removed, and nothing is appended to the anchor file
+  either — a line there for a cut that never happened would be one somebody has to explain later.
 - Like `anchor` and `verify`, it needs **neither the store lock nor the master key**, so it runs
   against a live service. Retention that needs downtime does not get scheduled, and a bound nothing
   runs is not a bound. It writes no audit entry of its own for the same reason `anchor` does not:
