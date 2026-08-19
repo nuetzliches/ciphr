@@ -19,6 +19,11 @@ This file is updated in the same commit as the change it describes.
   repository name. A flat `ciphr-ui` reads like a second repository beside `ciphr`, and the viewer is
   not one: it is a directory in this repository with its own tag namespace and its own release
   decision (ADR-11). One artifact should not have two names.
+- **`ui-v0.1.1` is the tag that carries that name**, and `ui-v0.1.0` was left where it is. The
+  internal workflow builds from the tag it was triggered by, so the old tag would still publish the
+  old path — and moving a tag to fix that is the thing this repository argues against everywhere else,
+  including in the comment that pins base images by digest. A version number is cheaper than a
+  reference that can move. The bundle is unchanged between the two; only the packaging is.
 - The build context is `ui/` alone. This image is static files and a web server, and it has no reason
   to be able to see the crates.
 - It refuses a tag that is not `ui-v*`, because the two tag namespaces are the mechanism that keeps
