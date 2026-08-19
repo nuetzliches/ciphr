@@ -10,7 +10,16 @@
 //! address, and keeping them apart means a deployment can mount the policy file
 //! read-only without doing the same to everything else.
 //!
+//! **`policies` comes first, and the position is not cosmetic.** It is a top-level key,
+//! and in TOML a bare key written after a table header belongs to that table — so
+//! placing it further down puts it inside `[seal]`, where `deny_unknown_fields`
+//! correctly refuses it. This example used to do exactly that and therefore could not
+//! be loaded; the fixture in the tests below always had it right, which is why nothing
+//! failed until someone followed the documentation instead of the test.
+//!
 //! ```toml
+//! policies = "/etc/ciphr/policies.toml"
+//!
 //! [server]
 //! listen = "0.0.0.0:4400"
 //!
@@ -25,8 +34,6 @@
 //! [seal]
 //! type = "static_env"
 //! env  = "CIPHR_MASTER_KEY"
-//!
-//! policies = "/etc/ciphr/policies.toml"
 //!
 //! [[audit]]
 //! type = "sqlite"
@@ -254,6 +261,43 @@ mod tests {
     use super::{AuditConfig, Config, SealConfig, StorageBackend, parse_size};
     use crate::error::ConfigError;
 
+    /// The example in this module's documentation has to be loadable.
+    ///
+    /// It was not. `policies` sat after `[seal]`, which in TOML makes it a key of that
+    /// table, and `deny_unknown_fields` refused it — so anyone who configured a server by
+    /// following the documentation instead of the fixture below got a parse error. The
+    /// fixture was right the whole time, which is exactly why nothing caught it.
+    ///
+    /// So the example is now read out of this file and parsed. Documentation that is
+    /// checked cannot rot into a confident lie.
+    #[test]
+    fn the_example_in_this_modules_documentation_loads() {
+        let source = include_str!("config.rs");
+        let block = source
+            .split_once("//! ```toml\n")
+            .expect("the module documentation has a TOML example")
+            .1
+            .split_once("//! ```")
+            .expect("the example is closed")
+            .0;
+
+        let text: String = block
+            .lines()
+            .map(|line| {
+                line.strip_prefix("//! ")
+                    .unwrap_or(line.trim_start_matches("//!"))
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let config: Config = toml::from_str(&text).unwrap_or_else(|error| {
+            panic!("the documented example does not load: {error}\n{text}")
+        });
+
+        assert!(config.policies.ends_with("policies.toml"));
+        assert_eq!(config.audit.len(), 2, "the example configures both devices");
+    }
+
     const COMPLETE: &str = r#"
 policies = "/etc/ciphr/policies.toml"
 
@@ -280,8 +324,14 @@ path        = "/var/log/ciphr/audit.jsonl"
 rotate_size = "64MB"
 "#;
 
+    /// A complete configuration, exercising every field the loader validates.
+    ///
+    /// Named for what it does. It was called `loads_the_documented_example` while
+    /// checking a *copy* of that example, and the copy stayed correct while the original
+    /// drifted into something that could not be loaded at all — the test above now reads
+    /// the documentation itself, and this one covers the fields.
     #[test]
-    fn loads_the_documented_example() {
+    fn loads_a_complete_configuration() {
         let config = Config::parse(COMPLETE).expect("the example must load");
 
         assert_eq!(config.server.listen.port(), 4400);

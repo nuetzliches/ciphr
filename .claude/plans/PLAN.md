@@ -694,6 +694,11 @@ in section 2.
 ## 12. Configuration
 
 ```toml
+# Required, and first: `policies` is a top-level key, and in TOML a bare key written
+# after a table header belongs to that table. Further down it would land inside
+# `[seal]` and be refused. Identities and policies themselves: see section 6.
+policies = "/etc/ciphr/policies.toml"
+
 [server]
 listen = "0.0.0.0:4400"
 
@@ -716,8 +721,6 @@ type = "sqlite"
 type        = "file"
 path        = "/var/log/ciphr/audit.jsonl"
 rotate_size = "64MB"
-
-# Identities and policies: see section 6
 ```
 
 The server **refuses to start** if no audit device is configured. A secret store without an

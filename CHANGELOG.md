@@ -8,6 +8,20 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — the documented server configuration could not be loaded
+
+- The example in `crates/ciphr-server/src/config.rs` put `policies` after the `[seal]` table. In TOML
+  a bare key written after a table header belongs to that table, so it parsed as `seal.policies`,
+  which `deny_unknown_fields` correctly refused. Anyone configuring a server by following the
+  documentation got a parse error naming a key they had put at the top level.
+- The fixture in the tests had it right the whole time, which is exactly why nothing failed: the test
+  named `loads_the_documented_example` was loading a *copy* of the example, and the copy stayed
+  correct while the original drifted. That test now covers the fields under its real name, and a new
+  one reads the TOML block out of the module documentation and loads it — an example that cannot work
+  now fails the build.
+- Plan section 12 had the same example without `policies` at all, and that field is required. Both
+  now show it first, with the reason its position matters.
+
 ### Added — the viewer, phase 5
 
 - **`ui/` is a read-only browser view of a deployment**: the audit trail with server-side filters,
