@@ -23,7 +23,7 @@ use std::io::Write as _;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use ciphr_audit::{Action, StoredRecord, verify_from_genesis, verify_with_anchor};
+use ciphr_audit::{Action, Start, StoredRecord, verify_from_genesis, verify_with_anchor};
 use ciphr_core::{Plaintext, Rotation, SecretPath, SecretVersion};
 use ciphr_crypto::{RootKey, RootKeyId, Seal, StaticSeal, Token};
 use ciphr_policy::PolicySet;
@@ -882,7 +882,7 @@ fn verify_chain(cli: &Context, anchor_file: Option<&std::path::Path>) -> Result<
 
     let verified = match &anchor {
         None => verify_from_genesis(records.iter().copied())?,
-        Some(anchor) => verify_with_anchor(anchor, &records)?,
+        Some(anchor) => verify_with_anchor(anchor, Start::Genesis, &records)?,
     };
 
     println!("{} entries verify", verified.records);
@@ -934,7 +934,7 @@ fn take_anchor(cli: &Context, out: Option<&std::path::Path>) -> Result<(), CliEr
 
     let verified = match &previous {
         None => verify_from_genesis(records.iter().copied())?,
-        Some(anchor) => verify_with_anchor(anchor, &records)?,
+        Some(anchor) => verify_with_anchor(anchor, Start::Genesis, &records)?,
     };
 
     if verified.head_seq == 0 {

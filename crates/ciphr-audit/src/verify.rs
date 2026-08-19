@@ -5,6 +5,10 @@
 //! bytes, so this works on records written by an older build, and a change in how
 //! JSON is produced can never invalidate a chain that was already written.
 //!
+//! Where a verification *begins* is [`Start`]. A chain nobody has cut begins at
+//! sequence 1; a chain whose queryable device has been cut begins after the cut, and
+//! the records the cut removed are verified where they were archived to, not here.
+//!
 //! # Recovery from a broken chain
 //!
 //! Documented here because a procedure invented during an incident is a procedure
@@ -60,6 +64,51 @@ pub struct StoredRecord<'a> {
     /// there. When present it is checked, because a stored hash that disagrees with
     /// the payload is itself evidence.
     pub hash: Option<[u8; HASH_LEN]>,
+}
+
+/// Where a verification of a stored chain begins.
+///
+/// A chain nobody has cut begins at sequence 1 with a `prev_hash` of [`GENESIS`]. A
+/// chain whose queryable device has been cut begins at the record after the cut and
+/// chains to the hash of the last record the cut removed.
+///
+/// The start is named by the caller rather than inferred from the records, because the
+/// two cases look identical from inside the store: a run that begins at sequence 501
+/// is what a cut leaves behind and also what removing the first five hundred records
+/// leaves behind. Inferring would mean treating every removal as a cut. Whoever calls
+/// this has to say which it is, and say where they know it from — the store's own
+/// record of a cut is a claim by something that can write the store, while
+/// [`Anchor::as_start`](crate::anchor::Anchor::as_start) is the same claim from
+/// outside it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Start {
+    /// The chain is whole: the first record is sequence 1.
+    Genesis,
+    /// The chain was cut, and what remains continues from the removed record.
+    AfterCut {
+        /// The last sequence number the cut removed.
+        seq: u64,
+        /// That record's hash, which the first surviving record must chain to.
+        hash: [u8; HASH_LEN],
+    },
+}
+
+impl Start {
+    /// The sequence number the first record must carry.
+    pub const fn first_seq(&self) -> u64 {
+        match self {
+            Self::Genesis => 1,
+            Self::AfterCut { seq, .. } => seq.saturating_add(1),
+        }
+    }
+
+    /// The hash the first record must chain to.
+    pub const fn expected_prev(&self) -> [u8; HASH_LEN] {
+        match self {
+            Self::Genesis => GENESIS,
+            Self::AfterCut { hash, .. } => *hash,
+        }
+    }
 }
 
 /// The result of verifying a chain.
@@ -167,21 +216,51 @@ where
     })
 }
 
+/// Verify a chain from a named starting point.
+///
+/// Checks the sequence number of the first record as well as the hashes, so a run that
+/// does not begin where the caller said it should is reported as a
+/// [`BreakKind::SequenceGap`] at the front rather than as a hash that does not match.
+/// The two are the same fact; the first one says which record is missing.
+///
+/// # Errors
+///
+/// As [`verify`], plus [`BreakKind::SequenceGap`] if the first record is not the one
+/// `start` names.
+pub fn verify_from<'a, I>(start: Start, records: I) -> Result<Verified, ChainBreak>
+where
+    I: IntoIterator<Item = StoredRecord<'a>>,
+{
+    let mut records = records.into_iter().peekable();
+
+    if let Some(first) = records.peek() {
+        let expected = start.first_seq();
+        if first.seq != expected {
+            return Err(ChainBreak {
+                seq: first.seq,
+                kind: BreakKind::SequenceGap { expected },
+            });
+        }
+    }
+
+    verify(records, start.expected_prev())
+}
+
 /// Verify a chain from the beginning.
 ///
 /// # Errors
 ///
-/// As [`verify`].
+/// As [`verify_from`].
 pub fn verify_from_genesis<'a, I>(records: I) -> Result<Verified, ChainBreak>
 where
     I: IntoIterator<Item = StoredRecord<'a>>,
 {
-    verify(records, GENESIS)
+    verify_from(Start::Genesis, records)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{StoredRecord, verify_from_genesis};
+    use super::{Start, StoredRecord, verify_from, verify_from_genesis};
     use crate::chain::{Chain, GENESIS, hash_payload};
     use crate::entry::{Action, Entry};
     use crate::error::BreakKind;
@@ -339,5 +418,59 @@ mod tests {
         }
 
         assert!(verify_from_genesis(as_records(&rewritten)).is_ok());
+    }
+
+    #[test]
+    fn a_run_that_does_not_begin_where_it_should_names_the_missing_record() {
+        let stored = chain_of(5);
+
+        // Records 3 to 5 offered as if they were the whole chain: the front is missing,
+        // and the report says which record was expected rather than pointing at a hash.
+        let break_at = verify_from_genesis(as_records(&stored[2..])).expect_err("must not verify");
+        assert_eq!(break_at.seq, 3);
+        assert_eq!(break_at.kind, BreakKind::SequenceGap { expected: 1 });
+    }
+
+    #[test]
+    fn what_a_cut_leaves_behind_verifies_from_the_cut() {
+        let stored = chain_of(5);
+        let after_two = Start::AfterCut {
+            seq: 2,
+            hash: hash_payload(stored[1].1.as_bytes()),
+        };
+
+        let verified =
+            verify_from(after_two, as_records(&stored[2..])).expect("the remainder must verify");
+        assert_eq!(verified.records, 3);
+        assert_eq!(verified.head_seq, 5);
+
+        // The same records against a cut recorded one place too early: the first
+        // survivor then chains to something other than what the start names.
+        let after_one = Start::AfterCut {
+            seq: 1,
+            hash: hash_payload(stored[0].1.as_bytes()),
+        };
+        assert_eq!(
+            verify_from(after_one, as_records(&stored[2..]))
+                .expect_err("must not verify")
+                .kind,
+            BreakKind::SequenceGap { expected: 2 }
+        );
+    }
+
+    /// An empty remainder is not a chain break, and its head is the cut.
+    ///
+    /// The cut command refuses to leave the table empty, so this is a property of the
+    /// verification rather than a state to expect -- but a verification that reported a
+    /// break here would report one for a store whose trail is merely young.
+    #[test]
+    fn an_empty_run_after_a_cut_has_the_cut_as_its_head() {
+        let stored = chain_of(2);
+        let hash = hash_payload(stored[1].1.as_bytes());
+
+        let verified = verify_from(Start::AfterCut { seq: 2, hash }, []).expect("no break");
+        assert_eq!(verified.records, 0);
+        assert_eq!(verified.head_seq, 0);
+        assert_eq!(verified.head_hash, hash);
     }
 }

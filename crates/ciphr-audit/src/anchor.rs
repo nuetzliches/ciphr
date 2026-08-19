@@ -36,6 +36,7 @@
 //!
 //! ```
 //! use ciphr_audit::anchor::{Anchor, verify_with_anchor};
+//! use ciphr_audit::verify::Start;
 //! use ciphr_audit::{Action, AuditSink, Chain, Entry, StoredRecord, verify_from_genesis};
 //!
 //! # let directory = tempfile::tempdir()?;
@@ -59,7 +60,7 @@
 //!
 //! let read_back = Anchor::parse(&line)?;
 //! assert_eq!(read_back, anchor);
-//! assert!(verify_with_anchor(&read_back, &records).is_ok());
+//! assert!(verify_with_anchor(&read_back, Start::Genesis, &records).is_ok());
 //! # Ok::<(), Box<dyn core::error::Error>>(())
 //! ```
 
@@ -68,7 +69,7 @@ use serde::{Deserialize, Serialize};
 use crate::chain::{HASH_LEN, hash_payload};
 use crate::error::{BreakKind, ChainBreak};
 use crate::time::rfc3339_millis;
-use crate::verify::{StoredRecord, Verified, verify, verify_from_genesis};
+use crate::verify::{Start, StoredRecord, Verified, verify_from};
 
 /// The format version written into every anchor record.
 ///
@@ -211,6 +212,18 @@ impl Anchor {
         })
     }
 
+    /// This anchor read as a starting point for verification.
+    ///
+    /// Useful where the store says nothing about a cut but the anchor is exactly the
+    /// predecessor of the first surviving record: the claim then comes from outside the
+    /// store, which is the one place the store's writer cannot have written it.
+    pub const fn as_start(&self) -> Start {
+        Start::AfterCut {
+            seq: self.seq,
+            hash: self.hash,
+        }
+    }
+
     /// The most recent anchor in the contents of an anchor file.
     ///
     /// The last non-empty line, because the file is appended to. `Ok(None)` for a file
@@ -233,18 +246,27 @@ impl Anchor {
 
 /// Verify a chain against an anchor taken over it earlier.
 ///
-/// Two shapes of input are checkable, and they are the two that occur:
+/// `start` says where the records in hand begin — from genesis, or after a cut (see
+/// [`Start`]). It is a separate argument from the anchor because the two answer
+/// different questions: the start says which record the run should open with, the
+/// anchor says what a record hashed to at a point in the past.
 ///
-/// - **The whole chain**, beginning at sequence 1. It is verified from genesis, and
-///   the record at the anchored sequence must hash to the anchored hash.
-/// - **What is left after a cut**, beginning immediately after the anchored sequence.
-///   The anchored hash is then the predecessor the first surviving record must chain
-///   to.
+/// Two positions of the anchor are checkable, and they are the two that occur:
 ///
-/// Anything else — a run that starts in the middle, or one that ends before the
-/// anchored sequence — yields [`BreakKind::AnchorUnreachable`]. That is a refusal to
-/// check rather than a verdict: an anchor that cannot be attached to the records in
-/// hand proves nothing about them, and reporting success would be the worse answer.
+/// - **Inside the run.** The record at the anchored sequence must hash to the anchored
+///   hash.
+/// - **At the cut**, one before the first surviving record. That record is not here to
+///   be hashed, so what is checked is that the predecessor `start` names is the hash the
+///   anchor recorded — and the chain check has already established that the first
+///   surviving record chains to it. This is the position that catches a cut the store
+///   *claims* happened at a hash the anchor disagrees with.
+///
+/// Anything else — an anchor ahead of the head, or one behind the cut, whose record was
+/// archived rather than kept — yields [`BreakKind::AnchorUnreachable`]. That is a
+/// refusal to check rather than a verdict: an anchor that cannot be attached to the
+/// records in hand proves nothing about them, and reporting success would be the worse
+/// answer. An anchor behind the cut is checked against the archive the cut wrote to,
+/// which is not this function's input.
 ///
 /// # Errors
 ///
@@ -254,6 +276,7 @@ impl Anchor {
 /// reporting that at a record which is itself broken would point at the wrong problem.
 pub fn verify_with_anchor(
     anchor: &Anchor,
+    start: Start,
     records: &[StoredRecord<'_>],
 ) -> Result<Verified, ChainBreak> {
     let unreachable = |head_seq: u64| ChainBreak {
@@ -266,24 +289,34 @@ pub fn verify_with_anchor(
     };
     let head_seq = records.last().map_or(0, |record| record.seq);
 
-    // What is left after a cut: the anchored record is gone, and the anchor stands in
-    // for it as the expected predecessor. `verify` does the rest, including reporting a
-    // first record that does not chain to it.
-    if first.seq == anchor.seq.saturating_add(1) {
-        return verify(records.iter().copied(), anchor.hash);
+    let verified = verify_from(start, records.iter().copied())?;
+
+    // The anchor sits at the cut. Sequence numbers begin at one and `parse` refuses a
+    // zero, so `Start::Genesis` — whose predecessor is sequence zero — can never take
+    // this branch.
+    if anchor.seq == start.first_seq().saturating_sub(1) {
+        let claimed = start.expected_prev();
+        if claimed != anchor.hash {
+            return Err(ChainBreak {
+                seq: anchor.seq,
+                kind: BreakKind::AnchorMismatch {
+                    anchored: ciphr_core::hex::encode(&anchor.hash),
+                    stored: ciphr_core::hex::encode(&claimed),
+                },
+            });
+        }
+        return Ok(verified);
     }
 
-    if first.seq != 1 || head_seq < anchor.seq {
+    if anchor.seq < first.seq || anchor.seq > head_seq {
         return Err(unreachable(head_seq));
     }
 
-    let verified = verify_from_genesis(records.iter().copied())?;
-
     let Some(anchored) = records.iter().find(|record| record.seq == anchor.seq) else {
-        // The run starts at 1 and reaches past the anchored sequence, so the record is
-        // missing from the middle rather than absent by design. `verify_from_genesis`
-        // above would have reported the resulting gap; this is here so that a future
-        // change to that ordering cannot turn the case into a silent pass.
+        // The run spans the anchored sequence, so the record is missing from the middle
+        // rather than absent by design. `verify_from` above would have reported the
+        // resulting gap; this is here so that a future change to that ordering cannot
+        // turn the case into a silent pass.
         return Err(unreachable(verified.head_seq));
     };
 
@@ -307,7 +340,7 @@ mod tests {
     use crate::chain::{Chain, hash_payload};
     use crate::entry::{Action, Entry};
     use crate::error::BreakKind;
-    use crate::verify::{StoredRecord, verify_from_genesis};
+    use crate::verify::{Start, StoredRecord, verify_from, verify_from_genesis};
 
     /// A chain of `count` records, as the bytes a device would have stored.
     ///
@@ -442,8 +475,8 @@ mod tests {
         let payloads = chain_of(6, None);
         let anchor = anchor_over(&payloads, 4, 0);
 
-        let verified =
-            verify_with_anchor(&anchor, &records(&payloads, 1)).expect("the anchor must hold");
+        let verified = verify_with_anchor(&anchor, Start::Genesis, &records(&payloads, 1))
+            .expect("the anchor must hold");
         assert_eq!(verified.head_seq, 6, "growth is not a contradiction");
         assert_eq!(verified.records, 6);
     }
@@ -465,8 +498,8 @@ mod tests {
         verify_from_genesis(rewritten_rows.iter().copied())
             .expect("a forward rewrite verifies -- that is the gap being covered");
 
-        let found =
-            verify_with_anchor(&anchor, &rewritten_rows).expect_err("the anchor must catch it");
+        let found = verify_with_anchor(&anchor, Start::Genesis, &rewritten_rows)
+            .expect_err("the anchor must catch it");
         assert_eq!(found.seq, 3);
         match found.kind {
             BreakKind::AnchorMismatch { anchored, stored } => {
@@ -482,9 +515,13 @@ mod tests {
         let payloads = chain_of(6, None);
         let anchor = anchor_over(&payloads, 3, 0);
 
-        // The cut: records 1 to 3 are gone from this device, 4 to 6 remain.
+        // The cut: records 1 to 3 are gone from this device, 4 to 6 remain. The anchor
+        // is the only thing that says what record 3 hashed to, and it is also the
+        // starting point -- taken from outside the store rather than from the store's own
+        // record of the cut.
         let survivors = records(&payloads[3..], 4);
-        let verified = verify_with_anchor(&anchor, &survivors).expect("verify forward");
+        let verified =
+            verify_with_anchor(&anchor, anchor.as_start(), &survivors).expect("verify forward");
         assert_eq!(verified.records, 3);
         assert_eq!(verified.head_seq, 6);
     }
@@ -499,8 +536,8 @@ mod tests {
             ..anchor_over(&payloads, 2, 0)
         };
 
-        let found =
-            verify_with_anchor(&anchor, &records(&payloads[3..], 4)).expect_err("must not verify");
+        let found = verify_with_anchor(&anchor, anchor.as_start(), &records(&payloads[3..], 4))
+            .expect_err("must not verify");
         assert_eq!(found.kind, BreakKind::PrevHashMismatch);
     }
 
@@ -514,17 +551,22 @@ mod tests {
             ..anchor_over(&payloads, 5, 0)
         };
         assert_eq!(
-            verify_with_anchor(&ahead, &records(&payloads, 1))
+            verify_with_anchor(&ahead, Start::Genesis, &records(&payloads, 1))
                 .expect_err("cannot be checked")
                 .kind,
             BreakKind::AnchorUnreachable { head_seq: 5 }
         );
 
-        // A run that starts in the middle, neither containing the anchored record nor
-        // following it: records 3 to 5 against an anchor at sequence 1.
+        // An anchor from before the cut: its record was archived, not kept, so nothing
+        // here can be hashed against it. Records 3 to 5 remain after a cut at 2, and the
+        // anchor names sequence 1.
         let behind = anchor_over(&payloads, 1, 0);
+        let after_two = Start::AfterCut {
+            seq: 2,
+            hash: hash_payload(payloads[1].as_bytes()),
+        };
         assert_eq!(
-            verify_with_anchor(&behind, &records(&payloads[2..], 3))
+            verify_with_anchor(&behind, after_two, &records(&payloads[2..], 3))
                 .expect_err("cannot be checked")
                 .kind,
             BreakKind::AnchorUnreachable { head_seq: 5 }
@@ -532,10 +574,46 @@ mod tests {
 
         // Nothing at all.
         assert_eq!(
-            verify_with_anchor(&behind, &[])
+            verify_with_anchor(&behind, Start::Genesis, &[])
                 .expect_err("cannot be checked")
                 .kind,
             BreakKind::AnchorUnreachable { head_seq: 0 }
         );
+    }
+
+    /// The case the anchor at a cut exists for.
+    ///
+    /// After a cut, the records the cut removed are gone, so a rewrite of what remains
+    /// has one fewer thing to be consistent with: it only has to agree with whatever the
+    /// store says the cut left behind. That claim is written by the same process that
+    /// can rewrite the records. The anchor is the copy of it that is not.
+    #[test]
+    fn a_cut_the_store_records_at_a_hash_the_anchor_denies_is_a_break() {
+        let original = chain_of(6, None);
+        let anchor = anchor_over(&original, 3, 0);
+
+        // Same shape, one entry changed, every hash recomputed forward -- and a cut
+        // record naming the rewritten sequence 3, which is what a rewrite would have to
+        // write for the surviving records to verify.
+        let rewritten = chain_of(6, Some(2));
+        let forged = Start::AfterCut {
+            seq: 3,
+            hash: hash_payload(rewritten[2].as_bytes()),
+        };
+        let survivors = records(&rewritten[3..], 4);
+
+        verify_from(forged, survivors.iter().copied())
+            .expect("the surviving records agree with the forged cut -- that is the gap");
+
+        let found =
+            verify_with_anchor(&anchor, forged, &survivors).expect_err("the anchor must catch it");
+        assert_eq!(found.seq, 3);
+        match found.kind {
+            BreakKind::AnchorMismatch { anchored, stored } => {
+                assert_eq!(anchored, ciphr_core::hex::encode(&anchor.hash));
+                assert_ne!(stored, anchored, "the rewrite changed what the cut removed");
+            }
+            other => panic!("expected an anchor mismatch, got {other:?}"),
+        }
     }
 }

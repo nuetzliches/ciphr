@@ -72,4 +72,4 @@ pub use device::{AuditDevice, AuditSink, Written};
 pub use entry::{Action, DecidingRule, Entry, Principal, RequestContext};
 pub use error::{AuditError, BreakKind, ChainBreak, DeviceFailure};
 pub use file::FileDevice;
-pub use verify::{StoredRecord, Verified, verify, verify_from_genesis};
+pub use verify::{Start, StoredRecord, Verified, verify, verify_from, verify_from_genesis};
