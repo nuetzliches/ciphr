@@ -8,6 +8,19 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — `/v1/audit` returns the bytes it says it returns
+
+- The endpoint promised each record as "the exact JSON that was hashed, so a client can verify the
+  chain itself". It held a `serde_json::Value`, which is a **sorted** map: the record came back with
+  its fields in alphabetical order rather than the order they were written and hashed in, so any
+  client that recomputed the hash got a mismatch on an untouched chain. The response now carries the
+  stored text verbatim (`RawValue`, hence the `raw_value` feature on `serde_json`).
+- Found by building a client against the documentation, and the reason it survived until now is in
+  the old test: it read a **parsed** body, where field order is invisible. The new test
+  (`the_audit_endpoint_returns_the_exact_bytes_that_were_hashed`) reads the raw response, asserts the
+  stored record appears in it verbatim, and checks the reported hash against `hash_payload` of those
+  bytes. It fails on the old code and passes on the new — checked, not assumed.
+
 ### Added — `ciphr audit anchor`, the head of the chain kept outside the store
 
 - **`ciphr audit anchor [--out FILE]`** writes one JSON line — format version, timestamp, sequence

@@ -61,7 +61,9 @@ hmac = "0.13.0"
 subtle = "2.6.1"
 # JSON, for the audit payload. The bytes that are hashed are the bytes that are
 # stored, so verification never re-serializes anything.
-serde_json = "1.0.145"
+# `raw_value` is what lets the audit endpoint hand back the exact bytes that were
+# hashed instead of a re-serialization of them. See crates/ciphr-server/src/api.rs.
+serde_json = { version = "1.0.145", features = ["raw_value"] }
 
 # The HTTP stack, kept narrow (ADR-9). A well-tested router matters here because
 # authorization is path-based: any divergence between routing normalization and

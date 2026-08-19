@@ -167,11 +167,18 @@ struct AuditResponse {
 }
 
 /// One audit entry, as stored.
+///
+/// `record` is a raw value rather than a `serde_json::Value` on purpose, and the
+/// difference is the whole promise of this endpoint. A `Value` is a sorted map, so
+/// re-serializing one produces the record with its fields in alphabetical order — not the
+/// order they were written and hashed in. The hash would then be unreproducible from what
+/// this endpoint returns, while the documentation said a client could recompute it. A raw
+/// value passes the stored bytes through untouched.
 #[derive(Debug, Serialize)]
 struct AuditEntryResponse {
     seq: u64,
     hash: String,
-    record: serde_json::Value,
+    record: Box<serde_json::value::RawValue>,
 }
 
 /// What `GET /v1/identities` returns.
@@ -556,8 +563,14 @@ async fn read_audit(
     let rows = state.with_store(|store| store.audit_query(&filter).map_err(ApiError::from))?;
     let mut entries = Vec::with_capacity(rows.len());
     for row in rows {
-        let record = serde_json::from_str(&row.payload).map_err(|error| ApiError::Internal {
-            detail: format!("a stored audit record is not readable: {error}"),
+        // `from_string` validates that the stored text is JSON and then keeps it exactly
+        // as it is. Nothing here parses the record into fields: this endpoint's job is to
+        // hand over the bytes that were hashed, and any structure it imposed on the way
+        // would be structure a client has to undo before it can verify anything.
+        let record = serde_json::value::RawValue::from_string(row.payload).map_err(|error| {
+            ApiError::Internal {
+                detail: format!("a stored audit record is not readable: {error}"),
+            }
         })?;
         entries.push(AuditEntryResponse {
             seq: row.seq,

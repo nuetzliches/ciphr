@@ -174,6 +174,52 @@ impl Harness {
         self.send(Self::build("GET", uri, token, None))
     }
 
+    /// The response body as it arrived, without parsing it.
+    ///
+    /// Needed for exactly one property: that the audit endpoint hands back the bytes that
+    /// were hashed. Parsing into a `serde_json::Value` sorts the fields, so a test that
+    /// looks at a parsed body cannot see the difference between the stored record and a
+    /// re-serialization of it — which is how that defect survived the test above it.
+    fn get_text(&self, uri: &str, token: Option<&str>) -> (StatusCode, String) {
+        let response = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(
+                self.router
+                    .clone()
+                    .oneshot(Self::build("GET", uri, token, None)),
+            )
+            .expect("the router must answer");
+
+        let status = response.status();
+        let bytes = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(axum::body::to_bytes(response.into_body(), 1 << 20))
+            .expect("body");
+
+        (
+            status,
+            String::from_utf8(bytes.to_vec()).expect("the body is UTF-8"),
+        )
+    }
+
+    /// The stored audit records as text, exactly as the device holds them.
+    fn audit_payloads(&self) -> Vec<String> {
+        let store = SqliteStore::open(&self.database).expect("reopen");
+        store
+            .audit_query(&AuditFilter {
+                limit: 1000,
+                ..AuditFilter::default()
+            })
+            .expect("query")
+            .into_iter()
+            .map(|row| row.payload)
+            .collect()
+    }
+
     fn build(
         method: &str,
         uri: &str,
@@ -575,6 +621,48 @@ fn the_audit_endpoint_returns_records_a_client_can_verify_itself() {
 
     // No secret value is anywhere in the audit trail.
     assert!(!body.to_string().contains("seeded"));
+}
+
+/// The property the test above cannot see, because it reads a parsed body.
+///
+/// `openapi.yaml` promises the record is returned as the exact bytes that were hashed, so
+/// that a client can recompute the hash instead of trusting this endpoint. That was untrue
+/// for as long as the response held a `serde_json::Value`: a `Value` is a sorted map, so
+/// the fields came back in alphabetical order rather than the order they were hashed in,
+/// and any client that recomputed the hash got a mismatch on an untouched chain.
+#[test]
+fn the_audit_endpoint_returns_the_exact_bytes_that_were_hashed() {
+    let harness = Harness::new();
+    harness.get(
+        "/v1/secrets/infra/service-a/DB_PASSWORD",
+        Some(&harness.deploy_token),
+    );
+
+    let (status, text) = harness.get_text("/v1/audit?limit=50", Some(&harness.auditor_token));
+    assert_eq!(status, StatusCode::OK);
+
+    let stored = harness.audit_payloads();
+    assert!(!stored.is_empty());
+
+    for payload in &stored {
+        assert!(
+            text.contains(payload.as_str()),
+            "the response must carry the stored record verbatim, and does not contain: {payload}"
+        );
+    }
+
+    // And the hash it reports is the hash of those bytes, which is what makes the
+    // recomputation the documentation invites actually possible.
+    let body: serde_json::Value = serde_json::from_str(&text).expect("the body is JSON");
+    let entries = body["entries"].as_array().expect("array");
+    for (entry, payload) in entries.iter().zip(&stored) {
+        assert_eq!(
+            entry["hash"].as_str().expect("hash"),
+            ciphr_core::hex::encode(&ciphr_audit::hash_payload(payload.as_bytes())),
+            "sequence {} does not hash to what the endpoint reports",
+            entry["seq"]
+        );
+    }
 }
 
 #[test]
