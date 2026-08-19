@@ -61,7 +61,20 @@ sh ci/check-no-print.sh          # no stdout/stderr from library crates
 sh ci/check-forbid-unsafe.sh     # #![forbid(unsafe_code)] in every crate root
 sh ci/check-no-v-html.sh         # no v-html / innerHTML in ui/
 sh ci/check-docs.sh              # every doc under docs/ carries a date
+sh ci/check-changelog.sh         # a commit touching crates/ also touches CHANGELOG.md
 ```
+
+`check-changelog.sh` takes a range in CI and defaults to `HEAD` locally, so running it bare after a
+commit answers "did I forget?". A change under `crates/` with genuinely no observable effect opts out
+per commit, with a reason:
+
+```
+Changelog-Exempt: pure refactor, no observable behaviour
+```
+
+The gate checks that a reason is present, not that it is a good one. It exists because this was the
+one documentation rule left to habit, and it is the one that eroded — `0f711ce` changed behaviour an
+operator has to know about and recorded it only in a commit body.
 
 The fuzz targets are a fourth CI job and need a nightly toolchain, so they do not run on Windows at
 all — see [`docs/fuzzing.md`](docs/fuzzing.md).

@@ -1,8 +1,19 @@
 # ── Stage 1: build ───────────────────────────────────────────────────────────
-# The toolchain is pinned in rust-toolchain.toml and that pin is the point:
-# reproducible builds are a supply-chain requirement here (plan section 19), so
-# the base image must not be the thing that decides the compiler version.
-FROM rust:1.94-bookworm AS builder
+# The toolchain is pinned in rust-toolchain.toml and that pin is the point: the
+# base image must not be the thing that decides the compiler version.
+#
+# Both base images are pinned by digest, for the reason release.yml gives about
+# its own action pins and about the tag it tells deployments not to follow: a
+# tag is a name that can be moved, and this is the one service that reads every
+# secret in a deployment. The tag stays in the reference because a bare digest
+# says nothing about what it is; Docker uses the digest when both are present.
+# Each is the multi-platform index digest, so this stays platform-agnostic.
+#
+# This pins the base layer, not the build. `apt-get install` below still
+# resolves whatever the archive currently offers, so the image is *pinned* and
+# not yet *reproducible* — see docs/threat-model.md for why that gap is left
+# open while the repository is private.
+FROM rust:1.94-bookworm@sha256:6ae102bdbf528294bc79ad6e1fae682f6f7c2a6e6621506ba959f9685b308a55 AS builder
 
 WORKDIR /build
 
@@ -16,7 +27,7 @@ COPY crates/ crates/
 RUN cargo build --release --locked --bin ciphr-server --bin ciphr
 
 # ── Stage 2: runtime ─────────────────────────────────────────────────────────
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241
 
 # `curl` is here for the health check and nothing else. It is what lets the
 # check speak HTTPS to the service and *verify* the certificate — ADR-8 rules

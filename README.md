@@ -60,6 +60,16 @@ same mode-0600 environment file as other signing secrets, which is no regression
 quo and no gain either. Moving that boundary requires split-key unsealing or an HSM, both of which
 are retrofittable without a data format change, because the master key wraps exactly one record.
 
+**A secret that has left ciphr is the pipeline's problem.** The audit trail records that a runner
+read a value, not what the runner did with it afterwards — and no forge masks a value fetched at
+runtime, only its own native secrets. A bare `curl | jq` therefore puts secrets in the job log the
+moment anyone adds `set -x`, and that log is usually readable by more people than the secret store
+is. This is why masking is part of the product rather than of the documentation: `export --format
+actions-env` emits `::add-mask::` for every value before it emits anything else. The name contains
+*CI*, so the integration is not an afterthought to the security model — it is where most of the
+remaining risk lives. Read [`docs/operations/cli.md`](docs/operations/cli.md) before writing the
+first workflow.
+
 The realistic end state is **one secret per host**, not zero — plus an audit trail, plus rotation,
 plus a bounded blast radius per token. The full threat model, including everything else that is
 deliberately out of scope, is in [`docs/threat-model.md`](docs/threat-model.md).

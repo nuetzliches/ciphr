@@ -1,8 +1,9 @@
 # Threat model
 
-**Status:** current as of 2026-08-18, phase 1. The adversaries and boundaries are settled; the
-defences marked as implemented are the cryptographic and storage ones, and the rest arrive with the
-phases that build them.
+**Status:** current as of 2026-08-19, phase 3 of 7. The adversaries and boundaries are settled. The
+defences that exist are the cryptographic, storage, authorization, audit and transport ones; the
+rows for the admin UI (A7) and the MCP server (A8) describe components that are not built yet, and
+the rest arrive with the phases that build them.
 
 Everything in the design is derived from this document, so it is stated first and stated plainly —
 including the parts where the answer is "not defended against". A security product that lists only
@@ -42,8 +43,18 @@ module — both retrofittable without a change to the data format, because the m
 exactly one record.
 
 **A compromised build pipeline.** Whoever replaces the image wins. The countermeasure is
-supply-chain hygiene — pinned dependencies, `cargo-deny`, pinned action hashes, reproducible builds
-— not application code.
+supply-chain hygiene — pinned dependencies, `cargo-deny` and `cargo audit` as blocking gates, action
+hashes rather than action tags, base images by digest rather than by tag — not application code.
+
+**Reproducible builds are named in plan section 19 and are not implemented.** That is a sequencing
+decision rather than an oversight, and it is stated here because the entry above would otherwise
+read as a list of things that are all in place. While the repository is private, every build is
+internal: nobody outside can obtain the source, rebuild the image and compare it, so reproducibility
+would be a property that no one is in a position to check. It buys something the moment the
+repository is public and a third party can verify that a published image corresponds to the source
+it claims to come from — **that is the point at which this paragraph has to change**, and the
+`apt-get install` in the runtime stage of the `Dockerfile` is the first thing that will have to give
+way for it.
 
 **Side channels beyond timing in credential comparison.** Token, HMAC, and tag comparisons are
 constant-time. There is no protection against cache-timing or Spectre-class attacks.

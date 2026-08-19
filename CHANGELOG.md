@@ -8,6 +8,56 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — the changelog rule is enforced rather than trusted
+
+- `ci/check-changelog.sh` fails a commit that changes `crates/` without changing this file, and it
+  is a blocking job in `ci.yml`. The rule is not new — the header of this file has always said the
+  changelog is updated in the same commit as the change it describes. What is new is that something
+  checks it.
+- **It was added because the rule broke.** `0f711ce` changed behaviour an operator has to know about
+  and recorded it nowhere but its own commit body, and nothing noticed. Every other documentation
+  discipline in this repository is a script; this was the one left to habit, and habit is what
+  eroded. That is an argument the project already makes about source rules, applied to itself.
+- The trigger is `crates/` and nothing else. Deployment files, CI, and documentation are outside it
+  on purpose: a changelog that records every comment fix is one nobody reads, and a gate that fires
+  on noise gets worked around rather than obeyed.
+- A change with genuinely no observable effect opts out per commit with a `Changelog-Exempt:`
+  trailer that states a reason. The gate checks that a reason exists, not that it is a good one —
+  that is what a reader of the history is for. An opt-out that costs nothing to write would not be
+  a gate.
+- Tags are exempt from the job: a release rebuilds code that already passed this on main, and the
+  range a tag push reports is not a change under review.
+
+### Changed — the CI integration is named as a boundary, and one claim is withdrawn
+
+- **`README.md` states the integration boundary under *Honest boundaries*.** The audit trail records
+  that a runner read a value, not what it did with the value afterwards, and no forge masks a value
+  fetched at runtime. That was documented — in the risk table of `docs/README.md` and in the masking
+  trap section of `docs/operations/cli.md` — but not on the front page, which named runner-agnostic
+  CI access only as an advantage. For a project whose name contains *CI*, having the boundary that
+  affects the primary consumer sit two clicks deeper than the one that affects root was the wrong
+  asymmetry.
+- **`docs/threat-model.md` no longer lists reproducible builds among the countermeasures in place.**
+  They are not implemented, and `docs/` describes what exists. The entry now says so and records the
+  condition instead: while the repository is private every build is internal, so no third party is
+  in a position to rebuild an artifact and compare it. It becomes worth the cost when the repository
+  goes public, and the paragraph names itself as the thing that has to change then.
+- The status line of the threat model said phase 1 while the project is at phase 3, and the same
+  line claimed only the cryptographic and storage defences exist. Corrected, with the UI (A7) and
+  MCP (A8) rows marked as describing components that are not built.
+
+### Changed — base images pinned by digest
+
+- `Dockerfile` pins `rust:1.94-bookworm` and `debian:bookworm-slim` by their multi-platform index
+  digests. The workflows already pin every third-party action by commit hash on the grounds that a
+  tag can be moved, and `release.yml` tells deployments to pin this image by digest for the same
+  reason; the base images were the one place the argument was not applied to itself.
+- The comment that justified the toolchain pin with "reproducible builds are a supply-chain
+  requirement here" is gone with it. The pin is worth having because the base image must not decide
+  the compiler version, which is true regardless — and the `apt-get install` in the runtime stage
+  means the image is pinned rather than reproducible. The Dockerfile now says that rather than
+  implying otherwise.
+
 ### Fixed — `init` records the store's own creation to every audit device
 
 - `ciphr init` called `.with_audit(None)` and therefore ignored `--audit-file`, while every other

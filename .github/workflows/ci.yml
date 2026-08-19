@@ -77,6 +77,37 @@ jobs:
       - name: Documentation carries dates
         run: sh ci/check-docs.sh
 
+  changelog:
+    name: Shipped code carries a changelog entry
+    # A tag rebuilds code that already passed this gate on main, and the range a
+    # tag push reports is the tag's own history rather than a change under
+    # review. Checking it there would fail a release for a commit that was
+    # already judged.
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          # The gate reads a range of commits, so the default shallow clone is
+          # not enough. Full history rather than a guessed depth: any number
+          # here would be an assumption about how many commits a push contains,
+          # and the gate would silently degrade to checking the tip when the
+          # assumption was wrong.
+          fetch-depth: 0
+
+      # The rule CHANGELOG.md states about itself. It is a gate for the same
+      # reason the source rules above are: the one documentation discipline that
+      # was left to habit is the one that eroded.
+      - name: Changelog entry for changes under crates/
+        env:
+          # A pull request is reviewed as base..head. A push reports the commit
+          # the branch moved from, which is the same question asked of a
+          # different event.
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: sh ci/check-changelog.sh "$BASE" "$HEAD_SHA"
+
   supply-chain:
     name: Licenses, advisories, dependency budget
     runs-on: ubuntu-latest
