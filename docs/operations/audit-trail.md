@@ -101,6 +101,30 @@ The SQLite device writes into the same database as the secrets; the file device 
 that is deliberately *not* in that database. A break in one and not the other localizes the damage —
 which is the main reason to run both.
 
+### Stores initialized before 2026-08-19 are missing the first line of their file copy
+
+`ciphr init` ignored `--audit-file` until that date, so the record it writes — sequence 1, the
+genesis of the chain — reached the database and not the file. Every later record reached both. The
+fix went in the same day, and **it does not repair an existing store**: a chain is precisely the
+thing that cannot be filled in afterwards.
+
+What that means in practice, in decreasing order of how likely you are to meet it:
+
+- **The database copy is complete and verifies from 1.** `ciphr audit verify` on such a store is
+  unaffected. This is not a damaged trail.
+- **The file copy cannot be verified from its own beginning.** Its first line is sequence 2, whose
+  `prev_hash` names a record the file does not contain. Checking the file standalone therefore needs
+  the genesis hash from the database — or an anchor — as its starting point.
+- **The first cut that would remove sequence 1 is refused**, and this is the one that costs time if
+  it is a surprise. `ciphr audit cut` looks for every record it would remove in `--archive`, by
+  hash, and sequence 1 is not there. The message names it: *"the first missing sequence numbers are
+  1"*. That refusal is correct — the record really is not archived — and the resolution is a
+  deliberate `--assume-archived` for that one cut, after confirming the store predates the fix,
+  rather than treating the check as broken.
+
+A store initialized after the fix has none of this. To tell which you have: if the oldest line in
+the file device's file is sequence 2 while the database's oldest is 1, it is a pre-fix store.
+
 ## When verification fails
 
 A procedure invented during an incident is a procedure nobody trusts, so here it is in advance.

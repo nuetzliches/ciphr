@@ -55,6 +55,16 @@ a credential. The text lives once in `ciphr-core` (`file_mode`), shared by `ciph
 `ciphr-run`, with tests on both sides pinning that it appears at 0777 and only there.
 `docs/operations/master-key.md` carries the same thing for someone reading ahead of the failure.
 
+### Fixed — stores initialized before the `init` audit fix say so in the documentation
+
+`ciphr init` ignored `--audit-file` until 2026-08-19, so the genesis record of every store created
+before then reached the database and not the file device. The fix cannot repair an existing store,
+and the consequence had never been written down where an operator would meet it: the **first cut that
+would remove sequence 1 is refused**, because that record genuinely is not in the archive.
+[`docs/operations/audit-trail.md`](docs/operations/audit-trail.md) now describes how to recognize
+such a store, why its database copy is unaffected, and why the resolution is one deliberate
+`--assume-archived` rather than treating the check as broken.
+
 ### Added — `ciphr-run`, so route B costs a bind-mount instead of a derived image
 
 [ADR-14](docs/adr/0014-ciphr-run-injects-into-a-child-process.md) is **accepted** and built. A
