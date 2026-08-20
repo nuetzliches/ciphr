@@ -7,9 +7,17 @@ reasoning behind them lives in [`docs/adr/`](docs/adr/) and
 
 ## Where the project stands
 
-Phases 0 to 3 are complete. Every crate except `ciphr-sdk` is implemented and tested: the
-cryptographic layer, the store, the policy evaluator, the audit trail, the HTTP server with TLS and
-token authentication, and the `ciphr` CLI. `openapi.yaml` is maintained from here on.
+Phases 0 to 3 are complete: the cryptographic layer, the store, the policy evaluator, the audit
+trail, the HTTP server with TLS and token authentication, and the `ciphr` CLI. `openapi.yaml` is
+maintained from here on.
+
+**`ciphr-sdk` is implemented** (ADR-19) and is the client half of phase 7, route C — an application
+fetching its own secrets at startup. It covers the secret-facing endpoints and `/v1/health`; the
+administrative reads are not implemented there, because the consumer that needs them is the MCP
+server (ADR-13, post-v1) and the CLI reads them from the store without a network hop. Two things
+about it are properties of the build rather than rules to remember: it links no public root
+certificates, so it cannot be pointed at the WebPKI, and it cannot set an environment variable,
+because that is `unsafe` in this edition.
 
 **Phase 5 is built:** the read-only viewer in `ui/`, its own package and its own image, released on
 its own cadence (`ui-v*` tags). It is documented in [`docs/ui.md`](docs/ui.md), and the rules it is

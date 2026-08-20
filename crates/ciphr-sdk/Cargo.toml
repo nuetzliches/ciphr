@@ -9,6 +9,28 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+ciphr-core.workspace = true
+# The trust anchor is built here rather than taken from the platform (ADR-17, ADR-19).
+rustls.workspace     = true
+secrecy.workspace    = true
+serde.workspace      = true
+serde_json.workspace = true
+ureq.workspace       = true
+
+# The end-to-end test runs the real service over a real TLS socket: the same router,
+# the same authentication, the same evaluator, the same audit sink. A mock here would
+# only assert that this crate agrees with itself.
+[dev-dependencies]
+axum.workspace         = true
+axum-server.workspace  = true
+ciphr-audit.workspace  = true
+ciphr-crypto.workspace = true
+ciphr-policy.workspace = true
+ciphr-server.workspace = true
+ciphr-store.workspace  = true
+rcgen.workspace        = true
+tempfile.workspace     = true
+tokio.workspace        = true
 
 [lints]
 workspace = true

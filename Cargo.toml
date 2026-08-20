@@ -24,6 +24,9 @@ ciphr-core   = { path = "crates/ciphr-core" }
 ciphr-crypto = { path = "crates/ciphr-crypto" }
 ciphr-policy = { path = "crates/ciphr-policy" }
 ciphr-store  = { path = "crates/ciphr-store" }
+# Only ever a dev-dependency, so that `ciphr-sdk` can be tested against the real
+# service over a real TLS socket rather than against a mock of it.
+ciphr-server = { path = "crates/ciphr-server" }
 
 # AEAD. Default features are off so that nothing arrives unasked; `zeroize`
 # makes the crate wipe its own key schedule, which is the point of using it.
@@ -80,10 +83,26 @@ rustls         = { version = "0.23.43", default-features = false, features = ["r
 # edge case turns into the wrong path or the wrong flag being honoured.
 clap = { version = "4.6.6", default-features = false, features = ["std", "derive", "help", "usage", "error-context", "wrap_help"] }
 
+# The HTTP *client*, for `ciphr-sdk` (ADR-19). Blocking, because the call it makes is
+# one fetch at startup and a runtime in every consuming application is a price with
+# nothing behind it. `rustls-no-provider` is the substance of the choice rather than a
+# size saving: it pulls in no `webpki-roots`, so a client that trusts the public CA set
+# cannot be built at all — the machine path pins on this deployment's own CA (ADR-17),
+# and ureq refuses at build time rather than trusting something wider by default.
+# HTTP/1.1 framing is `httparse`, the same parser hyper uses; the alternative was a
+# hand-written one in the process that holds plaintext.
+ureq = { version = "3.4.0", default-features = false, features = ["rustls-no-provider"] }
+
 # Test-only.
 proptest = "1.11.0"
 tempfile = "3.24.0"
 tower    = { version = "0.5.3", features = ["util"] }
+# X.509 generation, for tests only. The end-to-end test of `ciphr-sdk` needs a real
+# certificate for a real handshake, and the alternative was a checked-in key pair --
+# which is test fixture material that looks like real key material, the one thing
+# AGENTS.md rules out. `rustls`'s own sibling project, and it reuses the `ring`
+# provider already in the graph rather than adding a second one.
+rcgen = { version = "0.14.9", default-features = false, features = ["pem", "ring"] }
 
 [workspace.lints.rust]
 missing_docs          = "warn"

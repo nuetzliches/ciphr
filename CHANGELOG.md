@@ -8,6 +8,53 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — `ciphr-sdk`, the client half of route C
+
+The crate was a doc comment and thirteen lines of it. It is now a working client for the v1 API, and
+it exists for one job: an application fetching its own secrets at startup, so that no plaintext is
+rendered to a file, none is baked into the container configuration, and the audit entry names the
+**service** rather than the runner that deployed it (plan section 13, route C).
+
+- **`Client::builder` takes three arguments and all of them are required**: an `https` base URL, a
+  token, and the certificate authority to trust. Each refuses a different way of being wrong — `http`
+  is refused outright, because the payload is plaintext secrets.
+- **The client cannot be pointed at the public CA set.** Not "does not by default": the transport is
+  compiled without `webpki-roots`, so the public root bundle is not linked into the binary at all,
+  and the trust anchor is a constructor argument rather than a builder call someone can forget.
+  [ADR-17](docs/adr/0017-certificate-provenance.md) is a property of the build here instead of a rule
+  in a document. Verified by test: a certificate from an unrelated authority fails the handshake.
+- **`client.environment(prefix)` is route C in one call**, with names from
+  [ADR-18](docs/adr/0018-one-rule-for-the-variable-name.md) — the same names `ciphr export` produces
+  and `ciphr run` will. Names are assigned *before* the values are fetched, so a layout that cannot
+  produce an environment is refused without reading a secret and without the audit entries that
+  reading them would have written.
+- **An empty prefix is a refusal, not an empty environment.** `GET /v1/list` authorizes every path it
+  would return, so "you may list nothing here" and "there is nothing here" arrive as the same empty
+  array. A consumer asking for its own prefix is misconfigured either way, and a service that boots
+  with no secrets because its token lacks a capability is the silent start this refuses to allow.
+- **It cannot set an environment variable**, which was not planned: that is `unsafe` in this edition
+  and every crate here forbids `unsafe_code`. It turns out to be the better answer — a value read
+  straight from the returned mapping never reaches `/proc/<pid>/environ`, which is the exposure route
+  C otherwise still has. `Command::env` covers the child-process case, which is the same mechanism
+  `ciphr run` would use.
+- **Errors are cut along what a caller can do about them.** `SdkError::is_retryable` is deliberately
+  narrow: a transport failure and a `503` from the audit trail, and the latter carries the documented
+  guarantee that nothing was served and nothing changed — which is what makes retrying safe for a
+  write as well as a read. A `401` is not retryable, because a retry sends the same credential.
+- **Tested against the real service over a real TLS socket** — the same router, authentication,
+  evaluator and audit sink, reached over a TCP connection with a real handshake, including the
+  refusals (`401`, `403`, `404`, `400` on the reserved prefix). The certificate is generated per run
+  rather than committed: a checked-in key pair is fixture material that looks like real key material.
+- **Not implemented, on purpose:** the administrative reads (`/v1/audit`, `/v1/identities`,
+  `/v1/policies`), whose consumer is the MCP server (ADR-13, post-v1); any `from_env()` convention,
+  because inventing one here would make it the convention by accident; and any retry loop, because
+  how long a service waits for its secrets is the service's policy.
+- **One new dependency and one new dev-dependency**, both recorded in
+  [ADR-19](docs/adr/0019-sdk-transport-blocking-ureq.md) with the measurements behind them: `ureq`
+  (5 new crates, one TLS stack, `cargo deny` green) over `reqwest` (~119 new crates and a `bans`
+  failure needing an exception), and `rcgen` for the test certificate.
+- `openapi.yaml` is unchanged: the client adds no endpoint and reads only documented ones.
+
 ### Fixed — an export could hand a service the wrong secret, silently
 
 `ciphr export` derived the environment variable name from the last path segment and checked nothing

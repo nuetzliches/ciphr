@@ -580,7 +580,7 @@ ciphr/
 │   ├── ciphr-policy/     TOML → typed → evaluator
 │   ├── ciphr-audit/      Audit trait, hash chain, devices
 │   ├── ciphr-server/     axum API, auth middleware, handlers
-│   ├── ciphr-cli/        CLI (uses the SDK)
+│   ├── ciphr-cli/        CLI — against the store directly, not through the SDK
 │   ├── ciphr-sdk/        Rust client
 │   └── ciphr-mcp/        MCP server, post-v1 (section 16) — pure SDK consumer
 ├── ui/                   Vue 3 + TypeScript + Vite
@@ -594,6 +594,13 @@ ciphr/
 ├── Dockerfile   Dockerfile.ui   docker-compose.yml
 └── deny.toml
 ```
+
+**Correction, 2026-08-20.** The line above used to read "`ciphr-cli` (uses the SDK)". It never did
+and it should not: the CLI holds the master key, takes the store lock, and runs `init`, `put` and
+`token issue`, none of which exist over the API and none of which should. The SDK is the client for
+consumers *outside* the process that owns the database — route C, the MCP server (ADR-13), and
+`ciphr run` if ADR-14 is accepted. A CLI routed through the API would need a running service in
+order to initialize one.
 
 `ciphr-crypto` and `ciphr-policy` are the two crates that must stay fully reviewable — they
 get a line budget and no dependencies beyond those named in section 5.
