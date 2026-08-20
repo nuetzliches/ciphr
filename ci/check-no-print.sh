@@ -14,9 +14,18 @@ set -eu
 
 cd "$(dirname "$0")/.."
 
-# Binary crates are exempt: producing output is their job.
+# Binary crates are exempt: producing output is their job. The list is explicit
+# rather than derived from Cargo.toml, so that adding a crate that prints is a
+# visible edit to this gate instead of a side effect of how it was declared.
+#
+# `ciphr-run` is the whole of a binary crate, not a `main.rs` beside a library,
+# which is why the exemption covers its directory. What it prints is its own
+# error message and, with `--report`, variable *names* — never a value. The
+# compile-time half of the rule still applies to everything it depends on:
+# `ciphr-sdk` and `ciphr-core` carry the lint attribute.
 libs=$(find crates -name '*.rs' -path '*/src/*' \
     ! -path 'crates/ciphr-cli/*' \
+    ! -path 'crates/ciphr-run/*' \
     ! -path 'crates/ciphr-server/src/main.rs')
 
 if [ -z "$libs" ]; then
@@ -31,7 +40,7 @@ if grep -nE '\b(print|println|eprint|eprintln|dbg)!' $libs; then
 check-no-print: direct output found in a library crate (see the lines above).
 
 Return the value or an error instead. If a binary needs to show something, it
-belongs in crates/ciphr-cli or crates/ciphr-server/src/main.rs.
+belongs in crates/ciphr-cli, crates/ciphr-run, or crates/ciphr-server/src/main.rs.
 MSG
     exit 1
 fi

@@ -23,9 +23,10 @@ ciphr-audit  = { path = "crates/ciphr-audit" }
 ciphr-core   = { path = "crates/ciphr-core" }
 ciphr-crypto = { path = "crates/ciphr-crypto" }
 ciphr-policy = { path = "crates/ciphr-policy" }
+ciphr-sdk    = { path = "crates/ciphr-sdk" }
 ciphr-store  = { path = "crates/ciphr-store" }
-# Only ever a dev-dependency, so that `ciphr-sdk` can be tested against the real
-# service over a real TLS socket rather than against a mock of it.
+# Only ever a dev-dependency, so that `ciphr-sdk` and `ciphr-run` can be tested against
+# the real service over a real TLS socket rather than against a mock of it.
 ciphr-server = { path = "crates/ciphr-server" }
 
 # AEAD. Default features are off so that nothing arrives unasked; `zeroize`

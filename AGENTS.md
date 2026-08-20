@@ -19,6 +19,23 @@ about it are properties of the build rather than rules to remember: it links no 
 certificates, so it cannot be pointed at the WebPKI, and it cannot set an environment variable,
 because that is `unsafe` in this edition.
 
+**`ciphr-run` is implemented** (ADR-14, accepted 2026-08-20) and is route B: it fetches, then
+`exec`s the given command, so a third-party image needs no derived Dockerfile. Three rules about that
+crate are not obvious from its code:
+
+- **Its dependency list is a security boundary, not a convenience.** `ciphr-sdk`, `ciphr-core`,
+  `clap`, and nothing else. This binary is bind-mounted into images this project does not own, and
+  the reason no store, cryptography or master-key code can be reached from inside one of them is that
+  those crates are not dependencies. Adding one is not a refactor.
+- **It reads no environment variable.** It `exec`s into a program that inherits its environment, so
+  anything read from there would be handed to the service too. Everything it needs comes from flags,
+  which already live in the container definition, and the token comes from a file — there is
+  deliberately no flag that takes a token value.
+- **The order of its checks is the security property**, and the exit codes are part of the contract:
+  `125` means the wrapper failed and no child was started, `126`/`127` come from the shell convention.
+  Anything that reorders those checks so a fetch precedes a refusal changes what the audit trail
+  means.
+
 **Phase 5 is built:** the read-only viewer in `ui/`, its own package and its own image, released on
 its own cadence (`ui-v*` tags). It is documented in [`docs/ui.md`](docs/ui.md), and the rules it is
 held to are in the enforced list below. Phase 5's other condition holds by construction rather than
@@ -86,7 +103,13 @@ sh ci/check-no-v-html.sh         # no v-html / innerHTML in ui/
 sh ci/check-ui-budget.sh         # one runtime dependency, no install scripts, integrity hashes
 sh ci/check-docs.sh              # every doc under docs/ carries a date
 sh ci/check-changelog.sh         # a commit touching crates/ also touches CHANGELOG.md
+sh ci/build-wrapper.sh           # ciphr-run: static musl, verified linkage, size budget
 ```
+
+`build-wrapper.sh` needs the `x86_64-unknown-linux-musl` target and a musl linker, so it does not run
+on Windows. CI runs it, and runs `cargo test -p ciphr-run --target x86_64-unknown-linux-musl` next to
+it — the tests execute *as* static binaries rather than merely being built as them, because static
+musl is where name resolution breaks and a build-only gate would not notice.
 
 The viewer has its own CI job, its own pinned Node version, and its own budget, because it is its own
 package (ADR-11). Locally:

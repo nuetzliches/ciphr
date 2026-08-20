@@ -1,0 +1,39 @@
+[package]
+name = "ciphr-run"
+description = "Fetches secrets and replaces itself with the given command."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# The dependency list *is* the guarantee here (ADR-14). This binary is bind-mounted
+# into images this project does not own, so what it can contain matters as much as what
+# it does: there is no store, no cryptography, and no master-key handling in reach,
+# because those crates are not dependencies. A `use` cannot reintroduce them.
+[dependencies]
+ciphr-core.workspace = true
+ciphr-sdk.workspace  = true
+clap.workspace       = true
+
+[dev-dependencies]
+axum.workspace         = true
+axum-server.workspace  = true
+ciphr-audit.workspace  = true
+ciphr-crypto.workspace = true
+ciphr-policy.workspace = true
+ciphr-server.workspace = true
+ciphr-store.workspace  = true
+rcgen.workspace        = true
+tempfile.workspace     = true
+tokio.workspace        = true
+
+[lints]
+workspace = true
+
+# One binary, and its name is what a container definition mounts and calls. The package
+# name carries no suffix to strip, so the two match.
+[[bin]]
+name = "ciphr-run"
+path = "src/main.rs"

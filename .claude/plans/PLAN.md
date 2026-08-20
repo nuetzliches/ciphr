@@ -582,6 +582,7 @@ ciphr/
 │   ├── ciphr-server/     axum API, auth middleware, handlers
 │   ├── ciphr-cli/        CLI — against the store directly, not through the SDK
 │   ├── ciphr-sdk/        Rust client
+│   ├── ciphr-run/        Route B wrapper: fetch, then exec (ADR-14) — SDK consumer
 │   └── ciphr-mcp/        MCP server, post-v1 (section 16) — pure SDK consumer
 ├── ui/                   Vue 3 + TypeScript + Vite
 │                         own image, optionally deployable (ADR-11, section 15)
@@ -695,6 +696,17 @@ ciphr audit cut --keep N --anchor FILE --archive FILE   # bound the queryable tr
 ciphr dump --format portable        # exit path, see section 2
 ```
 
+**`ciphr run` is not on this list, and that is the decision rather than an omission.** It is
+`ciphr-run`, its own crate and its own binary, because it is bind-mounted into images this
+project does not own: its dependency list is what guarantees no store, cryptography or
+master-key code can be reached from inside a foreign container, and the four global options
+above (`--database`, `--master-key-env`, `--master-key-file`, `--policies`) have no business
+in that context. See ADR-14, accepted 2026-08-20.
+
+```
+ciphr-run --url URL --token-file FILE --ca PEM --prefix PATH -- COMMAND [ARGS...]
+```
+
 `import --from-dotenv` is the migration tool for an existing corpus: non-interactive, and
 `--dry-run` shows the target paths without writing. It reads a file and therefore does not
 violate the argument rule below.
@@ -797,9 +809,17 @@ in `/proc/<pid>/environ`, which is where it has to be anyway. Costs one derived 
 third-party service.
 
 That cost is the problem with route B, and it is the route that applies to the most images.
-**ADR-14 proposes `ciphr run` as the generic form of this wrapper** — one statically linked
-binary, bind-mounted, `entrypoint:` overridden — which removes the derived image entirely. The
-decision has to be made before phase 7, because it determines what that phase consists of.
+**ADR-14 was accepted on 2026-08-20 and built as `ciphr-run`** — one statically linked binary
+(3,347,368 bytes stripped, musl, verified static), bind-mounted, `entrypoint:` overridden —
+which removes the derived image entirely.
+
+Two things a deployment has to take from that record rather than from this paragraph. The
+entrypoint pin is unchanged: overriding `entrypoint:` still means recording what it was, and
+that value still drifts when the base image moves — **a rebuild traded for a pin**. And the
+child can still read the token file, because `exec` does not change the filesystem view, so
+**route B makes per-service token scoping matter more than it did**: a token scoped to the
+prefix the service receives gives away nothing it did not already get, while a per-host token
+covering several services means a compromised service can read the others'.
 
 **C — the application itself.** For software you control, the clean route is for the
 application to fetch its secrets from ciphr at startup. This is the actual justification for

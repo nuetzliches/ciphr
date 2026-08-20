@@ -8,6 +8,61 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — `ciphr-run`, so route B costs a bind-mount instead of a derived image
+
+[ADR-14](docs/adr/0014-ciphr-run-injects-into-a-child-process.md) is **accepted** and built. A
+third-party image that only reads environment variables no longer needs a Dockerfile of its own: mount
+one static binary, override `entrypoint:`, and the image is untouched.
+
+```
+ciphr-run --url https://host:4400 --token-file /run/secrets/token --ca /etc/ciphr/ca.crt \
+          --prefix infra/host/service -- /original/entrypoint --flags
+```
+
+- **It is `ciphr-run`, its own crate, not a `ciphr run` subcommand.** The dependency list is the
+  guarantee: `ciphr-sdk`, `ciphr-core`, `clap`, and nothing else, so no store, cryptography or
+  master-key code can be reached from inside a container this project does not own. A subcommand would
+  also have inherited the CLI's global `--master-key-file` and `--database` options into a context
+  where both are nonsense. **Size was not the argument, and the measured numbers say so:** stripped
+  musl builds are 3,347,368 bytes for `ciphr-run` against 4,033,400 for the full CLI, about 17% apart.
+- **The order of the checks is the security property.** Platform support, then a command, then the
+  token file, then the fetch, then the naming rule, and only then `exec`. If any of those fails
+  **nothing is executed** — that was ADR-14's third condition, and it is now four end-to-end tests
+  rather than a sentence.
+- **Exit codes borrowed from `docker run` and the shell**, because the thing reading them is a restart
+  policy: `125` the wrapper failed and no child started, `126` the command could not be executed, `127`
+  it was not found, anything else the child's own. `125` answers the question a wrapper otherwise makes
+  unanswerable — did my service crash, or did it never start?
+- **No environment variable is read**, deliberately. This process `exec`s into one that inherits its
+  environment, so anything taken from there would be handed to the service too. The token comes from a
+  file and there is no flag that accepts a token value.
+- **A world-readable token file stops the process**, mirroring the master-key check in `ciphr-crypto`.
+- **No `unsafe`, and the result is better than what ADR-14 proposed.** The record described a wrapper
+  that sets the values in *its own* environment; that needs `std::env::set_var`, which is `unsafe`
+  here. `Command::env` sets the environment of the image `exec` installs instead, so **a secret never
+  appears in `/proc/<pid>/environ` of the wrapper** — only the service's, which is where it has to be.
+- **Anything without `exec` refuses rather than degrading.** A spawn-and-wait would leave a supervisor
+  alive holding every value for the lifetime of the service and swallowing its signals. The wrapper
+  refuses before reading the token, and says why.
+- **Two consequences a deployment has to read, not code:** the entrypoint pin is unchanged — a rebuild
+  traded for a pin that drifts when the base image moves — and the child can still read the token
+  file, because `exec` does not change the filesystem view. The second one means **route B makes
+  per-service token scoping matter more than it did**; `--path` exists partly for that, needing only
+  `read` where `--prefix` needs `list` too.
+
+### Added — the wrapper is a released artefact, and its linkage is a gate
+
+- `ci/build-wrapper.sh` builds `ciphr-run` for `x86_64-unknown-linux-musl`, **verifies it is
+  statically linked** rather than assuming the target implies it, and holds it to a **5 MiB budget** on
+  the stripped binary. The budget is a review trigger: a jump means a dependency arrived in the thing
+  mounted into other people's containers, and raising the number is the wrong response.
+- CI runs `cargo test -p ciphr-run --target x86_64-unknown-linux-musl`, so the tests execute **as**
+  static binaries instead of merely being built as them. That distinction earned its keep: static musl
+  cannot load NSS modules, so a binary that builds fine may be unable to resolve a hostname, and
+  `tests/wrapper.rs` covers one resolution by name for exactly that reason.
+- The release workflow attaches `ciphr-run` and its SHA-256 to the tag. It is the one artefact here
+  that is not an image, because there is nothing for a deployment to pull it out of.
+
 ### Added — `ciphr-sdk`, the client half of route C
 
 The crate was a doc comment and thirteen lines of it. It is now a working client for the v1 API, and

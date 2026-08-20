@@ -1,4 +1,5 @@
-# Builds and publishes the container image.
+# Builds and publishes the container image, and the one artefact that is not an
+# image: the static `ciphr-run` wrapper, attached to the release as a file (ADR-14).
 #
 # Third-party actions are pinned to a commit hash rather than a tag, for the
 # reason ci.yml gives: a tag can be moved. The comment after each hash records
@@ -94,4 +95,61 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           echo '${{ env.REGISTRY_IMAGE }}:${{ steps.version.outputs.version }}' >> "$GITHUB_STEP_SUMMARY"
           echo '${{ steps.build.outputs.digest }}' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+  # The one artefact that is not an image. `ciphr-run` is bind-mounted into images
+  # this project does not own (ADR-14), so a deployment needs the file itself --
+  # there is nothing to pull it out of.
+  wrapper:
+    name: Publish the static wrapper
+    needs: verify
+    # A manual run publishes no image tag and gets no release either; there is no
+    # release to attach a file to.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      # Narrower than it looks: this is the only job in either workflow that
+      # writes anything to the repository, and what it writes is one release
+      # asset.
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Add the musl target
+        run: |
+          rustup target add x86_64-unknown-linux-musl
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      # The same script CI runs, so the linkage check and the size budget apply to
+      # the file that actually ships. Rebuilt here rather than carried over from
+      # the `verify` run: the checksum published below is then computed from the
+      # bytes this job produced, with nothing in between to trust.
+      - name: Build the wrapper
+        run: sh ci/build-wrapper.sh target/wrapper
+
+      # `gh` is preinstalled on the runner and authenticates with the job's token,
+      # so this needs no additional third-party action to pin.
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "$TAG" --generate-notes
+          fi
+          gh release upload "$TAG" \
+            target/wrapper/ciphr-run \
+            target/wrapper/ciphr-run.sha256 \
+            --clobber
+
+      # What a deployment has to check before mounting it. Printed here so the
+      # value is in the run's own record, not only inside the uploaded file.
+      - name: Report the checksum
+        run: |
+          echo "### The wrapper" >> "$GITHUB_STEP_SUMMARY"
+          echo '' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat target/wrapper/ciphr-run.sha256 >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"

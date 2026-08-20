@@ -26,7 +26,7 @@ parts that later turned out to be wrong.
 | [ADR-11](0011-ui-is-an-optional-separate-package.md) | The admin UI is an optional, separate package | Accepted; phase 5 |
 | [ADR-12](0012-ui-auth-token-paste.md) | UI authentication: token paste in v1 | Accepted; phase 5 |
 | [ADR-13](0013-mcp-separate-stateless-process.md) | MCP server: separate, stateless process | Accepted; post-v1 |
-| [ADR-14](0014-ciphr-run-injects-into-a-child-process.md) | `ciphr run` injects secrets into a child process | **Proposed**; decide before phase 7 |
+| [ADR-14](0014-ciphr-run-injects-into-a-child-process.md) | `ciphr run` injects secrets into a child process | Accepted; built as `ciphr-run` |
 | [ADR-15](0015-honeypots-and-what-a-tripwire-may-do.md) | Honeypots, and what a tripwire may do | **Proposed**; decide before phase 8 |
 | [ADR-16](0016-leak-reports-are-a-one-way-drop-box.md) | Leak reports are a one-way drop box, matched through a blind index | **Proposed**; decide before phase 9 |
 | [ADR-17](0017-certificate-provenance.md) | Certificate provenance: a private CA for machines, a public certificate for the browser | Accepted |

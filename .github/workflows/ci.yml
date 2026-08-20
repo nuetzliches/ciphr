@@ -217,6 +217,47 @@ jobs:
       - name: cargo audit
         run: cargo audit --deny warnings
 
+  wrapper:
+    name: The static wrapper builds, runs, and fits its budget
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      # `ciphr-run` is bind-mounted into images this project does not own (ADR-14),
+      # so it is the one artefact whose linkage is part of its contract: it must
+      # need nothing from the image it lands in.
+      - name: Add the musl target
+        run: |
+          rustup target add x86_64-unknown-linux-musl
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      # Run the tests *as* static musl binaries, not only build them. Static musl
+      # is exactly where name resolution breaks -- NSS modules cannot be loaded
+      # into a static binary -- and a binary that builds but cannot resolve a
+      # hostname would pass a build-only gate and fail on the first deploy.
+      # `tests/wrapper.rs` covers the real exec path and one resolution by name.
+      - name: Test the wrapper as a static binary
+        run: cargo test --locked -p ciphr-run --target x86_64-unknown-linux-musl
+
+      # Verifies static linkage and holds the binary to a size budget. The budget
+      # is a review trigger rather than a performance one: a jump means a new
+      # dependency arrived in the thing mounted into other people's containers.
+      - name: Build, verify linkage, and check the budget
+        run: sh ci/build-wrapper.sh target/wrapper
+
+      # Kept so that a deployment can take the exact file these gates passed on,
+      # rather than rebuilding it and hoping. The release workflow attaches the
+      # same artefact to a tag.
+      - name: Keep the wrapper
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ciphr-run-x86_64-unknown-linux-musl
+          path: target/wrapper/
+          if-no-files-found: error
+
   fuzz:
     name: Fuzz smoke run
     runs-on: ubuntu-latest

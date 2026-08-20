@@ -329,6 +329,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "ciphr-run"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "axum-server",
+ "ciphr-audit",
+ "ciphr-core",
+ "ciphr-crypto",
+ "ciphr-policy",
+ "ciphr-sdk",
+ "ciphr-server",
+ "ciphr-store",
+ "clap",
+ "rcgen",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "ciphr-sdk"
 version = "0.1.0"
 dependencies = [
