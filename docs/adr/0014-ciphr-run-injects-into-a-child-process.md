@@ -66,10 +66,12 @@ keep route B as it stands.
   that starts the service without its secrets is worse than one that refuses: the service comes up
   in some degraded state instead of failing visibly, and fail-closed is the property this project is
   built on.
-- **Prefix-to-variable-name semantics.** Whether the last path segment becomes the variable name,
-  and what happens when two prefixes collide. Route C has the identical question for the SDK, and
-  the two must answer it the same way or the same secret will arrive under two names depending on
-  which route a service takes.
+- ~~**Prefix-to-variable-name semantics.**~~ **Answered on 2026-08-20 by [ADR-18](0018-one-rule-for-the-variable-name.md).**
+  The last path segment becomes the variable name; a name that is not a portable variable name is
+  refused, and so is a set in which two paths want the same name. The rule lives in `ciphr-core` and
+  `ciphr run` meets this condition by calling it rather than by implementing it — which is what makes
+  it the same answer route C gives. This was the one condition shared with route C, so it was settled
+  before either route was built rather than by whichever arrived first.
 
 ## Consequences
 

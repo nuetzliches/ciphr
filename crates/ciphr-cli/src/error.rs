@@ -55,6 +55,9 @@ pub(crate) enum CliError {
     Path(ciphr_core::PathError),
     /// A rotation class is not one of the five.
     Rotation(ciphr_core::RotationError),
+    /// An export cannot name a variable for one of its secrets, or two of them want
+    /// the same name.
+    EnvName(ciphr_core::EnvNameError),
     /// Something failed while reading or writing a file.
     Io(std::io::Error),
 }
@@ -98,6 +101,7 @@ impl fmt::Display for CliError {
             Self::Policy(error) => write!(f, "{error}"),
             Self::Path(error) => write!(f, "{error}"),
             Self::Rotation(error) => write!(f, "{error}"),
+            Self::EnvName(error) => write!(f, "{error}"),
             Self::Io(error) => write!(f, "{error}"),
         }
     }
@@ -120,6 +124,7 @@ from_error!(ciphr_crypto::CryptoError, Crypto);
 from_error!(ciphr_policy::PolicyError, Policy);
 from_error!(ciphr_core::PathError, Path);
 from_error!(ciphr_core::RotationError, Rotation);
+from_error!(ciphr_core::EnvNameError, EnvName);
 from_error!(ciphr_audit::ChainBreak, ChainBroken);
 from_error!(std::io::Error, Io);
 

@@ -8,6 +8,43 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — an export could hand a service the wrong secret, silently
+
+`ciphr export` derived the environment variable name from the last path segment and checked nothing
+about the result. Two paths under one prefix that share a last segment — `infra/a/db/PASSWORD` and
+`infra/a/cache/PASSWORD` — both rendered as `PASSWORD=`, and in a `.env` file or in the file a runner
+reads from `$GITHUB_ENV` the second wins. **The service then received a valid secret that was the
+wrong one, with no error anywhere and both reads recorded in the audit trail as successful**, because
+both reads were successful. It is the worst failure mode this project has room for: silent, correct
+from every angle, and confirmed by the audit.
+
+The second half of the same gap: a legal path segment is not necessarily a legal variable name. A
+segment may contain `-`, `.`, and letters from any script, so `infra/a/db-password` exported as
+`db-password='…'` — a line no shell can source, and one this program's own `import --from-dotenv`
+refuses.
+
+- **The rule now lives once, in `ciphr-core`** as `EnvVarName`, and is recorded as
+  [ADR-18](docs/adr/0018-one-rule-for-the-variable-name.md). The convention is unchanged and was
+  never in question: the name is the last path segment. What is new is that a name which is not a
+  portable variable name is refused, and a set in which two paths want the same name is refused
+  naming **both** paths — repairing either one would invent a name no consumer asked for.
+- **Nothing is emitted when a set is refused.** The check runs before the first byte, which matters
+  most for `--format actions-env`: a value printed before its `::add-mask::` is a leak, so the refusal
+  has to precede the rendering rather than interrupt it.
+- **`--format json` is unaffected**, being keyed by the full path. A secret at `infra/a/db-password`
+  is exportable as JSON and not as `dotenv`, which is the honest asymmetry — JSON promises a path,
+  `dotenv` promises something a shell can read.
+- **`import --from-dotenv` validates keys with the same rule**, so the round trip holds: every name
+  the export can produce, the import accepts. It consequently now refuses a key beginning with a
+  digit, which it previously accepted; `1FOO=x` is a line no shell can source, and accepting it
+  created a path the export could never render.
+- **This settles the fourth of ADR-14's four open conditions**, the one shared between route B
+  (`ciphr run`) and route C (the SDK), before either of them is built rather than by whichever
+  arrived first. Neither route implements the rule; both call it.
+- Found by reading the export path while planning phase 7, not in the field. It was unreachable in
+  the migration run so far and becomes reachable the moment something fetches a whole prefix at
+  startup — which is what phase 7 is.
+
 ### Documented — where the certificates come from, and why not from a public CA
 
 - **ADR-17** answers the question ADR-8 left open. The machine path — CI clients and the reverse

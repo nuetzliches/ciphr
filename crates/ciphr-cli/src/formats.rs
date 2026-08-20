@@ -15,7 +15,7 @@
 //! Multi-line values get one `::add-mask::` per line, because the runners match
 //! literal strings and a value containing a newline is never matched as a whole.
 
-use ciphr_core::SecretPath;
+use ciphr_core::{EnvNameError, EnvVarName, SecretPath};
 
 /// A path and its value, ready to be written out.
 pub(crate) struct Exported {
@@ -25,18 +25,13 @@ pub(crate) struct Exported {
     pub(crate) value: String,
 }
 
-impl Exported {
-    /// The environment variable name for this secret: the last path segment.
-    ///
-    /// `infra/service-a/DB_PASSWORD` becomes `DB_PASSWORD`. The convention is
-    /// deliberate — a path's last segment is the name the consuming process already
-    /// uses, so an export needs no mapping table for the common case.
-    pub(crate) fn variable_name(&self) -> &str {
-        self.path
-            .segments()
-            .next_back()
-            .unwrap_or_else(|| self.path.as_str())
-    }
+/// The variable names for a whole export, or the reason it has none.
+///
+/// The rule itself is in [`ciphr_core::EnvVarName`], not here: `ciphr run` and the SDK
+/// derive the same name from the same path, and a second copy of the rule is how those
+/// three start to disagree (ADR-18).
+fn assign_names(secrets: &[Exported]) -> Result<Vec<EnvVarName>, EnvNameError> {
+    EnvVarName::assign(secrets.iter().map(|secret| &secret.path))
 }
 
 /// Which shape an export takes.
@@ -57,14 +52,21 @@ impl ExportFormat {
     /// runner sees the mask commands, and the `KEY=value` half appended to the file
     /// named by `$GITHUB_ENV`. [`render_actions_env`] returns the two parts separately
     /// for that reason.
-    pub(crate) fn render(self, secrets: &[Exported]) -> String {
+    ///
+    /// # Errors
+    ///
+    /// The two environment-shaped formats fail if a path has no usable variable name or
+    /// if two of them want the same one. [`ExportFormat::Json`] is keyed by the full path
+    /// and therefore cannot fail — which is the honest difference between the formats
+    /// rather than an inconsistency in this signature.
+    pub(crate) fn render(self, secrets: &[Exported]) -> Result<String, EnvNameError> {
         match self {
             Self::Dotenv => render_dotenv(secrets),
             Self::ActionsEnv => {
-                let (masks, assignments) = render_actions_env(secrets);
-                format!("{masks}{assignments}")
+                let (masks, assignments) = render_actions_env(secrets)?;
+                Ok(format!("{masks}{assignments}"))
             }
-            Self::Json => render_json(secrets),
+            Self::Json => Ok(render_json(secrets)),
         }
     }
 }
@@ -74,15 +76,22 @@ impl ExportFormat {
 /// Single quotes with embedded single quotes escaped, which is the one form that needs
 /// no further reasoning about what the shell will do to `$`, backticks, or backslashes
 /// inside the value.
-pub(crate) fn render_dotenv(secrets: &[Exported]) -> String {
+///
+/// # Errors
+///
+/// [`EnvNameError`] if the set has no usable names. Nothing is rendered in that case: a
+/// partial `.env` file is a service that starts with half its configuration.
+pub(crate) fn render_dotenv(secrets: &[Exported]) -> Result<String, EnvNameError> {
+    let names = assign_names(secrets)?;
+
     let mut out = String::new();
-    for secret in secrets {
-        out.push_str(secret.variable_name());
+    for (secret, name) in secrets.iter().zip(&names) {
+        out.push_str(name.as_str());
         out.push('=');
         out.push_str(&shell_single_quote(&secret.value));
         out.push('\n');
     }
-    out
+    Ok(out)
 }
 
 /// The two halves of an Actions-style export: the mask commands, and the assignments.
@@ -90,15 +99,22 @@ pub(crate) fn render_dotenv(secrets: &[Exported]) -> String {
 /// Returned separately because they go to different places — the masks to standard
 /// output, where the runner reads workflow commands, and the assignments to the file
 /// named by `$GITHUB_ENV`.
+///
+/// # Errors
+///
+/// [`EnvNameError`] if the set has no usable names — checked before a single
+/// `::add-mask::` is produced, so a refused export has printed nothing at all.
 // `format_push_string` fires on the two lines below. Building the heredoc block as one
 // string is clearer than three `writeln!` calls, and this function is not on a hot path
 // — it runs once per export.
 #[allow(clippy::format_push_string)]
-pub(crate) fn render_actions_env(secrets: &[Exported]) -> (String, String) {
+pub(crate) fn render_actions_env(secrets: &[Exported]) -> Result<(String, String), EnvNameError> {
+    let names = assign_names(secrets)?;
+
     let mut masks = String::new();
     let mut assignments = String::new();
 
-    for secret in secrets {
+    for (secret, name) in secrets.iter().zip(&names) {
         // One mask per line: runners match literal strings, so a value containing a
         // newline is never matched as a whole.
         for line in secret.value.lines() {
@@ -111,7 +127,7 @@ pub(crate) fn render_actions_env(secrets: &[Exported]) -> (String, String) {
             masks.push('\n');
         }
 
-        let name = secret.variable_name();
+        let name = name.as_str();
         if secret.value.contains('\n') {
             // The heredoc form, which is the only way to put a multi-line value into
             // `$GITHUB_ENV`. The delimiter includes the variable name so that a value
@@ -126,7 +142,7 @@ pub(crate) fn render_actions_env(secrets: &[Exported]) -> (String, String) {
         }
     }
 
-    (masks, assignments)
+    Ok((masks, assignments))
 }
 
 /// A JSON object of path to value.
@@ -204,16 +220,30 @@ pub(crate) fn parse_dotenv(text: &str) -> Result<Vec<DotEnvEntry>, (usize, Strin
             return Err((number, format!("no '=' in {:?}", truncate(line))));
         };
 
+        // The same rule the export applies, so that a corpus which leaves through
+        // `export --format dotenv` comes back through this door unchanged (ADR-18). The
+        // key is truncated for the message but validated whole: a name is refused for
+        // what it is, not for the part of it that fits in an error.
         let key = key.trim();
-        if key.is_empty() || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-            return Err((
+        let name = EnvVarName::parse(key).map_err(|error| {
+            let reason = match &error {
+                EnvNameError::NotAName { reason, .. } => reason.to_string(),
+                // Unreachable in practice: a collision needs a set, and this validates
+                // one name. Spelled out rather than left to a wildcard so that a new
+                // variant is a compile error here instead of a message that says nothing.
+                collision @ EnvNameError::Collision { .. } => collision.to_string(),
+            };
+            (
                 number,
-                format!("{:?} is not a usable variable name", truncate(key)),
-            ));
-        }
+                format!(
+                    "{:?} is not a usable variable name: {reason}",
+                    truncate(key)
+                ),
+            )
+        })?;
 
         entries.push(DotEnvEntry {
-            key: key.to_owned(),
+            key: name.as_str().to_owned(),
             value: unquote(value.trim()),
         });
     }
@@ -253,7 +283,7 @@ mod tests {
     use super::{
         ExportFormat, Exported, parse_dotenv, render_actions_env, render_dotenv, shell_single_quote,
     };
-    use ciphr_core::SecretPath;
+    use ciphr_core::{EnvNameError, SecretPath};
 
     fn exported(path: &str, value: &str) -> Exported {
         Exported {
@@ -264,17 +294,60 @@ mod tests {
 
     #[test]
     fn the_variable_name_is_the_last_path_segment() {
+        // The rule itself is tested in `ciphr-core`; what this checks is that the export
+        // calls it rather than carrying its own copy.
+        let secrets = [exported("infra/service-a/DB_PASSWORD", "x")];
         assert_eq!(
-            exported("infra/service-a/DB_PASSWORD", "x").variable_name(),
-            "DB_PASSWORD"
+            render_dotenv(&secrets).expect("a usable name"),
+            "DB_PASSWORD='x'\n"
         );
-        assert_eq!(exported("SINGLE", "x").variable_name(), "SINGLE");
+        assert_eq!(
+            render_dotenv(&[exported("SINGLE", "x")]).expect("a usable name"),
+            "SINGLE='x'\n"
+        );
+    }
+
+    #[test]
+    fn an_export_whose_names_would_collide_is_refused_entirely() {
+        // Two paths under one prefix that share a last segment. Rendered, the second
+        // assignment would win and the service would receive the wrong secret with no
+        // error anywhere — so nothing is rendered at all.
+        let secrets = [
+            exported("infra/a/db/PASSWORD", "right"),
+            exported("infra/a/cache/PASSWORD", "wrong"),
+        ];
+
+        assert!(matches!(
+            render_dotenv(&secrets),
+            Err(EnvNameError::Collision { .. })
+        ));
+        // And the masking format refuses before it prints a single mask, which is what
+        // makes the refusal safe: a mask that went out for a value that was then not
+        // assigned is noise, but a value printed before its mask is a leak.
+        assert!(render_actions_env(&secrets).is_err());
+
+        // JSON is keyed by the full path, so it has no collision to have.
+        assert!(ExportFormat::Json.render(&secrets).is_ok());
+    }
+
+    #[test]
+    fn a_path_whose_last_segment_is_no_variable_name_is_refused() {
+        // `db-password` is a legal secret path and an illegal shell name. Before this
+        // rule the export emitted `db-password='…'`, which no shell can source and this
+        // program's own import rejects.
+        let secrets = [exported("infra/a/db-password", "x")];
+        assert!(matches!(
+            render_dotenv(&secrets),
+            Err(EnvNameError::NotAName { .. })
+        ));
+        // Still exportable as JSON, which promises a path rather than a name.
+        assert!(ExportFormat::Json.render(&secrets).is_ok());
     }
 
     #[test]
     fn dotenv_quoting_survives_the_shell() {
         let secrets = [exported("a/PASSWORD", "p4ss w'rd$`\\")];
-        let rendered = render_dotenv(&secrets);
+        let rendered = render_dotenv(&secrets).expect("a usable name");
         assert_eq!(rendered, "PASSWORD='p4ss w'\\''rd$`\\'\n");
 
         // The property that matters: a single quote inside the value cannot end the
@@ -287,12 +360,14 @@ mod tests {
         // The order is the whole point: a mask registered after a value has been
         // printed masks nothing that already went out.
         let secrets = [exported("a/TOKEN", "s3cret")];
-        let (masks, assignments) = render_actions_env(&secrets);
+        let (masks, assignments) = render_actions_env(&secrets).expect("a usable name");
 
         assert_eq!(masks, "::add-mask::s3cret\n");
         assert_eq!(assignments, "TOKEN=s3cret\n");
 
-        let combined = ExportFormat::ActionsEnv.render(&secrets);
+        let combined = ExportFormat::ActionsEnv
+            .render(&secrets)
+            .expect("a usable name");
         let mask_at = combined.find("::add-mask::").expect("a mask");
         let assign_at = combined.find("TOKEN=").expect("an assignment");
         assert!(mask_at < assign_at, "masks must come first");
@@ -303,7 +378,7 @@ mod tests {
         // Runners match literal strings, so a value with a newline is never masked as a
         // whole — and `KEY=value` cannot express it at all.
         let secrets = [exported("a/KEY", "-----BEGIN-----\nmiddle\n-----END-----")];
-        let (masks, assignments) = render_actions_env(&secrets);
+        let (masks, assignments) = render_actions_env(&secrets).expect("a usable name");
 
         assert_eq!(masks.lines().count(), 3);
         assert!(masks.contains("::add-mask::-----BEGIN-----"));
@@ -318,14 +393,16 @@ mod tests {
         // `::add-mask::` with an empty string would ask the runner to redact
         // everything.
         let secrets = [exported("a/KEY", "first\n\nlast")];
-        let (masks, _) = render_actions_env(&secrets);
+        let (masks, _) = render_actions_env(&secrets).expect("a usable name");
         assert_eq!(masks.lines().count(), 2);
     }
 
     #[test]
     fn json_export_is_keyed_by_full_path() {
         let secrets = [exported("infra/a/ONE", "1"), exported("infra/b/TWO", "2")];
-        let rendered = ExportFormat::Json.render(&secrets);
+        let rendered = ExportFormat::Json
+            .render(&secrets)
+            .expect("json cannot fail");
         let parsed: serde_json::Value = serde_json::from_str(&rendered).expect("valid JSON");
 
         assert_eq!(parsed["infra/a/ONE"], "1");

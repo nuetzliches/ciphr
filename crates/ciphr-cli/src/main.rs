@@ -704,7 +704,9 @@ fn export(cli: &Context, args: &ExportArgs) -> Result<(), CliError> {
     }
 
     if format == ExportFormat::ActionsEnv {
-        let (masks, assignments) = render_actions_env(&secrets);
+        // Names are assigned before anything is printed, so an export refused for a
+        // collision has emitted neither a mask nor an assignment.
+        let (masks, assignments) = render_actions_env(&secrets)?;
         // Masks first, always: a mask registered after a value has been printed masks
         // nothing that already went out.
         print!("{masks}");
@@ -721,7 +723,7 @@ fn export(cli: &Context, args: &ExportArgs) -> Result<(), CliError> {
             print!("{assignments}");
         }
     } else {
-        print!("{}", format.render(&secrets));
+        print!("{}", format.render(&secrets)?);
     }
 
     Ok(())

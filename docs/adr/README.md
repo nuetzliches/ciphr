@@ -30,6 +30,7 @@ parts that later turned out to be wrong.
 | [ADR-15](0015-honeypots-and-what-a-tripwire-may-do.md) | Honeypots, and what a tripwire may do | **Proposed**; decide before phase 8 |
 | [ADR-16](0016-leak-reports-are-a-one-way-drop-box.md) | Leak reports are a one-way drop box, matched through a blind index | **Proposed**; decide before phase 9 |
 | [ADR-17](0017-certificate-provenance.md) | Certificate provenance: a private CA for machines, a public certificate for the browser | Accepted |
+| [ADR-18](0018-one-rule-for-the-variable-name.md) | One rule for the environment variable name of a secret | Accepted |
 
 Two of these carry more weight than the rest, because they describe the properties the project
 exists for: ADR-1 (secrets cannot be logged) and ADR-9 (one path normalizer, shared by router and
