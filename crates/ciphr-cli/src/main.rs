@@ -796,6 +796,12 @@ fn import(cli: &Context, args: &ImportArgs) -> Result<(), CliError> {
     let text = if let Some(path) = &args.from_dotenv {
         std::fs::read_to_string(path)?
     } else {
+        // Refused at a terminal, like every other standard-input read here. Without
+        // this the command waits with no prompt and no output, and whatever the
+        // operator types before Ctrl-D is parsed as a `.env` file.
+        if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+            return Err(CliError::NeedsStdin);
+        }
         let mut text = String::new();
         std::io::Read::read_to_string(&mut std::io::stdin(), &mut text)?;
         text

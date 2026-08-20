@@ -36,6 +36,17 @@ const versions = ref<VersionSummary[]>([]);
 const rotation = ref<Classification | null>(null);
 const versionProblem = ref<string | null>(null);
 
+/**
+ * Which request the panel is currently showing.
+ *
+ * Two clicks in quick succession can resolve out of order, and the later-arriving
+ * response would otherwise win. That used to mean a mismatched version table; since
+ * the panel also carries the rotation class it would mean an explicit "safe to
+ * rotate" printed under the name of a secret that is `breaks-data`. A response that
+ * is no longer the one being awaited is dropped.
+ */
+let generation = 0;
+
 const revealed = ref<Secret | null>(null);
 const revealProblem = ref<string | null>(null);
 const revealing = ref(false);
@@ -51,6 +62,7 @@ async function list(): Promise<void> {
   listing.value = true;
   listProblem.value = null;
   forget();
+  generation += 1;
   chosen.value = null;
   versions.value = [];
   rotation.value = null;
@@ -68,6 +80,7 @@ async function list(): Promise<void> {
 }
 
 async function choose(path: string): Promise<void> {
+  const mine = ++generation;
   chosen.value = path;
   forget();
   versionProblem.value = null;
@@ -75,9 +88,15 @@ async function choose(path: string): Promise<void> {
   rotation.value = null;
   try {
     const history = await api.versions(path);
+    if (mine !== generation) {
+      return;
+    }
     versions.value = history.versions;
     rotation.value = history.rotation;
   } catch (error) {
+    if (mine !== generation) {
+      return;
+    }
     versionProblem.value = error instanceof ApiError ? error.text : "The request failed.";
   }
 }

@@ -207,10 +207,11 @@ mod tests {
 
     #[test]
     fn migration_005_keeps_versions_attached_to_their_secret() {
-        // The rebuild drops and recreates `secrets`, and `secret_versions`
-        // references it by id. If SQLite were allowed to reassign those ids,
-        // every version would silently repoint at a different secret -- which is
-        // worse than any failure this migration could produce.
+        // The column swap leaves `secrets` in place, which is most of why it was
+        // chosen over the rebuild. This test holds that property rather than
+        // trusting it: `secret_versions` references this table by id, and any
+        // future migration that reassigned those ids would silently repoint every
+        // version at a different secret -- worse than any failure it could produce.
         let mut connection = Connection::open_in_memory().unwrap();
         at_schema_four(&mut connection);
 

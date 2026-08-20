@@ -62,7 +62,10 @@ that rotating it destroys data.
 - **`class` is an open string, not a closed enum**, for the same reason: a client that could not
   parse a class a later service added would break for a reason that has nothing to do with it.
 - **The viewer shows it above the versions**, styled from `needs_care` — so `unclassified` reads as a
-  warning rather than an all-clear, which is the entire point of the class.
+  warning rather than an all-clear, which is the entire point of the class. Selecting a second path
+  before the first has answered drops the superseded response: the panel already raced, but with a
+  classification on it a stale answer would print "safe to rotate" under the name of a secret that is
+  not.
 - `ciphr-sdk`'s `versions()` returns `History { rotation, versions }` instead of
   `Vec<VersionSummary>`, with `Classification` carrying the three fields. The end-to-end test over a
   real TLS socket asserts the classification arrives from the real service.
@@ -86,7 +89,9 @@ anything deployed by CI rather than by hand.
 `--stdin` reads the same format with the same parser. One parser, deliberately: a second set of
 quoting rules is a second set to get wrong, and the two would drift exactly where a stray quote
 character ends up inside a stored secret. The two flags are mutually exclusive and one is required.
-Nothing has to be written to disk in order to be imported any more.
+Nothing has to be written to disk in order to be imported any more. It refuses a terminal, like every
+other standard-input read here: without that the command waits with no prompt and no output, and
+whatever is typed before Ctrl-D is parsed as a `.env` file.
 
 **The other half of that gap is not a defect and is now written down instead of left open.** A forge
 does not give a secret back: once a value is stored as a CI secret it can be overwritten and used,
