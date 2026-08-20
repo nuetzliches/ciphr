@@ -162,8 +162,33 @@ runners match literal strings, and are assigned with a heredoc whose delimiter i
 name so a value containing `EOF` cannot end its own block.
 
 With `--github-env` the assignments go to the file named by `$GITHUB_ENV` and only the masks reach
-standard output. Verifying that `::add-mask::` is honoured by a Forgejo runner and by act_runner is
-a phase 4 task — both are act derivatives, but that is to be proven rather than assumed.
+standard output.
+
+**Measured on a Forgejo runner, and claimed only there.** On 2026-08-18 the directive was exercised
+on a real runner — `forgejo-runner exec -i -self-hosted`, the same binary and execution mode a job
+uses, rather than a simulation — with a set of values differing from one another in a single
+character. It holds for everything the format exists for: the same step, across steps through
+`$GITHUB_ENV`, multi-line values, a value inside a composed URL, a value in the stderr of a failing
+command. The multi-line round trip was checked by comparing SHA-256 digests rather than by printing
+anything.
+
+**It does not hold under `set -x`, which is the case masking exists for.** A runner matches a mask as
+a literal substring, and bash re-quotes an argument before xtrace prints it: a value containing a
+single quote renders as `'part'\''part'` — bytes inserted in the middle — and one containing a tab
+as `$'a\tb'`, where the tab becomes the two characters after the escape. Both reach the log in
+clear text. Everything else survives: a space, `$`, a backtick, a double quote and a backslash all
+render inside single quotes with the content untouched, and multi-line values survive because the
+mask is emitted per line. Hex and base64 values can never contain either character; a generated
+password from a full punctuation alphabet contains a single quote roughly every third time at usual
+lengths. So the rule for a job that holds fetched values is `set -x` off, not "the mask will catch
+it" (`docs/review-2026-08-18.md`, finding 9).
+
+**act_runner is not claimed.** "Both are act derivatives" is precisely the assumption this project
+refused to make about the Forgejo runner before measuring it, and it stays refused: measuring needs
+a Gitea runner to measure on, and where there is none the only alternative to measuring is
+assuming. The statement above is therefore about the runner that was measured and not about the
+family it belongs to. Plan section 21 carries that as a scoped claim rather than as outstanding
+work.
 
 ## Migrating an existing corpus in
 

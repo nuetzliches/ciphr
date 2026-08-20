@@ -969,7 +969,8 @@ Masking is therefore part of the product, not of the documentation:
 
 - `ciphr export --format actions-env` first emits `::add-mask::<value>` for each value (per
   line for multi-line values), then writes the variables to the file named by `$GITHUB_ENV`.
-  Forgejo and Gitea runners honour the same convention, being act-based.
+  Forgejo runners honour that convention — measured, section 21. Gitea's act_runner documents
+  the same convention and is unmeasured; the convention is shared, the claim is not.
 - Composite action `ciphr-action` (one repository, usable from GitHub, Forgejo and Gitea
   workflows — the syntax is identical): inputs `url`, `token` **or** `oidc: true`, `paths`,
   `format`. Downloads the pinned, checksum-verified static CLI binary (musl build) or falls
@@ -977,8 +978,11 @@ Masking is therefore part of the product, not of the documentation:
 - The curl fallback is a documented first-class route in `openapi.yaml` — for Woodpecker,
   Jenkins, and anything that does not speak Actions syntax:
   `curl --cacert "$CIPHR_CA" -H "Authorization: Bearer $CIPHR_TOKEN" …/v1/export`.
-- Verification point for phase 3: `::add-mask::` demonstrably effective on Forgejo runners and
-  act_runner (both are act derivatives, but that is to be proven, not assumed).
+- Verification point for phase 3, **met for Forgejo runners on 2026-08-18 and scoped to them**:
+  `::add-mask::` measured effective on a real runner in every ordinary case, with the `set -x`
+  exception recorded in section 21 and in `docs/operations/cli.md`. act_runner stays unmeasured
+  and therefore unclaimed rather than assumed — "both are act derivatives" is the argument that
+  would have made the Forgejo measurement look unnecessary, and it found a real hole.
 
 ### Network reality
 
@@ -1412,7 +1416,10 @@ The project starts private. These points cost nothing now and would be expensive
   where bash re-quotes a value containing a single quote or a tab and the runner's literal
   substring match therefore misses it (`docs/review-2026-08-18.md`, finding 9). **act_runner is
   still unproven** — "both are act derivatives" is the assumption this list refused to make
-  about the Forgejo runner, and it stays refused here.
+  about the Forgejo runner, and it stays refused here. Since 2026-08-20 that is a **scoped claim
+  rather than outstanding work**: measuring needs a Gitea runner to measure on, and where there
+  is none the only alternative to measuring is assuming. What the documentation says is now
+  exactly what was measured — see question 4 below.
 
 ### Open questions that still need work
 
@@ -1428,7 +1435,14 @@ The project starts private. These points cost nothing now and would be expensive
 3. **Name of the MCP plaintext capability** (section 16) — an implementation detail, but it
    must be a regular capability in the set from section 6, not a special case in the
    evaluator.
-4. **Prove `::add-mask::` on act_runner** (section 14) — the Forgejo half is measured, above.
+4. ~~**Prove `::add-mask::` on act_runner**~~ (section 14) — **closed 2026-08-20 by narrowing the
+   claim instead of widening the evidence.** An act_runner is a Gitea runner and one has to exist
+   to be measured on; where none does, the choice is not "measure or wait" but "measure or assume",
+   and assuming is what this entry existed to prevent. So the Forgejo half stands as measured, and
+   `docs/operations/cli.md` now says that and stops there rather than promising a verification for
+   both. It reopens as a **product** question the day Gitea compatibility is something this project
+   promises — a reason to measure, not an outstanding task. The number stays where it is because
+   questions 5 and 6 are cited by number elsewhere.
 5. **Whether the value index of section 23 is written unconditionally.** Writing it on every `put`
    keeps the corpus matchable and makes `leak reindex` a one-time migration rather than a recurring
    chore; writing it only where reporting is enabled keeps a value-derived column out of databases

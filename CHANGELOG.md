@@ -8,6 +8,30 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Changed — the masking claim now covers the runner that was measured, and stops there
+
+`docs/operations/cli.md` said that verifying `::add-mask::` "by a Forgejo runner and by act_runner is
+a phase 4 task". Half of that had been done on 2026-08-18 and the sentence hid it, while the other
+half was work nobody in a position to do it had: an act_runner is a Gitea runner, and one has to
+exist to be measured on. Where none does, the choice is not between measuring and waiting but between
+measuring and assuming — and "both are act derivatives" is exactly the assumption that would have
+made the Forgejo measurement look unnecessary, which is the measurement that found finding 9.
+
+- **What the document says now is what was measured**: a real Forgejo runner, same binary and
+  execution mode as a job, values differing from one another in a single character; effective for the
+  same step, across steps through `$GITHUB_ENV`, multi-line values, a composed URL and the stderr of
+  a failing command, with the multi-line round trip checked by digest rather than by printing.
+- **The `set -x` exception is stated where the reader is, not only in the review.** A mask matches as
+  a literal substring and bash re-quotes before xtrace prints, so a value containing a single quote
+  or a tab reaches the log in clear text. That is the operationally important half and it holds
+  regardless of which runner is in front of it: for a job holding fetched values the rule is `set -x`
+  off, not "the mask will catch it". Hex and base64 values cannot contain either character; a
+  password from a full punctuation alphabet contains a single quote roughly every third time.
+- **Plan section 21, question 4 is closed as a scoped claim rather than as evidence.** It reopens as
+  a product question the day Gitea compatibility is something this project promises. Section 14 loses
+  the assumption it made in passing — "Forgejo and Gitea runners honour the same convention, being
+  act-based" — and says instead that the convention is shared and the claim is not.
+
 ### Changed — phase 8 is decided and narrowed, phase 9 is deferred
 
 Nothing is implemented and nothing is scheduled to be. Both planned features were read against the way
