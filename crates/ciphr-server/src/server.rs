@@ -7,6 +7,8 @@
 //! come before the ones that need a master key, so an operator with a typo does not
 //! have to supply a key to find out.
 
+use std::net::SocketAddr;
+
 use ciphr_audit::{AuditDevice, AuditSink, FileDevice};
 use ciphr_policy::PolicySet;
 use ciphr_store::{SqliteAuditDevice, SqliteStore, Store, StoreLock};
@@ -117,7 +119,12 @@ impl Server {
 
         axum_server::bind_rustls(self.config.server.listen, tls_config)
             .handle(handle)
-            .serve(router.into_make_service())
+            // `_with_connect_info` rather than the bare make-service: without it the
+            // peer address never reaches the handlers, and the audit trail records
+            // every unauthenticated denial with no source at all. Plan section 23
+            // keys its rate limit on this address, so it has to exist before that
+            // endpoint can.
+            .serve(router.into_make_service_with_connect_info::<SocketAddr>())
             .await
             .map_err(StartupError::Io)
     }

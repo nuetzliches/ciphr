@@ -8,6 +8,39 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — the audit trail records the address a request came from
+
+`request_context` set `client_ip: None` unconditionally, while the doc comment above it explained why
+the address comes from the connection and not from `X-Forwarded-For`. The reasoning was right and had
+never been implemented: no extractor took the peer address, so **every record in every trail carried
+no source at all**. The one request-origin field that was populated is `user_agent`, which the client
+chooses.
+
+It matters most exactly where the trail has nothing else to identify a caller by. An unauthenticated
+denial records `principal: null` — a series of guessed tokens is countable and, until now, not
+attributable to anything.
+
+- **The listener is served with `into_make_service_with_connect_info`**, without which the address
+  never reaches a handler regardless of what the handler asks for.
+- **An extractor that cannot fail.** `Origin` reads the `ConnectInfo` extension and yields `None` when
+  there is none, with `Rejection = Infallible`. A router driven without connection information — every
+  test in `ciphr-server` uses `oneshot`, and so would anything embedding the router — has no address
+  to offer, and that is a missing field rather than a rejected request. A mandatory extractor would
+  have turned those into `500`s.
+- **The IP without the port, canonicalized.** A port is per-connection noise. An IPv4 peer on a
+  dual-stack listener arrives as `::ffff:10.0.0.7`, and recording it that way would file one host
+  under two spellings in the same trail.
+- **`X-Forwarded-For` is still ignored**, deliberately and unchanged: a header a client controls is a
+  header a client can lie in. Behind a reverse proxy the recorded address is the proxy, which is the
+  truth about that hop and is documented as such.
+
+Plan section 23 keys the leak-report rate limit on this address and its audit section records it, so
+this is a precondition for that endpoint rather than a detail of it — and it lives in `ciphr-server`
+rather than in the crates the external review must cover, which is why it could be built now. Found
+in the design review of ADR-15 and ADR-16 (`docs/review-adr-15-16-2026-08-20.md`, F2), against a
+deployment whose trail showed two unauthenticated denials with no source.
+
+
 ### Changed — the rotation class is on the wire, and the viewer shows it
 
 The class said what happens when a value is rotated, and **no API response contained it**. The plan

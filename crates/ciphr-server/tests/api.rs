@@ -9,7 +9,10 @@
 //! makes "no response leaves the process before its audit entry is stored" a checked
 //! property rather than a convention a future handler can quietly break.
 
+use std::net::SocketAddr;
+
 use axum::body::Body;
+use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode, header};
 use ciphr_audit::{AuditDevice, AuditSink, Chain, EncodedRecord};
 use ciphr_core::{Plaintext, SecretPath};
@@ -963,4 +966,73 @@ fn a_device_that_refuses_a_record_is_recorded_by_the_ones_that_accepted() {
     // It must not claim to be an access by anyone.
     assert!(explanation["entry"]["principal"].is_null());
     assert!(explanation["entry"]["path"].is_null());
+}
+
+/// The audit trail records the address the listener saw, and nothing when it saw none.
+///
+/// Both halves are the property. Plan section 23 keys its rate limit on this address and
+/// its audit section records it, and before this existed `request_context` returned
+/// `None` unconditionally while the comment above it described taking the address from
+/// the connection -- so an unauthenticated denial was countable and unattributable. The
+/// second half matters for this crate: a router driven by `oneshot` is told no address,
+/// and that has to be a missing field rather than a failed request.
+#[test]
+fn the_trail_records_the_address_the_listener_saw() {
+    let harness = Harness::new();
+
+    let mut with_address = Harness::build(
+        "GET",
+        "/v1/secrets/infra/service-a/DB_PASSWORD",
+        Some(&harness.deploy_token),
+        None,
+    );
+    let peer: SocketAddr = "10.0.0.7:54321".parse().expect("address");
+    with_address.extensions_mut().insert(ConnectInfo(peer));
+    let (status, _) = harness.send(with_address);
+    assert_eq!(status, StatusCode::OK);
+
+    // An IPv4 peer on a dual-stack listener arrives mapped. One host must not appear
+    // under two spellings in the same trail.
+    let mut mapped = Harness::build(
+        "GET",
+        "/v1/secrets/infra/service-a/DB_PASSWORD",
+        Some(&harness.deploy_token),
+        None,
+    );
+    let mapped_peer: SocketAddr = "[::ffff:10.0.0.8]:40000".parse().expect("address");
+    mapped.extensions_mut().insert(ConnectInfo(mapped_peer));
+    assert_eq!(harness.send(mapped).0, StatusCode::OK);
+
+    // No connection information at all: the request succeeds and the field is absent.
+    let (status, _) = harness.get(
+        "/v1/secrets/infra/service-a/DB_PASSWORD",
+        Some(&harness.deploy_token),
+    );
+    assert_eq!(status, StatusCode::OK);
+
+    let (_, body) = harness.get("/v1/audit?limit=50", Some(&harness.auditor_token));
+    let addresses: Vec<Option<&str>> = body["entries"]
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|entry| entry["record"]["entry"]["request"]["client_ip"].as_str())
+        .collect();
+
+    assert!(
+        addresses.contains(&Some("10.0.0.7")),
+        "the peer address belongs in the trail, got {addresses:?}"
+    );
+    assert!(
+        addresses.contains(&Some("10.0.0.8")),
+        "an IPv4-mapped peer must be recorded as IPv4, got {addresses:?}"
+    );
+    assert!(
+        !addresses.iter().any(|address| address
+            .is_some_and(|address| address.contains("54321") || address.contains(':'))),
+        "the port is per-connection noise and does not belong in the trail, got {addresses:?}"
+    );
+    assert!(
+        addresses.contains(&None),
+        "a request with no connection information records no address, got {addresses:?}"
+    );
 }

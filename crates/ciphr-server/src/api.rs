@@ -23,7 +23,10 @@
 //! `foo` — the exact routing-versus-policy divergence ADR-9 warns about. Every
 //! operation gets its own prefix.
 
-use axum::extract::{Path, Query, State};
+use std::net::{IpAddr, SocketAddr};
+
+use axum::extract::{ConnectInfo, FromRequestParts, Path, Query, State};
+use axum::http::request::Parts;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
@@ -281,10 +284,11 @@ async fn health(State(state): State<AppState>) -> Json<Health> {
 async fn read_secret(
     State(state): State<AppState>,
     headers: HeaderMap,
+    origin: Origin,
     Path(path): Path<String>,
     Query(query): Query<VersionQuery>,
 ) -> Result<Json<SecretResponse>, ApiError> {
-    let request = request_context(&headers);
+    let request = request_context(&headers, origin);
     let caller = authenticate(&state, &headers, Action::Read, &request)?;
     let path = parse_path(&path)?;
 
@@ -346,10 +350,11 @@ async fn read_secret(
 async fn write_secret(
     State(state): State<AppState>,
     headers: HeaderMap,
+    origin: Origin,
     Path(path): Path<String>,
     Json(body): Json<SecretBody>,
 ) -> Result<Json<WriteResponse>, ApiError> {
-    let request = request_context(&headers);
+    let request = request_context(&headers, origin);
     let caller = authenticate(&state, &headers, Action::Write, &request)?;
     let path = parse_path(&path)?;
     reject_reserved(&path)?;
@@ -395,10 +400,11 @@ async fn write_secret(
 async fn delete_secret(
     State(state): State<AppState>,
     headers: HeaderMap,
+    origin: Origin,
     Path(path): Path<String>,
     Query(query): Query<VersionQuery>,
 ) -> Result<StatusCode, ApiError> {
-    let request = request_context(&headers);
+    let request = request_context(&headers, origin);
     let caller = authenticate(&state, &headers, Action::Delete, &request)?;
     let path = parse_path(&path)?;
     reject_reserved(&path)?;
@@ -421,9 +427,10 @@ async fn delete_secret(
 async fn list_versions(
     State(state): State<AppState>,
     headers: HeaderMap,
+    origin: Origin,
     Path(path): Path<String>,
 ) -> Result<Json<VersionsResponse>, ApiError> {
-    let request = request_context(&headers);
+    let request = request_context(&headers, origin);
     let caller = authenticate(&state, &headers, Action::List, &request)?;
     let path = parse_path(&path)?;
 
@@ -482,9 +489,10 @@ async fn list_versions(
 async fn list_paths(
     State(state): State<AppState>,
     headers: HeaderMap,
+    origin: Origin,
     Path(prefix): Path<String>,
 ) -> Result<Json<ListResponse>, ApiError> {
-    let request = request_context(&headers);
+    let request = request_context(&headers, origin);
     let caller = authenticate(&state, &headers, Action::List, &request)?;
     let prefix = parse_path(&prefix)?;
 
@@ -519,9 +527,10 @@ async fn list_paths(
 async fn export(
     State(state): State<AppState>,
     headers: HeaderMap,
+    origin: Origin,
     Json(body): Json<ExportRequest>,
 ) -> Result<Json<ExportResponse>, ApiError> {
-    let request = request_context(&headers);
+    let request = request_context(&headers, origin);
     let caller = authenticate(&state, &headers, Action::Read, &request)?;
 
     if body.paths.is_empty() {
@@ -569,9 +578,10 @@ async fn export(
 async fn read_audit(
     State(state): State<AppState>,
     headers: HeaderMap,
+    origin: Origin,
     Query(query): Query<AuditQuery>,
 ) -> Result<Json<AuditResponse>, ApiError> {
-    let request = request_context(&headers);
+    let request = request_context(&headers, origin);
     let caller = authenticate(&state, &headers, Action::Read, &request)?;
     let virtual_path = reserved_path("audit");
 
@@ -635,8 +645,9 @@ async fn read_audit(
 async fn read_identities(
     State(state): State<AppState>,
     headers: HeaderMap,
+    origin: Origin,
 ) -> Result<Json<IdentitiesResponse>, ApiError> {
-    let request = request_context(&headers);
+    let request = request_context(&headers, origin);
     let caller = authenticate(&state, &headers, Action::Read, &request)?;
     let virtual_path = reserved_path("identities");
 
@@ -668,8 +679,9 @@ async fn read_identities(
 async fn read_policies(
     State(state): State<AppState>,
     headers: HeaderMap,
+    origin: Origin,
 ) -> Result<Json<PoliciesResponse>, ApiError> {
-    let request = request_context(&headers);
+    let request = request_context(&headers, origin);
     let caller = authenticate(&state, &headers, Action::Read, &request)?;
     let virtual_path = reserved_path("policies");
 
@@ -760,19 +772,53 @@ fn bearer_token(headers: &HeaderMap) -> Option<&str> {
         .map(str::trim)
 }
 
+/// The address the listener saw, if it was told one.
+///
+/// An extractor rather than a parameter on every handler, and one that cannot fail: a
+/// router driven without connection information -- every test in this crate uses
+/// `oneshot` -- has no address to offer, and that is a missing field rather than a
+/// failed request. `Infallible` says so in the type instead of in a comment.
+/// `Copy`, because an extractor that holds one optional address is a value and not a
+/// thing to borrow -- and because passing it by reference to read one field is what
+/// `needless_pass_by_value` correctly objects to.
+#[derive(Clone, Copy)]
+pub(crate) struct Origin(Option<SocketAddr>);
+
+impl<S> FromRequestParts<S> for Origin
+where
+    S: Send + Sync,
+{
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        Ok(Self(
+            parts
+                .extensions
+                .get::<ConnectInfo<SocketAddr>>()
+                .map(|ConnectInfo(address)| *address),
+        ))
+    }
+}
+
 /// What the audit trail records about where a request came from.
 ///
 /// `client_ip` comes from the connection, not from a forwarded header: a header a
 /// client controls is a header a client can lie in, and an audit trail full of
 /// attacker-chosen addresses is worse than one with none. A reverse proxy in front
 /// therefore shows up as the client address, which is the truth about this hop.
-fn request_context(headers: &HeaderMap) -> RequestContext {
+///
+/// The address is the peer IP without the port, canonicalized so that an IPv4-mapped
+/// IPv6 address is recorded the way an operator would search for it. The port is
+/// per-connection noise, and a trail is read by grepping for a host.
+fn request_context(headers: &HeaderMap, origin: Origin) -> RequestContext {
     RequestContext {
         request_id: headers
             .get("x-request-id")
             .and_then(|value| value.to_str().ok())
             .map(|value| value.chars().take(128).collect()),
-        client_ip: None,
+        client_ip: origin
+            .0
+            .map(|address| canonical_ip(address.ip()).to_string()),
         user_agent: headers
             .get(header::USER_AGENT)
             .and_then(|value| value.to_str().ok())
@@ -781,6 +827,16 @@ fn request_context(headers: &HeaderMap) -> RequestContext {
             .map(|value| value.chars().take(256).collect()),
         http_status: None,
         channel: None,
+    }
+}
+
+/// `::ffff:10.0.0.7` and `10.0.0.7` are the same host, and only one of them is what
+/// somebody types into a search. A dual-stack listener produces the mapped form for an
+/// IPv4 peer, so without this the same client appears under two spellings in one trail.
+fn canonical_ip(address: IpAddr) -> IpAddr {
+    match address {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(address, IpAddr::V4),
+        IpAddr::V4(_) => address,
     }
 }
 
