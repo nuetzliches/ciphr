@@ -120,5 +120,8 @@ fn an_ordinary_path_that_merely_starts_with_those_letters_is_untouched() {
 
     let read_back = cli.run(&["get", "system/config", "--force"], None);
     assert!(read_back.status.success());
-    assert_eq!(String::from_utf8_lossy(&read_back.stdout).trim(), "ordinary");
+    assert_eq!(
+        String::from_utf8_lossy(&read_back.stdout).trim(),
+        "ordinary"
+    );
 }
