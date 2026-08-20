@@ -112,14 +112,27 @@ for commit in $commits; do
                       grep '^docs/.*\.md$' |
                       grep -v '^docs/adr/' || true); do
         # Deleted in this commit, or not a document with a status line.
-        # The newest date on the line, not the first. A status line legitimately
-        # carries two -- "implemented as of X, re-read against the code on Y" --
-        # and the claim it makes about currency is the later one. Taking the
-        # first would fail exactly the documents whose authors were most precise
-        # about what they had checked and when. ISO dates sort chronologically,
-        # which is the third reason this format is insisted on.
+        # The newest date in the status *paragraph* -- from the `**Status:**` line
+        # to the first blank line -- rather than the first date on the first
+        # physical line. Two corrections, both found by running this:
+        #
+        # A precise status line carries two dates ("implemented as of X, re-read
+        # against the code on Y") and the claim about currency is the later one,
+        # so taking the first would fail exactly the documents whose authors were
+        # most careful about what they had checked and when.
+        #
+        # And those lines wrap. The first real run of this gate flagged
+        # `why-build-this.md`, whose second date sat on the second physical line
+        # -- a correct-looking rule that would have forced authors to reword
+        # around the checker.
+        #
+        # The cost is a false negative if a status paragraph ever mentions an
+        # unrelated later date. That is the safer direction for a gate: a missed
+        # catch is quieter than noise, and noise is what gets a gate disabled.
+        # ISO dates sort chronologically, which is the third reason this format is
+        # insisted on.
         claimed=$(git show "$commit:$file" 2>/dev/null |
-                      grep -m1 '^\*\*Status:' |
+                      awk '/^\*\*Status:/ { inside = 1 } inside && /^$/ { exit } inside' |
                       grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' |
                       sort |
                       tail -1 || true)
