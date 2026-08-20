@@ -4,13 +4,15 @@ A small secret manager for machine identities: key/value secrets, gap-free acces
 and path-based authorization. The name contains *CI* — the primary consumer is a build and
 deploy pipeline, not a human.
 
-> **Status: v0.2.0 released.** Usable end to end: envelope encryption with master key rotation,
+> **Status: v0.3.0 released.** Usable end to end: envelope encryption with master key rotation,
 > SQLite with migrations, the policy evaluator, the fail-closed hash-chained audit trail, the HTTPS
 > API with token authentication, and the `ciphr` CLI. Since v0.1.0: the audit anchor and the
 > retention cut that bounds the trail (`ciphr audit anchor`, `ciphr audit cut`), one rule for
 > turning a path into an environment variable name, `ciphr-sdk` for a service that fetches its own
 > secrets, and `ciphr-run` for an image that only understands environment variables. The read-only
-> browser viewer in [`ui/`](ui/) ships as its own image and is released on its own cadence.
+> browser viewer in [`ui/`](ui/) ships as its own image and is released on its own cadence. Since
+> v0.2.0: a secret nobody classified says so instead of claiming to be safe to rotate, the class is
+> on the wire and in the viewer, and setting one is recorded in the audit trail.
 > **This is the artifact the external review is performed against, not a production release — and
 > that review has not happened.** Until it does, the three crates that decide every access are
 > verified by nobody but their author, and a deployment holding real secrets before then has
@@ -95,6 +97,7 @@ deliberately out of scope, is in [`docs/threat-model.md`](docs/threat-model.md).
 | [`docs/authorization.md`](docs/authorization.md) | The policy file, the pattern language, and the four rules of the decision |
 | [`docs/security-review.md`](docs/security-review.md) | What an external reviewer should attack, and what would falsify each claim |
 | [`docs/operations/cli.md`](docs/operations/cli.md) | Every `ciphr` command, and the two rules that shape all of them |
+| [`docs/operations/upgrade.md`](docs/operations/upgrade.md) | What each version's breaking changes require, and the backup rule that holds for all of them |
 | [`docs/operations/wrapper.md`](docs/operations/wrapper.md) | `ciphr-run`: where to get it, what its exit codes mean, and what it does not solve |
 | [`docs/ui.md`](docs/ui.md) | The viewer: what it shows, what it refuses to do, and how it is deployed |
 | [`openapi.yaml`](openapi.yaml) | The HTTP API |

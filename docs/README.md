@@ -64,6 +64,7 @@ The parts where a mistake is expensive, and where to read before making one.
 | [why-build-this.md](why-build-this.md) | The evaluation of existing tools and the exit condition |
 | [ui.md](ui.md) | The read-only viewer: the five views, the security properties and where each is enforced, and how it is deployed |
 | [operations/cli.md](operations/cli.md) | Every command, and the two rules that shape all of them |
+| [operations/upgrade.md](operations/upgrade.md) | What to do about each version's breaking changes, and the rules that hold for every upgrade |
 | [operations/wrapper.md](operations/wrapper.md) | `ciphr-run`: where the file comes from, what its exit codes mean, and what route B does not solve |
 | [operations/](operations/) | Procedures for the things that are hard to undo: the master key, rotating secrets, the audit trail, and the freeze a tripwire can engage |
 | [`../openapi.yaml`](../openapi.yaml) | The HTTP API, maintained in the same commit as the code |

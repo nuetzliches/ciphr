@@ -8,6 +8,30 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-08-20
+
+Nothing new to build with; four corrections to things that were already there, two of which were
+saying something untrue. The classification a secret carries is the theme: it now has a state for
+"nobody has said", it is visible over the API and in the viewer, and every way of setting it is
+recorded. **What this is not** is unchanged from `0.1.0`: the external review of `ciphr-crypto`,
+`ciphr-policy` and the reviewed parts of `ciphr-core` still has not happened, and holding real
+secrets before it does is a risk a deployment accepts rather than a condition it has met.
+
+**Three things to do about it**, and
+[`docs/operations/upgrade.md`](docs/operations/upgrade.md) is the runbook that outlives this entry.
+
+1. **Deploy the service before the viewer.** `GET /v1/versions/{path}` returns an object where it
+   returned a bare array, and the viewer built for this version reads the object; against `0.2.0` it
+   finds no `versions` field. The viewer image is published after this one for that reason. Any other
+   client that parsed the array needs the same upgrade.
+2. **Schema 5 is the second one-way door**, after schema 4 in `0.2.0`. Back up the database and the
+   anchor file first, and do not plan an image rollback after the first start — an older binary
+   refuses a migrated database with `SchemaTooNew`.
+3. **Run `ciphr list --rotation unclassified` afterwards and work the list.** Every secret that was
+   `rotatable` now says `unclassified`, including the ones somebody classified deliberately, because
+   nothing recorded which was which. They warn rather than reassure until reclassified, which is the
+   safe direction and not urgent.
+
 ### Fixed — the audit trail records the address a request came from
 
 `request_context` set `client_ip: None` unconditionally, while the doc comment above it explained why
@@ -1335,6 +1359,7 @@ first production use.
   decision.
 - `AGENTS.md` with the working rules, and `SECURITY.md` with the disclosure process and scope.
 
-[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.2.0...main
+[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.3.0...main
+[0.3.0]: https://github.com/nuetzliches/ciphr/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/nuetzliches/ciphr/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/nuetzliches/ciphr/releases/tag/v0.1.0

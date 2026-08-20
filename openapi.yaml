@@ -18,10 +18,10 @@ openapi: 3.1.0
 info:
   title: ciphr
   # Tracks the release, not the path prefix. The paths are `/v1/…` and that prefix is
-  # stable; the product is 0.2.0, and calling this document 1.0.0 would claim a
+  # stable; the product is 0.3.0, and calling this document 1.0.0 would claim a
   # stability guarantee that has not been earned — the crypto and authorization crates
   # are still waiting for their external review.
-  version: "0.2.0"
+  version: "0.3.0"
   summary: A secret manager for machine identities.
   description: |
     Key/value secrets, gap-free access auditing, and path-based authorization.
