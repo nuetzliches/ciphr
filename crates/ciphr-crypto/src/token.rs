@@ -33,6 +33,17 @@
 //! Comparison is constant-time, through [`subtle`]. An early-exit comparison would
 //! leak how many leading bytes of a guess were right, which is enough to reconstruct
 //! a verifier byte by byte.
+//!
+//! # Where the secret half is allowed to exist
+//!
+//! In the `SecretBox` a [`Token`] holds, in the caller's stack buffer while it is
+//! being decoded, and in the self-wiping string [`Token::expose_text`] returns —
+//! nowhere else. Both directions therefore work in a buffer this module owns and
+//! wipes: [`ciphr_core::base64url::decode_into`] and
+//! [`ciphr_core::base64url::encode_into`] allocate nothing, and the convenient forms
+//! beside them must not be used here. The review of 2026-08-21 found the earlier
+//! shape of this code failing exactly there (finding F1): a decoded copy on the heap
+//! on every authenticated request, and an encoded one at issue time.
 
 use ciphr_core::base64url;
 use hmac::{Hmac, KeyInit, Mac};
@@ -177,10 +188,16 @@ impl Token {
     /// Called exactly once per token, when it is issued. Everything after that point
     /// works with the identifier and the verifier.
     pub fn expose_text(&self) -> Zeroizing<String> {
+        // Assembled in place, in a buffer big enough for the whole token: the
+        // characters of the secret half must exist nowhere but in the string that
+        // wipes itself. `base64url::encode` would hand back a temporary carrying the
+        // full secret, and a reallocation partway through would leave the same thing
+        // behind, so the capacity is exact and every part is appended rather than
+        // formatted.
         let mut text = String::with_capacity(TOKEN_TEXT_LEN);
         text.push_str(TOKEN_PREFIX);
-        text.push_str(&self.id.as_text());
-        text.push_str(&base64url::encode(self.secret.expose_secret()));
+        base64url::encode_into(self.id.as_bytes(), &mut text);
+        base64url::encode_into(self.secret.expose_secret(), &mut text);
         Zeroizing::new(text)
     }
 
@@ -312,6 +329,18 @@ mod tests {
                 .verifier(&pepper)
                 .matches(&original.verifier(&pepper))
         );
+    }
+
+    #[test]
+    fn the_text_form_is_built_in_one_buffer() {
+        // A `String` that grows moves its contents into a fresh allocation and frees
+        // the old one untouched. For the one string that carries a whole token, that
+        // would put a copy of the credential on the heap that `Zeroizing` never sees
+        // — so the capacity is reserved once and exactly, and this is the assertion
+        // that it still is.
+        let text = Token::generate().unwrap().expose_text();
+        assert_eq!(text.len(), TOKEN_TEXT_LEN);
+        assert_eq!(text.capacity(), TOKEN_TEXT_LEN);
     }
 
     #[test]

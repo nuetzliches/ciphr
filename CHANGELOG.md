@@ -8,6 +8,27 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Security — a token secret no longer survives in a buffer nothing wipes
+
+Finding F1 of the review of 2026-08-21, which falsified claim B6. `base64url::decode_into` reached
+its result through `decode`, so every `Token::parse` — that is, every authenticated request — left
+two heap copies of the 32-byte token secret to be freed intact while the caller dutifully wiped its
+own stack array. `Token::expose_text` had the same shape at issue time, through the temporary
+`String` that `base64url::encode` returns.
+
+Nothing about this is reachable remotely. It matters against memory disclosure, a core dump, or
+swap — the adversaries the zeroization discipline exists for in the first place, and the discipline
+was not holding on the hottest path in the codebase.
+
+- **`decode_into` allocates nothing.** It validates the whole input, then writes into the caller's
+  buffer, so the decoded bytes exist in exactly one place. `decode` keeps the convenient form and now
+  delegates, the way the hexadecimal module has always been arranged.
+- **`encode_into` is new**, and `expose_text` builds the token in one buffer of exactly the right
+  capacity: no temporary, and no reallocation to leave a copy behind. A test pins the capacity,
+  because a reallocation would be invisible otherwise.
+- The two functions that carry credentials are documented as the pair that does, and `decode` and
+  `encode` say in as many words that what they return is not wiped by anything.
+
 ### Documented — what publication has to decide about the one file that names this deployment
 
 `.forgejo/workflows/` carries a registry hostname, an image namespace and a runner label, because a
