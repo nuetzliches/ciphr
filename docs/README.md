@@ -65,7 +65,7 @@ The parts where a mistake is expensive, and where to read before making one.
 | [ui.md](ui.md) | The read-only viewer: the five views, the security properties and where each is enforced, and how it is deployed |
 | [operations/cli.md](operations/cli.md) | Every command, and the two rules that shape all of them |
 | [operations/wrapper.md](operations/wrapper.md) | `ciphr-run`: where the file comes from, what its exit codes mean, and what route B does not solve |
-| [operations/](operations/) | Procedures for the things that are hard to undo: the master key, rotating secrets, and the audit trail |
+| [operations/](operations/) | Procedures for the things that are hard to undo: the master key, rotating secrets, the audit trail, and the freeze a tripwire can engage |
 | [`../openapi.yaml`](../openapi.yaml) | The HTTP API, maintained in the same commit as the code |
 | [`../AGENTS.md`](../AGENTS.md) | Working rules for contributors and the gates that enforce them |
 | [`../SECURITY.md`](../SECURITY.md) | Disclosure process and scope |

@@ -39,6 +39,13 @@ anywhere on the value path, and no timing difference — recognition happens on 
 with the existing constant-time comparison. Bait that announces itself is decoration, and bait that
 announces itself only to whoever measures carefully is worse, because it looks like it works.
 
+**Indistinguishable includes what follows the decision, not only the decision.** The sentence above is
+about recognition. A trip also writes a row, a marker file, a distinct audit entry and a flag on
+`/v1/health`, and none of that is work an ordinary invalid token causes. So the side effects happen
+**after the response is flushed**, or the path absorbs the same cost either way. It is stated here
+because the property is otherwise true of the comparison and false of the request — which is exactly
+the bait that announces itself to whoever measures carefully.
+
 **2. The trigger fires after the policy allowed the read, never inside the decision.** A honeypot
 secret is authorized exactly like any other path. There is no honeypot branch in `ciphr-policy`, no
 new capability, and nothing about bait in the evaluator. One code path decides every access, or
@@ -51,10 +58,25 @@ every deploy until an operator clears it on the host — and while frozen the se
 more than ever. A freeze is recorded in the store, so it survives a restart, and it never clears
 itself on a timer.
 
+**The middle tier costs what the identity set makes it cost.** `disable-identity` reads as bounded
+next to `freeze`, and it is — while more than one identity exists. Where a single machine identity
+serves every deploy target, revoking its tokens stops every deploy, and the two severe tiers then
+differ only in whether already-running services can still fetch. The tiers are a granularity feature
+and they inherit the granularity of the identity set: the per-service token scoping that route B makes
+worthwhile (ADR-14) is also what makes this tier mean something other than `freeze`.
+
 **4. No unauthenticated request reaches a tier above `alert`.** The leak-report endpoint of ADR-16
 accepts candidate values from whoever can reach it. A reported honeypot value is the strongest signal
 this system can produce, and it still only alerts. The tiers that act on an identity require a
 request that authenticated as that identity.
+
+**A trip latches per piece of bait.** ADR-16 accepts candidate values from whoever can reach the
+endpoint, and a reported honeypot value sets `tripped`, which monitoring turns into a page. Without a
+latch that is a page an anonymous party can produce on a schedule, and alert fatigue is how a tripwire
+stops being read. So one piece of bait trips at most once until it is cleared on the host — the way
+`freeze` already behaves — and further reports of already-tripped bait fall into the aggregate entry
+that refused reports use. Plan section 23 makes `leaked_at` monotonic for the same reason; this is
+that reasoning applied to the tripwire.
 
 ## Why alerting does not mean an outbound connection
 
@@ -106,11 +128,40 @@ things. Bait decides nothing.
   beside it.
 - **`freeze` has an operations document before it has code.** What it closes, what stays open, how it
   is cleared, and what it looks like when it fires on a false positive. `docs/operations/` is for
-  anything hard to undo, and a service that refuses to serve is exactly that.
+  anything hard to undo, and a service that refuses to serve is exactly that. Written on 2026-08-20:
+  [`../operations/freeze.md`](../operations/freeze.md).
 - **The false-positive surface is enumerated first.** Host-side operations that decrypt everything by
   design — `dump --format portable`, `export` on the host — must not trip anything, and neither must
   `list` or `versions`. A honeypot that fires on the nightly backup is a honeypot that gets disabled
-  in week two.
+  in week two. **The entry this list was missing is the one that matters most:** a consumer that
+  fetches a whole prefix reads the value of every path under it, which is what `ciphr-run --prefix`,
+  `client.environment(prefix)` and any deploy helper built on `POST /v1/export` do. Those are value
+  routes, so bait under a fetched prefix trips on every service start.
+- **Bait lives outside every prefix any consumer fetches**, and that placement rule is what makes the
+  tier mean anything. Plan section 22 says a honeypot secret "is bait only while nobody depends on
+  it" and offers the visibility rule as the safeguard: an operator sees the flag on the administrative
+  path and does not build on the bait. That assumed a consumer reads *named* paths. Since the
+  prefix-fetching routes (ADR-14, ADR-18) it is not an operator mistake to avoid but the ordinary
+  consumption pattern, and no amount of visibility helps. Under a scheme like
+  `infra/<host>/<service>/<KEY>` bait therefore belongs at a `<service>` level nobody deploys, and
+  never beside the real secrets of a real service — which is the opposite of where the instinct puts
+  it, because beside the real secrets is where an enumerator looks. The upside: once bait sits outside
+  every fetched prefix, reaching its value *requires* enumerating and then reading something nothing
+  needs, which is precisely the behaviour this ADR exists to catch.
+- **Which of the tripwire's side effects are inside the fail-closed contract is decided rather than
+  discovered.** Auditing is fail-closed, so a full audit volume already refuses requests. If the
+  tripwire's row, marker file, or distinct entry can fail *independently* of the ordinary audit
+  entry, there is a state — one an adversary can help bring about, since filling the volume is a
+  named denial-of-service lever — in which bait and non-bait answer differently. Whatever the answer
+  is, it must not be observable on the value path.
+
+## Review
+
+A design review of this record, dated 2026-08-20, is in
+[`../review-adr-15-16-2026-08-20.md`](../review-adr-15-16-2026-08-20.md). Findings F1, F3, F4, F5 and
+F6 concern this ADR and are addressed above. F2 concerned a precondition in plan section 23 and has
+since been built. That review is by the same author as the code and does not discharge the external
+review named below.
 
 ## Consequences
 

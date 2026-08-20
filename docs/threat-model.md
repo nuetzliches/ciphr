@@ -42,8 +42,9 @@ database, the CLI, the optional read-only UI, and the optional MCP server.
 
 ## Deliberately not defended against
 
-**Root on the host (A5).** Whoever is root reads the master key from the service environment file
-and from process memory. The same is true of OpenBao with a static seal; it is the consequence of
+**Root on the host (A5).** Whoever is root reads the master key wherever the seal keeps it — the
+mounted file for `type = "static_file"`, the environment for the variable form — and reads it from
+process memory either way. The same is true of OpenBao with a static seal; it is the consequence of
 choosing unattended startup (ADR-5). Moving this boundary requires split-key unsealing or a hardware
 module — both retrofittable without a change to the data format, because the master key wraps
 exactly one record.

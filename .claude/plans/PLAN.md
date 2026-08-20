@@ -1491,10 +1491,21 @@ place secrets end up in; the secret catches whoever is already inside with a val
   `/v1/list`, or in `/v1/versions`. An operator has to be able to tell bait from a real secret — a
   colleague who rotates the honeypot because it looks stale has destroyed it — and a caller must
   not.
+- **Bait lives outside every prefix a consumer fetches.** This is the placement rule, and it is not
+  optional decoration: `ciphr-run --prefix`, `client.environment(prefix)` and any deploy helper built
+  on `POST /v1/export` list a prefix and then read the *value* of every path under it. Bait under such
+  a prefix is therefore read with a valid identity, through a value route, on every service start
+  — not by an operator mistake, but by the ordinary consumption pattern of sections 13 and 21. Under
+  the `infra/<host>/<service>/<KEY>` scheme bait belongs at a `<service>` level nobody deploys, and
+  never beside the real secrets of a real service. The rule pays for itself: once bait is outside
+  every fetched prefix, reaching its value requires enumerating and then reading something nothing
+  needs, which is the behaviour a honeypot secret exists to catch.
 - **The trigger fires on a value read through the API, and not on a host operation.** `ciphr dump
   --format portable` and `ciphr export` on the host decrypt by design (sections 2 and 11); a backup
-  that trips every honeypot every night is a honeypot nobody believes. `list` and `versions` do not
-  fire either — enumerating a name is not taking the bait.
+  that trips every honeypot every night is a honeypot nobody believes. A prefix fetch **does** serve
+  values and therefore does fire, which is why the placement rule above exists rather than an
+  exception here: an exception for "a consumer reading its own prefix" would exempt exactly the
+  identity a compromised runner presents as. `list` and `versions` do not fire either — enumerating a name is not taking the bait.
 
 ### Three tiers, and their blast radius
 
@@ -1505,6 +1516,11 @@ it fires on the wrong thing. **The tier is set per honeypot**, and the default i
 |---|---|---|
 | `alert` | A distinct audit action, a `tripped` flag with a timestamp on `/v1/health`, and a marker file the deployment's monitoring can watch | A page, and nothing else |
 | `disable-identity` | Additionally revokes every token of the identity that tripped it — `revoke_identity_tokens` already exists | That identity's deploys fail until a token is reissued on the host |
+
+**The middle tier is worth what the identity set makes it worth.** Where one machine identity serves
+every deploy target, revoking its tokens stops every deploy, and `disable-identity` and `freeze`
+differ only in whether already-running services can still fetch. Per-service tokens (section 13,
+route B) are what give the tier its own meaning.
 | `freeze` | Additionally refuses every value read and every write, for every identity, until it is cleared on the host | Every deploy fails; running services are unaffected (section 17) |
 
 **Alerting does not mean an outbound connection.** No SMTP client, no webhook, no notifier in the
@@ -1525,7 +1541,12 @@ devices to `sqlite` and `file` in v1.
   with no way back.
 - **It survives a restart**, recorded in the store rather than in memory. A freeze an attacker
   clears by crashing the process fires once and never again.
-- **It is cleared on the host and nowhere else** — `ciphr lockdown clear`, audited, never through
+- **A trip latches per piece of bait**, for the same reason `freeze` does. Section 23 accepts candidate
+values from anyone, and a reported honeypot value is an `alert` — so without a latch it is a page an
+anonymous party can produce on a schedule. One trip per bait until it is cleared, and further reports
+of already-tripped bait join the aggregate entry that refused reports use.
+
+**It is cleared on the host and nowhere else** — `ciphr lockdown clear`, audited, never through
   the API — and it never clears itself on a timer. A tripwire that resets quietly turns an incident
   into a blip in a graph nobody kept.
 
@@ -1652,6 +1673,14 @@ reindex` computes them on the host with the master key, audited as one entry rec
 versions were indexed; it serves nothing and takes no value out of the process. Until it has run, a
 report against an older value is a miss — and because the endpoint answers a miss and a match
 identically, it is a silent one. The reindex is part of enabling the feature, not an optimization.
+
+**It is resumable and it records its own progress**, and the administrative path can say how much of
+the corpus is still unindexed. It is the only bulk operation in the design that needs the master key,
+the store lock and every version at once, so the service is stopped while it runs and whoever is
+waiting will be tempted to cut it short — and an interrupted run leaves exactly the half-indexed
+corpus this section calls dangerous, reached by accident rather than by the configuration choice in
+question 5. A corpus that cannot say which half of itself is matchable makes the endpoint's silence
+mean two different things.
 
 ### What `leaked` means, and the one thing it must never do
 

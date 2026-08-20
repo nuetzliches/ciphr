@@ -34,6 +34,14 @@ corpus. `400` for a malformed body. The lookup runs identically either way, so t
 measure. The reporter learns that the report was accepted and nothing more; every match is visible
 only on the authenticated side, through `/v1/leaks`, `ciphr leak list`, and the audit trail.
 
+**"Nothing to measure" has to cover the consequences too.** The sentence above is about the lookup. A
+match then sets `leaked_at` and writes a full audit entry naming the path; a miss writes neither. Both
+answer `202`, at different cost, so the oracle the endpoint refuses to be in its body would return
+through its latency. The mark and the entry therefore land **after the response is sent**, or the path
+absorbs the same cost either way. This is the same correction ADR-15 needs for its own property 1, and
+it is the same mistake in both records: indistinguishability argued at the comparison and stopped
+there.
+
 **2. Matching goes through a blind index, not through decryption.** A key derived from the root key
 with a distinct `info` string — the pattern `TokenPepper::derive` already uses — and
 `HMAC-SHA256(key, value_bytes)` stored per version and indexed. One HMAC per write, one indexed
@@ -43,6 +51,16 @@ lookup and one constant-time comparison per report.
 because a value is what leaks; rotation writes a version that is not marked, so the mark ages out
 through the operation that answers it, and there is no command that clears it. Nothing reads the mark
 to decide anything.
+
+**One consequence of that, which the rotation class made sharper.** A `leaked` mark is a call to
+action, and the action is a new version — but whether a new version is safe is what the rotation
+class says, and since the class defaults to `unclassified` the honest answer for an unexamined secret
+is "nobody has said". The rejection of a truncated index below argues that a false mark on a
+`breaks-data` secret invites the rotation that destroys data; a *true* mark on an `unclassified` one
+invites the same rotation with the same unknown. So the operational rule is **classify before
+rotating**, and `ciphr leak list` shows the class beside the mark so the question is asked where it
+arises. That costs nothing now: the class is on the wire and in the viewer as of the change that put
+`rotation` on `GET /v1/versions`.
 
 **4. The limits come before the audit write and before the store lock.** This is the first request
 path in the design that reaches the store without an identity, and the service is fail-closed on the
@@ -80,6 +98,11 @@ client controls is a header a client can lie in. Per-IP buckets therefore key on
 address, and behind a reverse proxy every reporter in the world shares one bucket. The global budget
 is the real defence there.
 
+**The connection address itself had to be built before this could be true.** `request_context`
+returned `client_ip: None` unconditionally until 2026-08-20: the comment described taking the address
+from the connection and nothing took it. The bucket had nothing to key on and the audit field could
+not be filled. It is wired now, which turns a sentence in this record into a property of the code.
+
 ## What the blind index costs, stated rather than assumed away
 
 - **Two versions holding the same value get the same index.** A reader of the database file (A4)
@@ -93,6 +116,12 @@ is the real defence there.
 - **Versions written before the migration have no index and cannot match.** `ciphr leak reindex` fixes
   that on the host, and until it has run a report against an older value is a miss the endpoint
   cannot admit to — the silence that property 1 buys applies here too.
+  **So the reindex is resumable and records its own progress**, and the administrative path can say
+  how much of the corpus is still unindexed. An interrupted run otherwise produces exactly the
+  half-indexed corpus this record calls the dangerous state — arrived at by accident rather than by
+  the configuration choice question 5 is about. It is also the only bulk operation in the design that
+  needs the master key, the store lock and every version at once, which means the service is stopped
+  while it runs and an operator will be tempted to cut it short.
 
 ## What was rejected
 
@@ -130,8 +159,23 @@ who should be rotating instead.
   reachable only from the internal network reports nothing an internal identity could not already have
   produced in the audit trail, and exposing it is the same three-part decision — network exposure, a
   certificate, a trust boundary — that question 2 already holds open.
+- **The threat model moves in the same commit as the endpoint.** The A1 row in
+  `docs/threat-model.md` says there is "no anonymous endpoint except `/v1/health`", which is true
+  today and stops being true with `POST /v1/report` — the first anonymous path that reaches the
+  store. A threat model that describes the previous version of the API is worse than none, and this
+  repository already enforces the same rule for the changelog.
 - **ADR-15 is built first.** A reported honeypot value is this feature's strongest signal, and it is
   only legible if honeypots exist. The dependency runs one way: ADR-15 does not need this.
+
+## Review
+
+A design review of this record, dated 2026-08-20, is in
+[`../review-adr-15-16-2026-08-20.md`](../review-adr-15-16-2026-08-20.md). Findings F2, F3, F5, F7 and
+F8 concern this ADR. F3, F7 and F8 are addressed above; F5 — that composing this endpoint with
+ADR-15 yields a page an anonymous party can produce repeatedly — is answered in ADR-15, where the
+latch belongs. F2 was the finding that the per-IP bucket and the recorded client address both depended
+on a peer address the server never obtained, and it has since been built. That review is by the same
+author as the code and does not discharge the external review named above.
 
 ## Consequences
 
