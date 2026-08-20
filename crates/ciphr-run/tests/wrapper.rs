@@ -223,6 +223,24 @@ impl Live {
         self.invoke_at(&self.base_url, token, flags, command)
     }
 
+    /// Run the wrapper and capture what it wrote, rather than only its status.
+    fn capture(
+        &self,
+        token: &std::path::Path,
+        flags: &[&str],
+        command: &[&str],
+    ) -> std::process::Output {
+        Command::new(WRAPPER)
+            .args(["--url", &self.base_url])
+            .args(["--token-file", &token.display().to_string()])
+            .args(["--ca", &self.authority.display().to_string()])
+            .args(flags)
+            .arg("--")
+            .args(command)
+            .output()
+            .expect("the wrapper runs")
+    }
+
     /// The same, against a given URL.
     fn invoke_at(
         &self,
@@ -444,4 +462,34 @@ fn a_hostname_resolves_from_the_wrapper() {
         status.success(),
         "the wrapper could not reach the service by name: {status:?}"
     );
+}
+
+/// `--report` is the only thing here that prints near a secret, so what it prints is
+/// checked rather than asserted in a comment.
+#[test]
+fn the_report_names_the_variables_and_never_their_values() {
+    let live = Live::start();
+
+    let output = live.capture(
+        &live.token,
+        &["--prefix", "infra/service-a", "--report"],
+        // The child prints nothing, so everything on stderr came from the wrapper.
+        &["/bin/true"],
+    );
+
+    assert!(output.status.success(), "{output:?}");
+    let reported = String::from_utf8_lossy(&output.stderr);
+
+    // The names, and the program that replaced the process.
+    assert!(reported.contains("DB_PASSWORD"), "{reported}");
+    assert!(reported.contains("API_TOKEN"), "{reported}");
+    assert!(reported.contains("/bin/true"), "{reported}");
+
+    // And neither seeded value, on either stream. This is the assertion the flag exists
+    // to keep true: `Plan` exposes its names and has no accessor for its values.
+    for stream in [&output.stderr, &output.stdout] {
+        let text = String::from_utf8_lossy(stream);
+        assert!(!text.contains("seeded-db"), "a value was printed: {text}");
+        assert!(!text.contains("seeded-api"), "a value was printed: {text}");
+    }
 }
