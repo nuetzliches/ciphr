@@ -1,7 +1,7 @@
 # Rotating secrets that do not want to be rotated
 
-**Status:** current as of 2026-08-18, phase 1. The classification is implemented and stored; the CLI
-and UI warnings that will surface it arrive in phases 3 and 5.
+**Status:** current as of 2026-08-20. The classification is implemented, stored, readable and
+filterable from the CLI; the UI does not show it yet.
 
 Rotation is the operational promise of a secret store, and versioning makes it *easier* to get wrong,
 not harder: write a new version, the next deploy renders it, and data encrypted under the old value is
@@ -16,7 +16,8 @@ is an operational problem and never an access-control one.
 
 | Class | Meaning |
 |---|---|
-| `rotatable` | The normal case, and the default. A new value takes effect and nothing is lost. |
+| `unclassified` | **The default.** Nobody has said. Treated as needing care, because the classes that destroy data look exactly like this one from the outside. |
+| `rotatable` | The normal case. A new value takes effect and nothing is lost. |
 | `seed-only` | Read once, when something is first initialized. Later changes do not reach the running system. |
 | `breaks-data` | Encrypts data at rest. A new value makes existing data unreadable. |
 | `volume-bound` | Must match the value a persistent volume was initialized with. |
@@ -28,6 +29,26 @@ deliberate duplication of *wording*, not of truth: a test asserts every class th
 more than a one-line explanation.
 
 ## What to do per class
+
+### `unclassified`
+
+Find out. This class is not a verdict, it is the absence of one, and it is what every secret written
+without an explicit class carries.
+
+Until 2026-08-20 the default was `rotatable`, which meant the shortest path through `put` and
+`import` wrote "safe to rotate" on a secret nobody had examined — and made the corpus unauditable,
+because a deliberate `rotatable` and an untouched default were the same value in the same column.
+They are now different, which turns one question into an answerable one:
+
+```sh
+ciphr list --rotation unclassified          # what has nobody looked at yet
+ciphr rotation infra/service-a/DB_PASSWORD  # what does this one say, and why
+```
+
+Databases created before that date had every such secret rewritten to `unclassified` by migration
+005 — including the ones somebody *had* deliberately marked `rotatable`, because nothing recorded
+which was which. Classes other than `rotatable` were left untouched: nobody types `breaks-data` by
+accident, so those rows carried a real decision.
 
 ### `rotatable`
 
@@ -91,9 +112,19 @@ When two apply, take the more severe. A value that both encrypts data and invali
 `breaks-data`: the classification exists to make someone stop and think, and the more alarming label is
 the one that achieves that.
 
-When unsure, do not guess `rotatable` because it is the default. An unclassified secret is better
-handled as `breaks-data` until someone checks — the cost of being wrong in that direction is a
-delayed rotation, and in the other direction it is lost data.
+When unsure, leave it `unclassified` and treat it as `breaks-data` until someone checks — the cost of
+being wrong in that direction is a delayed rotation, and in the other direction it is lost data.
+Writing `rotatable` to clear a listing is the one move to avoid: it is indistinguishable from the
+answer somebody arrived at by looking, which is precisely the ambiguity the class was introduced to
+remove.
+
+## Who changed the classification, and when
+
+Setting a class writes a `classify` entry into the audit trail, naming the path and the operator.
+It is its own action rather than a `write`, because it produces no version and would otherwise be
+invisible among the value writes — and downgrading a class to `rotatable` is the step that comes
+immediately before a rotation that destroys data. Reading a class records a `list`, like any other
+metadata read.
 
 ## What is not automated
 

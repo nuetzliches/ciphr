@@ -8,6 +8,48 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Changed — a secret nobody classified no longer claims to be safe to rotate
+
+`secrets.rotation` defaulted to `rotatable` from migration 001. A default is what a value gets when
+nobody decides, and `rotatable` is a decision — *safe to rotate* — so **every secret written without
+an explicit `--rotation` asserted the one property whose being wrong destroys data**, and the
+shortest path through both `put` and `import` was the path that asserted it. `Rotation::parse` has
+always refused an unknown class rather than defaulting, on the grounds that defaulting to
+`rotatable` "would turn a typo into safe to rotate". The same argument had never been applied to the
+absence of an answer.
+
+It also made the phase 6 completion criterion — *every value classified* — impossible to check: a
+deliberate `rotatable` and an untouched default were the same value in the same column.
+
+- **`unclassified` is the new default class**, and it counts as needing care. `Rotation::needs_care`
+  is now true for everything except `rotatable`, so the absence of an answer stops an operator
+  exactly like `breaks-data` does. Its advice says what to find out, and warns that the classes
+  which destroy data are indistinguishable from this one from the outside.
+- **`ciphr list --rotation <class>`** filters a listing by class. `--rotation unclassified` is the
+  one that matters: it answers *what has nobody looked at yet*, which is the question the field
+  exists for and which nothing could answer before.
+- **`ciphr rotation <path>` without a class now reads it** instead of being a usage error. The class
+  was previously not readable from the CLI at all — it could only be set — so the new default would
+  have been invisible to the person expected to act on it.
+- **Migration 005 rewrites existing rows, and only the ambiguous ones.** `rotatable` becomes
+  `unclassified`; `seed-only`, `breaks-data`, `volume-bound` and `invalidates-sessions` are left
+  exactly as they are. Nobody types those by accident, so they carry a real decision, while a stored
+  `rotatable` carries either a decision or the old default and **nothing distinguishes them**.
+  Resetting costs a re-classification of values somebody did look at; keeping would preserve a
+  possibly-unmade claim that a rotation is safe. `updated_at` is not touched, so nothing looks
+  freshly modified.
+- **The migration swaps the column instead of rebuilding the table**, and the reason is recorded in
+  the migration itself: SQLite's documented rebuild (create, copy, `DROP TABLE`, rename) was written,
+  tested, and **fails at COMMIT with a foreign key violation even under `PRAGMA defer_foreign_keys`**
+  — `DROP TABLE` counts an implicit delete per referencing row, and re-populating under a different
+  name never discharges it. The documented remedy needs `foreign_keys = OFF`, which cannot be set
+  inside a transaction, and every migration here runs inside one. The swap never drops the table,
+  deletes no row, and moves no `id`, so no version is ever momentarily orphaned.
+
+**What a deployment does about it:** upgrade, then run `ciphr list --rotation unclassified` and work
+the list. Values that had been marked `rotatable` deliberately are in it and have to be marked again
+— that is the cost of the old column never having recorded who said so.
+
 ### Fixed — `classify` is its own action, and a reclassification is finally recorded
 
 Changing a rotation class wrote **no audit entry at all**, while `docs/operations/cli.md` stated that

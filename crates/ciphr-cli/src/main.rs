@@ -95,6 +95,12 @@ enum Command {
     List {
         /// The prefix. Everything if omitted.
         prefix: Option<String>,
+        /// Only paths in this rotation class.
+        ///
+        /// `--rotation unclassified` is the one that answers "what has nobody
+        /// looked at yet?", which is the question the class exists for.
+        #[arg(long)]
+        rotation: Option<String>,
     },
 
     /// Show the version history of a secret.
@@ -133,12 +139,13 @@ enum Command {
         yes: bool,
     },
 
-    /// Set how safe a secret is to rotate.
+    /// Show or set how safe a secret is to rotate.
     Rotation {
         /// Which secret.
         path: String,
-        /// One of: rotatable, seed-only, breaks-data, volume-bound, invalidates-sessions.
-        class: String,
+        /// One of: unclassified, rotatable, seed-only, breaks-data, volume-bound,
+        /// invalidates-sessions. Omit it to read the current class instead.
+        class: Option<String>,
     },
 
     /// Export several secrets in one of the consumable formats.
@@ -460,8 +467,9 @@ fn run(cli: Cli) -> Result<(), CliError> {
             Ok(())
         }
 
-        Command::List { prefix } => {
+        Command::List { prefix, rotation } => {
             let prefix = prefix.as_deref().map(SecretPath::parse).transpose()?;
+            let wanted = rotation.as_deref().map(Rotation::parse).transpose()?;
             let mut session = open(&cli)?;
 
             // Audited like every other access. The trail should say the same thing
@@ -474,6 +482,14 @@ fn run(cli: Cli) -> Result<(), CliError> {
             session.record(&entry)?;
 
             for path in session.store.list(prefix.as_ref())? {
+                // The filter reads metadata the listing already authorized, and
+                // metadata is not a value: no decryption happens here and the
+                // master key is not involved.
+                if let Some(wanted) = wanted
+                    && session.store.metadata(&path)?.rotation != wanted
+                {
+                    continue;
+                }
                 println!("{path}");
             }
             Ok(())
@@ -571,16 +587,29 @@ fn run(cli: Cli) -> Result<(), CliError> {
 
         Command::Rotation { path, class } => {
             let path = SecretPath::parse(&path)?;
-            let class = Rotation::parse(&class)?;
             let mut session = open(&cli)?;
 
-            // Its own action, not a write: a reclassification produces no version,
-            // so folding it into `write` would hide it among the value writes --
-            // and a downgrade to `rotatable` is the step that comes immediately
-            // before a rotation that destroys data.
-            session
-                .record(&Session::operator_entry(Action::Classify, true, None).with_path(&path))?;
-            session.store.set_rotation(&path, class)?;
+            let class = match class {
+                // Reading a class is a metadata listing, like `versions`.
+                None => {
+                    session.record(
+                        &Session::operator_entry(Action::List, true, None).with_path(&path),
+                    )?;
+                    session.store.metadata(&path)?.rotation
+                }
+                // Changing one gets its own action. A reclassification produces no
+                // version, so folding it into `write` would hide it among the
+                // value writes -- and a downgrade to `rotatable` is the step that
+                // comes immediately before a rotation that destroys data.
+                Some(class) => {
+                    let class = Rotation::parse(&class)?;
+                    session.record(
+                        &Session::operator_entry(Action::Classify, true, None).with_path(&path),
+                    )?;
+                    session.store.set_rotation(&path, class)?;
+                    class
+                }
+            };
 
             println!("{path} is {class}");
             if class.needs_care() {

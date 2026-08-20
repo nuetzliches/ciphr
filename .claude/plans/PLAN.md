@@ -557,7 +557,8 @@ unreadable — the classification belongs in the data model:
 
 | Value | Meaning |
 |---|---|
-| `rotatable` | Normal case. Default. |
+| `unclassified` | **Default since 2026-08-20.** Nobody has said. Counts as needing care. |
+| `rotatable` | Normal case. |
 | `seed-only` | Only evaluated on first start (database seeding); later changes have no effect |
 | `breaks-data` | Encrypts data at rest — a new value makes existing data unreadable |
 | `volume-bound` | Must match the value a persistent volume was initialized with |
@@ -566,6 +567,15 @@ unreadable — the classification belongs in the data model:
 `rotation` is pure metadata and does **not** influence authorization — it drives warnings in
 the CLI and the UI. It is in v1 deliberately, because classifying an existing corpus after the
 fact is far more tedious than carrying the field from the start.
+
+**The default was `rotatable` until 2026-08-20, and that was a defect in this table.** A default
+is what a value gets when nobody decides, and `rotatable` is a decision — "safe to rotate" — so
+every secret written without an explicit class asserted the one property whose being wrong destroys
+data, and the shortest path through `put` and `import` was the one that asserted it. It also made
+the phase 6 criterion below unverifiable: a deliberate `rotatable` and an untouched default were
+indistinguishable. `unclassified` is the absence of an answer, it counts as needing care, and
+`ciphr list --rotation unclassified` is what makes "is the corpus classified?" a question with an
+answer. Migration 005 rewrote existing `rotatable` rows and left every other class alone.
 
 ---
 
@@ -1201,7 +1211,7 @@ Every phase ends with something testable. The order is deliberately "crypto firs
 | **3** | `server` + auth + `cli` | End-to-end locally: `init`, `put`, `get`, `export`; all export formats including `actions-env` with `::add-mask::` (section 14); `import --from-dotenv` with `--dry-run`; constant-time comparison demonstrated; OpenAPI complete |
 | **4** | First production integration | One low-risk service draws its secrets from ciphr; the way back is tested; masking demonstrated on a real runner |
 | **5** | Vue UI as its own image (section 15) | The audit is usable without the CLI; the server stack demonstrably runs **without** the UI container; CSP active, `v-html` gate green |
-| **6** | Migrate remaining services and CI jobs | Long-lived forge secrets reduced to one token per repository/host; every value classified (`rotation`) |
+| **6** | Migrate remaining services and CI jobs | Long-lived forge secrets reduced to one token per repository/host; every value classified (`rotation`) — checkable since 2026-08-20 with `ciphr list --rotation unclassified` returning nothing |
 | **7** | Consumption patterns from section 13: `tmpfs` for class A, entrypoint wrappers for class B, SDK integration for first-party services | No plaintext secret left at rest on disk and none in the container config — except the bootstrap token per host |
 | **8** | Honeypots and tripwires (section 22) | A honeypot token authenticates nothing and is refused exactly as any other invalid credential, while producing a distinct audit action and a `tripped` flag on `/v1/health`; a honeypot secret read through the API trips the same way without changing the response the reader sees; `disable-identity` revokes exactly the tripping identity's tokens; `freeze` survives a restart, closes only the routes section 22 names, and is cleared on the host alone; a test proves no tier above `alert` is reachable without an authenticated request |
 | **9** | Leak reports (section 23) | `POST /v1/report` answers `202` for a match and a miss alike and `429` at a limit; a match sets `leaked_at` on the version and shows up in `/v1/leaks` and `ciphr leak list`; a miss leaves nothing behind but a counter; the limiter refuses before any audit device is touched and before the store lock is taken; `ciphr leak reindex` covers versions written before the migration; a test proves `leaked` changes no authorization decision |

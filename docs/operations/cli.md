@@ -1,7 +1,8 @@
 # The `ciphr` command
 
-**Status:** implemented and tested as of 2026-08-19 (phase 3). Every command below works. Deployment
-— containers, reverse proxy, certificates — is phase 4 and not described here yet.
+**Status:** implemented and tested as of 2026-08-20. Every command below works. Deployment
+— containers, reverse proxy, certificates — is documented in `docs/operations/` and in the
+deployment's own repository, not here.
 
 The CLI works on the **local** store, with the master key from a file or from the environment. It does not go through
 the HTTP API, and that is deliberate: initializing a store, issuing a token, shredding a version,
@@ -78,13 +79,19 @@ printf %s "$V" | ciphr put infra/service-a/JWT_SECRET --rotation invalidates-ses
 ciphr get infra/service-a/DB_PASSWORD
 ciphr get infra/service-a/DB_PASSWORD --version 2
 ciphr list infra
+ciphr list --rotation unclassified                     # what has nobody looked at yet
 ciphr versions infra/service-a/DB_PASSWORD
+ciphr rotation infra/service-a/DB_KEY                  # what does it say, and why
 ciphr rotation infra/service-a/DB_KEY breaks-data      # prints what to do instead
 ```
 
-Every one of these is audited, including the metadata ones. Setting a rotation class writes a
-`classify` entry — its own action, because it produces no version and would otherwise be invisible
-among the value writes. The trail says the same thing whether an
+A secret written without `--rotation` is `unclassified`, not `rotatable`: the default is the absence
+of an answer rather than a claim that rotating it is safe. See
+[rotating-secrets.md](rotating-secrets.md).
+
+Every one of these is audited, including the metadata ones. Setting a class writes a `classify`
+entry — its own action, because it produces no version and would otherwise be invisible among the
+value writes. The trail says the same thing whether an
 access came through the API or from the host — a channel that records less is a channel someone will
 use for that reason.
 
@@ -143,7 +150,7 @@ ciphr import --from-dotenv ./.env --prefix infra/service-a --rotation rotatable
 
 `--dry-run` prints target paths and value *lengths*, never values: it is something people run to
 check their work, often with someone else looking at the screen. A line the parser cannot read stops
-the import rather than being skipped — a partially moved corpus surfaces as a broken deploy much
+the import rather than being skipped â€” a partially moved corpus surfaces as a broken deploy much
 later. Comments, blank lines, `export` prefixes, and quoted values are handled; `$VAR` references
 are **not** expanded, because storing the expansion would store something the file does not say.
 

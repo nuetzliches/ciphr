@@ -16,8 +16,20 @@ use core::fmt;
 /// How a secret behaves when its value changes.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Rotation {
-    /// The normal case: a new value takes effect and nothing is lost.
+    /// Nobody has said. The default, and deliberately not a safe-sounding one.
+    ///
+    /// The column default used to be [`Rotation::Rotatable`], which meant every
+    /// secret written without an explicit class asserted "safe to rotate" —
+    /// a claim no human had made. Two consequences followed: the path of least
+    /// resistance was the destructive one, and "is the corpus classified?" was
+    /// unanswerable, because a deliberate `rotatable` and an untouched default
+    /// were the same byte in the same column.
+    ///
+    /// This is the same argument [`Rotation::parse`] already made about typos.
+    /// It simply had not been applied to the absence of an answer.
     #[default]
+    Unclassified,
+    /// The normal case: a new value takes effect and nothing is lost.
     Rotatable,
     /// Only read when something is first initialized — a database seed password,
     /// an initial admin credential. Later changes have no effect on the running
@@ -33,7 +45,8 @@ pub enum Rotation {
 
 impl Rotation {
     /// Every class, for CLI help and for exhaustiveness in tests.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
+        Self::Unclassified,
         Self::Rotatable,
         Self::SeedOnly,
         Self::BreaksData,
@@ -44,6 +57,7 @@ impl Rotation {
     /// The wire and storage form.
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::Unclassified => "unclassified",
             Self::Rotatable => "rotatable",
             Self::SeedOnly => "seed-only",
             Self::BreaksData => "breaks-data",
@@ -76,9 +90,14 @@ impl Rotation {
     pub const fn needs_care(self) -> bool {
         match self {
             Self::Rotatable => false,
-            Self::SeedOnly | Self::BreaksData | Self::VolumeBound | Self::InvalidatesSessions => {
-                true
-            }
+            // Unknown counts as dangerous. The point of the class is that nobody
+            // has established this value is safe to rotate, and treating that as
+            // "probably fine" would restore exactly the behaviour it replaced.
+            Self::Unclassified
+            | Self::SeedOnly
+            | Self::BreaksData
+            | Self::VolumeBound
+            | Self::InvalidatesSessions => true,
         }
     }
 
@@ -89,6 +108,13 @@ impl Rotation {
     /// cannot drift out of date relative to the classes it describes.
     pub const fn advice(self) -> &'static str {
         match self {
+            Self::Unclassified => {
+                "Nobody has classified this secret, so nothing here says a rotation is \
+                 safe. Find out what reads it and what happens when the value changes, \
+                 then record the answer with `ciphr rotation <path> <class>`. Treat it as \
+                 dangerous until then: the classes that destroy data look exactly like \
+                 this one from here."
+            }
             Self::Rotatable => "Safe to rotate: write a new version and redeploy the consumers.",
             Self::SeedOnly => {
                 "Only read during first initialization. Rotating changes the stored value \
@@ -163,9 +189,26 @@ mod tests {
     }
 
     #[test]
-    fn default_is_the_harmless_one() {
-        assert_eq!(Rotation::default(), Rotation::Rotatable);
-        assert!(!Rotation::Rotatable.needs_care());
+    fn the_default_is_the_one_nobody_chose_and_it_is_not_treated_as_safe() {
+        // This is the whole change. A value written without an explicit class must
+        // not claim to be safe to rotate, and must not be indistinguishable from a
+        // value somebody looked at and decided was safe.
+        assert_eq!(Rotation::default(), Rotation::Unclassified);
+        assert!(Rotation::Unclassified.needs_care());
+        assert_ne!(Rotation::Unclassified, Rotation::Rotatable);
+    }
+
+    #[test]
+    fn rotatable_is_the_only_class_that_needs_no_care() {
+        // Stated as a property rather than left implicit: every other class,
+        // including the absence of an answer, stops the operator.
+        for class in Rotation::ALL {
+            assert_eq!(
+                !class.needs_care(),
+                class == Rotation::Rotatable,
+                "{class} disagrees about whether it needs care"
+            );
+        }
     }
 
     #[test]

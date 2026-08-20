@@ -131,7 +131,10 @@ fn metadata_and_version_listing_need_no_key() {
     let metadata = store.metadata(&at).expect("metadata");
     assert_eq!(metadata.path, at);
     assert_eq!(metadata.current_version.map(SecretVersion::get), Some(2));
-    assert_eq!(metadata.rotation, Rotation::Rotatable);
+    // Nobody passed a class, so nobody has classified this secret. It used to
+    // arrive as `Rotatable` -- a claim that rotating it is safe, made by the
+    // absence of an argument rather than by a person.
+    assert_eq!(metadata.rotation, Rotation::Unclassified);
     assert!(metadata.updated_at >= metadata.created_at);
 
     let versions = store.versions(&at).expect("versions");
