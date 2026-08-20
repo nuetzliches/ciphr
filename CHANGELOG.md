@@ -41,6 +41,25 @@ acceptance settles a design, and a condition on the code is a condition on the c
   being built and says why it is kept: the condition that would bring `freeze` back is named, and
   whoever revisits it should read what it closes before rediscovering it.
 
+### Added — how to commission the external review
+
+`docs/security-review.md` had the scope, the claims and the deliverable, and nothing about the step
+that is actually outstanding. It now says what a reviewer needs (this document, three design
+documents, and the source at a **named tag** — findings cite lines, and a moving `main` turns a
+citation into a puzzle), who fits, what two days of reading means, and what not to buy: a penetration
+test exercises the deployment rather than these crates, and an automated scan returns what `cargo
+audit` and `cargo deny` already block on every commit. Its scope section also records what the two
+decisions above removed from the review surface.
+
+### Fixed — two documents still said the master key lives in an environment file
+
+Finding F9 of the ADR-15/16 design review, second bullet, closed where it was still open.
+`docs/threat-model.md` was corrected when the finding was written; `docs/crypto.md` and
+`docs/security-review.md` were not, and both are documents a reviewer reads. Since the `static_file`
+seal the key is a mounted file, and a deployment following current guidance has none in its
+environment at all. The sentences were not wrong about A5 — they were wrong about where to look, which
+in the paper handed to an external reviewer is the more expensive kind of wrong.
+
 ## [0.3.0] — 2026-08-20
 
 Nothing new to build with; four corrections to things that were already there, two of which were

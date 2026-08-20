@@ -120,9 +120,10 @@ Error types carry paths, identities, versions, and lengths. They never carry a v
 
 ## What this design does not do
 
-- **It does not protect against root on the host.** Root reads the master key from the service
-  environment file and reads plaintext out of process memory. See the threat model (A5); this is a
-  consequence of unattended startup, not an oversight.
+- **It does not protect against root on the host.** Root reads the master key wherever the seal
+  keeps it — the mounted file for `type = "static_file"`, the environment for the variable form — and
+  reads plaintext out of process memory either way. See the threat model (A5); this is a consequence
+  of unattended startup, not an oversight.
 - **It does not survive losing the master key.** There is no recovery path, by construction. See
   [operations/master-key.md](operations/master-key.md).
 - **It is not zero-knowledge.** The server decrypts, because the audit trail and per-identity access

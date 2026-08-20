@@ -62,24 +62,27 @@ in comments and tests.
 That size is deliberate. If these crates cannot be read end to end by one person in a couple of
 days, something has gone wrong with them, and that is itself worth reporting.
 
-### What two planned features would add, if they are built first
+### What two planned features would add, and what happened to them
 
 Neither is implemented, and the intended order is the other way round — both ADRs name this review as
 a condition of their own phase, precisely so that a reviewer is not handed the new surface and the old
-surface at once. Recorded here anyway, because a scope that only lists what exists today goes stale
-without anyone noticing:
+surface at once. **Both records moved on 2026-08-20, and the scope above is smaller for it.**
 
-- **ADR-15, honeypots (phase 8)** adds behaviour to the authentication path in `ciphr-store` — a
-  credential that is recognized and refused rather than merely refused — and a trigger that can revoke
-  tokens or stop the service. The claim to attack is that recognizing bait is indistinguishable from
-  any other rejection, in the response and in the timing.
-- **ADR-16, leak reports (phase 9)** adds a key derivation in `ciphr-crypto` and the only
-  unauthenticated request path that reaches the store. Both are in mandatory scope by their location.
-  The claims to attack are that the endpoint is not an oracle, that the blind index adds no exposure a
-  master-key holder does not already have, and that the limiter runs before anything is recorded.
+- **ADR-15, honeypots (phase 8)** — **accepted in the `alert` tier only**, not built. It would add
+  behaviour to the authentication path in `ciphr-store`: a credential that is recognized and refused
+  rather than merely refused. The claim to attack is that recognizing bait is indistinguishable from
+  any other rejection, in the response and in the timing. **What the narrowed scope removes** is the
+  trigger that could revoke tokens or stop the service; those tiers are designed and deliberately
+  absent, so there is no availability lever to attack in what would be built.
+- **ADR-16, leak reports (phase 9)** — **deferred**, and the deferral is why it is not in scope. It
+  would have added a key derivation in `ciphr-crypto` and the only unauthenticated request path that
+  reaches the store, both in mandatory scope by their location. Nothing about the design was found
+  wanting; it is worth its cost only where somebody holding no token can reach the endpoint, and that
+  is not the shape it would be deployed into.
 
-If either has landed by the time a review takes place, its ADR belongs in the reading order below and
-its claims belong in the sections above.
+If either lands after all, its ADR belongs in the reading order below and its claims belong in the
+sections above. Until then this section is a description of surface that does not exist, kept because
+a scope that only lists today's code goes stale without anyone noticing.
 
 ### Recommended, second tier
 
@@ -92,7 +95,8 @@ mistake is silent: a request served before its record is stored produces no erro
 Reporting on these is not a finding, because they are documented boundaries rather than oversights.
 They are listed so nobody spends time on them:
 
-- **Root on the host** reading the master key from the environment file or plaintext from process
+- **Root on the host** reading the master key from wherever the seal keeps it — a mounted file for
+  `type = "static_file"`, the environment for the variable form — or reading plaintext out of process
   memory. Adversary A5; a consequence of unattended startup (ADR-5).
 - **Denial of service.** A single instance with fail-closed auditing can be taken offline by filling
   the audit volume. Intended, and monitored rather than prevented.
@@ -211,8 +215,10 @@ rediscovering it:
 2. **Constant-time behaviour is not proven** (C2), only exercised for correctness at every byte
    position.
 3. **The hash chain cannot detect a forward rewrite** (E6).
-4. **Root on the host is not defended against** (A5 in the threat model), and the master key sits in a
-   mode-0600 environment file.
+4. **Root on the host is not defended against** (A5 in the threat model), and the master key sits in
+   a mode-0600 file the seal is pointed at. The environment-variable form of the seal still exists and
+   is the weaker of the two, because a value in a container's configuration is readable by anyone who
+   reaches the daemon rather than only by root.
 5. **Values are UTF-8 text.** A binary secret must be encoded by whoever stores it.
 6. **`getrandom` appears three times** in the dependency graph, from `ring` and `proptest` besides our
    own use. Recorded in `deny.toml` with a reason rather than resolved.
@@ -236,6 +242,40 @@ for:
 
 Design disagreements belong in the findings even where the code implements the design correctly. That
 is the part a second pair of eyes provides that tests cannot.
+
+## Commissioning it
+
+What is missing is not preparation. Everything above is the package; what remains is asking somebody.
+
+**What the reviewer needs, and nothing else.** This document, [`threat-model.md`](threat-model.md),
+[`crypto.md`](crypto.md), [`authorization.md`](authorization.md), and the source at a **named tag**
+rather than at a branch. The tag matters for a mundane reason: findings cite file and line, and a
+moving `main` turns a citation into a puzzle a month later. The repository is private, so access is
+either a read-only collaborator invitation or an archive of the three crates plus `docs/` — the
+archive is enough, because the mandatory scope has no build step a reviewer must run to read it.
+
+**What to ask for is in *The deliverable* below**, and the third item is the one that is easy to leave
+out of a request and impossible to reconstruct afterwards: a fitness statement. A reviewer who is not
+asked for one will not volunteer it, and a review without it produces a list of small things and no
+answer to the question that made it a precondition.
+
+**Who fits.** Someone who reads Rust without assistance and has attacked an authorization evaluator or
+an envelope scheme before — an independent practitioner, a short engagement with a firm that does
+applied-cryptography review, or a peer at another organization under whatever agreement makes that
+possible. Two days of reading is the honest estimate, and the size stated above is deliberate so that
+the estimate is checkable rather than a hope.
+
+**What not to buy.** A penetration test against a running instance exercises the deployment, not these
+crates, and the boundaries this project has already conceded (A5, denial of service) will be most of
+what it returns. An automated scan returns what `cargo audit` and `cargo deny` already block in CI on
+every commit. Neither answers the question this precondition asks, which is whether the two designs
+that decide every access are sound and implemented as described.
+
+**What the answer changes.** The status line at the top of this document, and nothing else — that is
+stated above and is worth repeating here, because the temptation at the end of an engagement is to
+treat a clean report as permission for whatever was waiting behind it. Phase 8 is waiting behind it.
+So is any deployment that has been running on an accepted risk rather than a met condition, and those
+deployments record their own decision in their own documentation either way.
 
 ## What happens to the findings
 
