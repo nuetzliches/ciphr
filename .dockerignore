@@ -1,0 +1,22 @@
+# What never needs to reach a build.
+#
+# `Dockerfile` and `Dockerfile.run` both copy explicit paths, so nothing here
+# changes what any image contains -- this file only stops the daemon from being
+# handed a build context it will not read. Locally that context is dominated by
+# `target/`, which is larger than the rest of the repository by three orders of
+# magnitude, and a build that transfers it before doing anything is one nobody
+# runs twice.
+#
+# This does not apply to the viewer image: its build context is `ui/` rather
+# than the repository root, so Docker would read `ui/.dockerignore` for it. The
+# `ui/` entries below are here because a root-context build has no use for them
+# either, not because they affect that image.
+#
+# Keep this list additive and boring. Excluding something a Dockerfile does copy
+# fails the build loudly, which is the right failure, but it is still a failure
+# somebody has to debug.
+target/
+.git/
+ui/node_modules/
+ui/dist/
+fuzz/target/

@@ -97,9 +97,17 @@ jobs:
           echo '${{ steps.build.outputs.digest }}' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
-  # The one artefact that is not an image. `ciphr-run` is bind-mounted into images
+  # The artefact that is not a service. `ciphr-run` is bind-mounted into images
   # this project does not own (ADR-14), so a deployment needs the file itself --
-  # there is nothing to pull it out of.
+  # there is nothing to run.
+  #
+  # It goes out twice, and the second one is not redundancy. A release asset is
+  # the right home for a file, and it is readable only by something that can
+  # authenticate to GitHub; while this repository is private, that is a person
+  # with a token and not the host that has to mount the file. `Dockerfile.run`
+  # exists so the wrapper reaches that host through the registry the server image
+  # already uses, and the file the release carries is extracted from the image
+  # that was pushed, so the two cannot disagree about what they contain.
   wrapper:
     name: Publish the static wrapper
     needs: verify
@@ -108,25 +116,75 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
-      # Narrower than it looks: this is the only job in either workflow that
-      # writes anything to the repository, and what it writes is one release
-      # asset.
+      # `contents` to attach the file to the release -- this is the only job in
+      # either workflow that writes anything to the repository, and what it
+      # writes is two release assets. `packages` for the image that carries the
+      # same bytes to a deployment that cannot read a release asset at all.
       contents: write
+      packages: write
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
-      - name: Add the musl target
+      - name: Derive the version
+        id: version
         run: |
-          rustup target add x86_64-unknown-linux-musl
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
+          set -euo pipefail
+          version='${{ github.ref_name }}'
+          echo "version=${version#v}" >> "$GITHUB_OUTPUT"
 
-      # The same script CI runs, so the linkage check and the size budget apply to
-      # the file that actually ships. Rebuilt here rather than carried over from
-      # the `verify` run: the checksum published below is then computed from the
-      # bytes this job produced, with nothing in between to trust.
-      - name: Build the wrapper
-        run: sh ci/build-wrapper.sh target/wrapper
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The build runs `ci/build-wrapper.sh` inside the builder stage, so the
+      # linkage check and the size budget apply to the file that actually ships
+      # -- the same script CI runs, in one place rather than duplicated here.
+      #
+      # No `:latest`, deliberately, and not for the reason the server image has
+      # one. A deployment pins this file by checksum; a moving tag for it would
+      # be a way to change the bytes that get mounted into a foreign container
+      # without anything recording that it happened.
+      - name: Build and push the wrapper image
+        id: build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: Dockerfile.run
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.REGISTRY_IMAGE }}/run:${{ steps.version.outputs.version }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.title=ciphr-run
+            org.opencontainers.image.description=The static entrypoint wrapper from ADR-14, as the only file in its image.
+            org.opencontainers.image.licenses=MIT OR Apache-2.0
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=wrapper
+          cache-to: type=gha,mode=max,scope=wrapper
+
+      # By digest, not by tag, and pulled back rather than read out of a local
+      # build: buildx pushed straight from its own container, so this actually
+      # fetches what the registry now serves. That makes the checksum below a
+      # statement about the published image and not about a build that happened
+      # to precede it.
+      #
+      # These are also the three commands the documentation tells a deployment to
+      # run, which is the point -- the retrieval path is exercised on every
+      # release rather than the first time somebody needs it.
+      - name: Take the binary out of the image that was published
+        run: |
+          set -euo pipefail
+          ref='${{ env.REGISTRY_IMAGE }}/run@${{ steps.build.outputs.digest }}'
+          mkdir -p target/wrapper
+          docker create --name ciphr-run-export "$ref"
+          docker cp ciphr-run-export:/ciphr-run target/wrapper/ciphr-run
+          docker rm ciphr-run-export
+          (cd target/wrapper && sha256sum ciphr-run > ciphr-run.sha256)
 
       # `gh` is preinstalled on the runner and authenticates with the job's token,
       # so this needs no additional third-party action to pin.
@@ -144,12 +202,17 @@ jobs:
             target/wrapper/ciphr-run.sha256 \
             --clobber
 
-      # What a deployment has to check before mounting it. Printed here so the
-      # value is in the run's own record, not only inside the uploaded file.
+      # What a deployment has to check before mounting it, and where it can get
+      # it from. Printed here so both are in the run's own record, not only
+      # inside the uploaded file.
       - name: Report the checksum
         run: |
-          echo "### The wrapper" >> "$GITHUB_STEP_SUMMARY"
-          echo '' >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          cat target/wrapper/ciphr-run.sha256 >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### The wrapper"
+            echo ''
+            echo '```'
+            echo "${{ env.REGISTRY_IMAGE }}/run:${{ steps.version.outputs.version }}"
+            echo "${{ steps.build.outputs.digest }}"
+            cat target/wrapper/ciphr-run.sha256
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

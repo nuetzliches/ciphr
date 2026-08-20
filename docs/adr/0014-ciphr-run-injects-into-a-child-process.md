@@ -245,3 +245,45 @@ before reading the token and before fetching, and says why.
 
 That refusal is also why the crate still compiles on the development platform instead of
 being gated out: a program that refuses is a program someone can run and be told why.
+
+## A fourth thing this record did not anticipate: how the file reaches a deployment
+
+*Added 2026-08-20, the same day the wrapper was built.*
+
+This record spends its argument on what the wrapper does and none on how anyone obtains it. That
+gap survived the build. The release workflow attaches `ciphr-run` and its SHA-256 to the tag,
+which is the right home for a file and was written down as if it settled the question — the
+sentence it was defended with was that there is nothing for a deployment to pull it out of.
+
+**A release asset is readable only by something that can authenticate to the forge.** While this
+repository is private, that is a person holding a token, not the host that has to mount the file.
+The server image already has this problem and already has an answer: it is pushed a second time,
+to the registry the deployment host does authenticate to. Nobody drew the same line for the
+wrapper, which left route B correct here and unreachable there — and an unreachable route removes
+no plaintext from any disk, which is the failure mode this record opens with.
+
+**So the wrapper also ships as an image whose entire filesystem is that one binary**
+(`Dockerfile.run`, `FROM scratch`). Not a second artefact — the same one, through the channel a
+deployment already has, digest-pinnable like everything else it pulls.
+
+Three properties are worth stating, because each was a choice:
+
+- **`scratch`, so the image can do nothing but be a file.** No shell, no libc, no package manager.
+  The binary is bind-mounted into a container this project does not own, so it must already need
+  nothing from the image it lands in; an image that carried a runtime around it would invite
+  someone to run it there instead, which is the derived image route B exists to avoid.
+- **The file is retrieved with `docker create` and `docker cp`, without ever starting a
+  container.** `docker cp` reads the filesystem of a created container, so having no shell costs
+  nothing. The release job performs exactly those steps against the image it has just pushed, and
+  computes the published checksum from what comes out — the retrieval path a deployment follows is
+  therefore exercised on every release rather than the first time somebody needs it.
+- **No `:latest`.** The service image has one; this must not. A moving tag on a file that gets
+  mounted into other people's containers is a way to change those bytes with nothing recording
+  that it happened.
+
+**What this does not buy: one checksum.** The internal registry builds from source on its own
+runner, so its image comes from a second build of the same commit. Both pin the same base image
+digest and the same locked dependency graph, and neither is claimed to be reproducible — the
+base layer is pinned, the `apt-get` inside it is not. Each channel publishes the checksum of the
+bytes it produced, and a deployment verifies against the one it pulled from. Making those two
+numbers provably equal is a reproducible-build problem, and it is not solved here.

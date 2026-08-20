@@ -1,0 +1,72 @@
+# Packages `ciphr-run` as an image whose entire filesystem is that one binary.
+#
+# ── Why an image for a single file ───────────────────────────────────────────
+# `ciphr-run` is bind-mounted into images this project does not own (ADR-14), so
+# what a deployment needs is the file, not something to run. `release.yml`
+# attaches it to the tag, and for a public repository that is the whole answer.
+# While the repository is private it is not: a release asset is readable only by
+# something that can authenticate to GitHub, and the host that has to mount the
+# file authenticates to one registry and nothing else. That is the same argument
+# `.forgejo/workflows/build-images.yml` records for the server image, and it
+# applies here unchanged — it was simply never drawn for the wrapper, which left
+# route B correct in this repository and unreachable outside it.
+#
+# ── Why `scratch` ────────────────────────────────────────────────────────────
+# There is nothing else this image should be able to do. It is a transport, not
+# a runtime: no shell, no libc, no package manager, so a container built from it
+# can execute nothing but the wrapper. That is also why the binary has to be
+# statically linked — a dynamically linked one would work here and fail in the
+# foreign image it is mounted into, which is the deployment that finds out.
+# `ci/build-wrapper.sh` verifies the linkage rather than trusting the target
+# name, and it is the same script CI runs, so this image cannot be built from a
+# binary that would not have passed.
+#
+# ── How the file gets out ────────────────────────────────────────────────────
+#     docker create --name ciphr-run-export <image>@<digest>
+#     docker cp ciphr-run-export:/ciphr-run ./ciphr-run
+#     docker rm ciphr-run-export
+#
+# The container is never started; `docker cp` reads the filesystem of a created
+# one, which is why an image with no shell is no obstacle. `release.yml` runs
+# exactly these three steps against the image it has just pushed and computes
+# the published checksum from what comes out, so the retrieval path a deployment
+# follows is the one that produced the number it checks against.
+
+# ── Stage 1: build ───────────────────────────────────────────────────────────
+# The same digest-pinned base as `Dockerfile`, for the reason given there: a tag
+# is a name that can be moved. Deliberately the same one, so the two images
+# cannot drift apart on the compiler that built them.
+FROM rust:1.94-bookworm@sha256:6ae102bdbf528294bc79ad6e1fae682f6f7c2a6e6621506ba959f9685b308a55 AS builder
+
+WORKDIR /build
+
+# The musl target needs its own linker, and `rustup target add` does not supply
+# one. Without this the build fails at link time with a message about `cc`,
+# which is a long way from "the target toolchain is incomplete".
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      musl-tools && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY crates/ crates/
+COPY ci/build-wrapper.sh ci/
+
+# The script, not a bare `cargo build`: the static-linkage check and the size
+# budget are the two properties that make this file safe to mount into somebody
+# else's container, and duplicating them here would let them drift from the ones
+# CI enforces. It writes a checksum next to the binary as well; that copy stays
+# in this stage, because the image below holds one file and the checksum of a
+# file that sits beside it is worth nothing anyway.
+RUN sh ci/build-wrapper.sh /out
+
+# ── Stage 2: the artefact ────────────────────────────────────────────────────
+FROM scratch
+
+COPY --from=builder /out/ciphr-run /ciphr-run
+
+# An entrypoint for two reasons, neither of them "so this can be a service".
+# `docker create` refuses an image that names no command, and that is the
+# supported way to get the file out. And `docker run --rm <image> --help` then
+# prints the wrapper's own usage, so an image containing one undocumented binary
+# can still say what it is.
+ENTRYPOINT ["/ciphr-run"]

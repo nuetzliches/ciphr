@@ -87,11 +87,12 @@ deliberately out of scope, is in [`docs/threat-model.md`](docs/threat-model.md).
 | Where | What |
 |---|---|
 | [`docs/`](docs/README.md) | The documentation index, including a table of risk areas |
-| [`docs/adr/`](docs/adr/) | The 13 architecture decisions, one file each, with what was rejected and why |
+| [`docs/adr/`](docs/adr/) | The 19 architecture decisions, one file each, with what was rejected and why |
 | [`docs/crypto.md`](docs/crypto.md) | The implemented key hierarchy and wire format, and what the tests establish |
 | [`docs/authorization.md`](docs/authorization.md) | The policy file, the pattern language, and the four rules of the decision |
 | [`docs/security-review.md`](docs/security-review.md) | What an external reviewer should attack, and what would falsify each claim |
 | [`docs/operations/cli.md`](docs/operations/cli.md) | Every `ciphr` command, and the two rules that shape all of them |
+| [`docs/operations/wrapper.md`](docs/operations/wrapper.md) | `ciphr-run`: where to get it, what its exit codes mean, and what it does not solve |
 | [`docs/ui.md`](docs/ui.md) | The viewer: what it shows, what it refuses to do, and how it is deployed |
 | [`openapi.yaml`](openapi.yaml) | The HTTP API |
 | [`docs/operations/`](docs/operations/) | Procedures for what is hard to undo: the master key, and rotating secrets that break things |

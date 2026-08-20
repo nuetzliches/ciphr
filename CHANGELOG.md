@@ -8,6 +8,37 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — the wrapper reaches a deployment through a registry, not only a release
+
+`ciphr-run` is bind-mounted into images this project does not own, so what a deployment needs is the
+file. The release workflow attaches it to the tag, and that was written down as if it settled the
+question. It does not while the repository is private: **a release asset is readable only by
+something that can authenticate to the forge**, and the host that has to mount the file authenticates
+to a registry instead. The server image already had that problem and already had an answer; nobody
+had drawn the same line for the wrapper, which left route B correct here and unreachable outside.
+
+- **`Dockerfile.run` packages the wrapper as an image whose entire filesystem is that one binary**
+  (`FROM scratch`), pushed as `<image>/run:<version>` beside the service image, in both registries.
+  No shell, no libc, nothing to run: it is a transport, not a runtime.
+- **The file comes out with `docker create` and `docker cp`, without starting anything.** The release
+  job runs exactly those steps against the image it has just pushed and computes the published
+  SHA-256 from what comes out — so the retrieval path a deployment follows is exercised on every
+  release instead of the first time somebody needs it, and the release asset and the image cannot
+  disagree about what they contain.
+- **No `:latest` for the wrapper.** The service image has one; a moving tag on a file that gets
+  mounted into other people's containers would be a way to change those bytes with nothing recording
+  that it happened.
+- **Each channel publishes its own checksum**, and a deployment verifies against the channel it
+  pulled from. The internal registry builds from source on its own runner, so its image comes from a
+  second build of the same commit, and neither build is claimed to be reproducible — the base layer
+  is pinned, the `apt-get` inside it is not.
+- The reasoning is in [ADR-14](docs/adr/0014-ciphr-run-injects-into-a-child-process.md) as a fourth
+  thing that record did not anticipate, and the operator-facing half is the new
+  [`docs/operations/wrapper.md`](docs/operations/wrapper.md): where the file comes from, what each
+  exit code means, and what route B does not solve.
+- A `.dockerignore` keeps `target/` out of the build context. It changes no image — both Dockerfiles
+  copy explicit paths — only what has to be transferred before a build starts.
+
 ### Added — `ciphr-run`, so route B costs a bind-mount instead of a derived image
 
 [ADR-14](docs/adr/0014-ciphr-run-injects-into-a-child-process.md) is **accepted** and built. A

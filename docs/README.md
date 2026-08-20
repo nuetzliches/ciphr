@@ -55,7 +55,7 @@ The parts where a mistake is expensive, and where to read before making one.
 
 | Document | What it is for |
 |---|---|
-| [adr/](adr/) | The sixteen architecture decisions, one file each, three of them proposed rather than accepted, including what was rejected and why |
+| [adr/](adr/) | The nineteen architecture decisions, one file each, two of them proposed rather than accepted, including what was rejected and why |
 | [threat-model.md](threat-model.md) | Adversaries A1–A9, the boundaries deliberately not defended, and the availability trade |
 | [crypto.md](crypto.md) | The implemented key hierarchy and wire format, and what the known-answer tests pin |
 | [authorization.md](authorization.md) | The policy file, the pattern language, and the four rules of the decision |
@@ -64,6 +64,7 @@ The parts where a mistake is expensive, and where to read before making one.
 | [why-build-this.md](why-build-this.md) | The evaluation of existing tools and the exit condition |
 | [ui.md](ui.md) | The read-only viewer: the five views, the security properties and where each is enforced, and how it is deployed |
 | [operations/cli.md](operations/cli.md) | Every command, and the two rules that shape all of them |
+| [operations/wrapper.md](operations/wrapper.md) | `ciphr-run`: where the file comes from, what its exit codes mean, and what route B does not solve |
 | [operations/](operations/) | Procedures for the things that are hard to undo: the master key, rotating secrets, and the audit trail |
 | [`../openapi.yaml`](../openapi.yaml) | The HTTP API, maintained in the same commit as the code |
 | [`../AGENTS.md`](../AGENTS.md) | Working rules for contributors and the gates that enforce them |

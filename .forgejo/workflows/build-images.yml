@@ -1,8 +1,14 @@
-# Builds the container image and pushes it to the Forgejo registry.
+# Builds the container images and pushes them to the Forgejo registry.
+#
+# Two images, from one tag: the service, and `ciphr-run` as the only file in an
+# image of its own (`Dockerfile.run`). The second one is here for exactly the
+# reason the first one is -- the wrapper is bind-mounted into images this project
+# does not own, so a deployment needs the file, and the release asset that
+# carries it on GitHub is unreadable to a host that cannot authenticate there.
 #
 # ── Why this file exists at all ───────────────────────────────────────────────
-# `.github/workflows/release.yml` already builds this image and pushes it to
-# GHCR. That is the intended home. This file is a **temporary duplicate** for one
+# `.github/workflows/release.yml` already builds both and pushes them to GHCR.
+# That is the intended home. This file is a **temporary duplicate** for one
 # reason: the repository is private, so its GHCR package is private too, and the
 # deployment host has no GHCR credentials -- it authenticates to
 # `git.nuetzliche.it` and nothing else.
@@ -102,17 +108,67 @@ jobs:
             .
           docker push "${IMAGE}:${VERSION#v}"
 
+      # The wrapper, as the only file in its own image. No `:latest` here either,
+      # and for a sharper reason than the service has: this file gets mounted
+      # into containers built by other people, and a tag that can move is a way
+      # to change those bytes without anything recording that it happened.
+      #
+      # `Dockerfile.run` runs `ci/build-wrapper.sh` in its builder stage, so the
+      # static-linkage check and the size budget are enforced here as well --
+      # this runner needs no Rust toolchain of its own for that to hold.
+      - name: Build and push the wrapper image
+        run: |
+          set -eu
+          cd workspace
+          docker build \
+            -f Dockerfile.run \
+            --label "org.opencontainers.image.source=https://github.com/nuetzliches/ciphr" \
+            --label "org.opencontainers.image.version=${VERSION#v}" \
+            --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \
+            -t "${IMAGE}/run:${VERSION#v}" \
+            .
+          docker push "${IMAGE}/run:${VERSION#v}"
+
+      # The checksum of the file this image carries, taken the same way a
+      # deployment takes it: create a container, copy the file out, never start
+      # it. `docker cp` reads the filesystem of a created container, which is why
+      # an image with no shell is no obstacle.
+      #
+      # **This number belongs to this build.** GitHub's release asset comes from
+      # a second, independent build of the same commit, and while both pin the
+      # same base image digest and the same locked dependency graph, neither
+      # build is claimed to be reproducible -- `apt-get` resolves whatever the
+      # archive currently offers, here as in `Dockerfile`. Verify against the
+      # checksum published by the channel the file was pulled from, not the other
+      # one.
+      - name: Report the wrapper checksum
+        run: |
+          set -eu
+          # This runner is persistent, so a container left behind by a failed run
+          # would collide on the name and fail this one for the wrong reason.
+          docker rm -f ciphr-run-export >/dev/null 2>&1 || true
+          docker create --name ciphr-run-export "${IMAGE}/run:${VERSION#v}"
+          docker cp ciphr-run-export:/ciphr-run ./ciphr-run
+          docker rm ciphr-run-export
+          sha256sum ciphr-run > ciphr-run.sha256
+          echo "WRAPPER_SHA=$(cut -d' ' -f1 ciphr-run.sha256)" >> "$GITHUB_ENV"
+
       - name: Report what was pushed
         run: |
           set -eu
           cd workspace
           digest=$(docker inspect --format '{{index .RepoDigests 0}}' "${IMAGE}:${VERSION#v}" 2>/dev/null || echo "unknown")
+          wrapper_digest=$(docker inspect --format '{{index .RepoDigests 0}}' "${IMAGE}/run:${VERSION#v}" 2>/dev/null || echo "unknown")
           {
             echo "### Pushed"
             echo
             echo '```'
             echo "${IMAGE}:${VERSION#v}"
             echo "$digest"
+            echo
+            echo "${IMAGE}/run:${VERSION#v}"
+            echo "$wrapper_digest"
+            echo "ciphr-run  sha256:${WRAPPER_SHA}"
             echo '```'
             echo
             echo "The deployment pins this by tag in \`.env.example\`."
