@@ -1,8 +1,9 @@
 # Why build this, and when to stop
 
 **Status:** the evaluation of the alternatives was made on 2026-08-18 and is unchanged as of
-2026-08-20. Every version number below is from that date and versions age; re-check before deciding
-anything that depends on one. The exit condition at the end does not age.
+2026-08-21, when the review the exit condition names was performed and recorded. Every version
+number below is from the earlier date and versions age; re-check before deciding anything that
+depends on one. The exit condition at the end does not age.
 
 Writing a secret manager is a bad idea by default. This document records why it was chosen anyway,
 what it is measured against, and — most importantly — the condition under which abandoning it is the
@@ -70,9 +71,13 @@ Three commitments keep that option real:
 
 1. **`ciphr dump --format portable` ships in v1.** A migration must never fail because of a
    proprietary file format. This is insurance, and insurance bought after the fire is worthless.
-2. **External review of `ciphr-crypto` and `ciphr-policy` before the first production use.** Those
-   two crates *are* the project; everything else is packaging. Self-review is not sufficient. If no
-   review can be arranged, that in itself is an argument for falling back to OpenBao.
+2. **External review of `ciphr-crypto`, `ciphr-policy`, and the path and pattern code in
+   `ciphr-core` before the first production use.** Those crates *are* the project; everything else is
+   packaging. Self-review is not sufficient, and if no review can be arranged, that in itself is an
+   argument for falling back to OpenBao. **Done on 2026-08-21**
+   ([`review-2026-08-21.md`](review-2026-08-21.md)), by an AI model rather than a human practitioner
+   — a qualified yes on fitness, its two blocking findings fixed, and nothing that touched the exit
+   condition: no finding put the envelope scheme or the evaluator in question.
 3. **No feature creep towards Vault.** PKI, SSH certificate authorities, KMIP, and high availability
    are non-goals. The moment one of them is genuinely needed, OpenBao is the right answer and this
    project is not.

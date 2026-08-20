@@ -1,8 +1,8 @@
 # Documentation
 
-**Status:** current as of 2026-08-20, `v0.3.0` released. Phases 0-3 and 7 are in it; the viewer
-(phase 5) ships as its own image on its own cadence. Describes what is built, and says so where
-something is not.
+**Status:** current as of 2026-08-21, `v0.3.0` released and externally reviewed. Phases 0-3 and 7 are
+in it; the viewer (phase 5) ships as its own image on its own cadence. Describes what is built, and
+says so where something is not.
 
 ## The rules this documentation is held to
 
@@ -49,7 +49,7 @@ The parts where a mistake is expensive, and where to read before making one.
 | **A secret in shell history** | A value passed as an argument is readable by every process on the host while the command runs. | [operations/cli.md](operations/cli.md) |
 | **Trusting the wrong boundary** | Assuming the container network is private, or that root on the host is excluded. | [threat-model.md](threat-model.md) |
 | **Revealing a secret in a browser** | Plaintext in a DOM has its own class of failure: an XSS finding, a cached response, a value left on a screen. What the viewer does about each, and what it refuses to do at all. | [ui.md](ui.md) |
-| **Going to production unreviewed** | Three crates decide every access, and their failures are silent. The external review is a precondition that has not been met — proceeding is an accepted risk, not a cleared one. | [security-review.md](security-review.md) |
+| **Going to production unreviewed** | Three crates decide every access, and their failures are silent. The external review happened on 2026-08-21 and was accepted — by an AI model, not the human practitioner the working paper asks for, and only for what it says it read. | [security-review.md](security-review.md), [review-2026-08-21.md](review-2026-08-21.md) |
 | **Building this at all** | A self-built secret manager fails silently. There is a defined point at which abandoning it is correct. | [why-build-this.md](why-build-this.md) |
 
 ## Everything else
@@ -61,7 +61,9 @@ The parts where a mistake is expensive, and where to read before making one.
 | [crypto.md](crypto.md) | The implemented key hierarchy and wire format, and what the known-answer tests pin |
 | [authorization.md](authorization.md) | The policy file, the pattern language, and the four rules of the decision |
 | [fuzzing.md](fuzzing.md) | The three fuzz targets, how to run them, and what the CI gate does and does not prove |
-| [security-review.md](security-review.md) | Scope, claims, and what would falsify them — the working paper for an external reviewer |
+| [security-review.md](security-review.md) | Scope, claims, and what would falsify them — the working paper for an external reviewer, plus the dated decision to accept the review of 2026-08-21 |
+| [review-2026-08-21.md](review-2026-08-21.md) | That review: who performed it and what that is worth, six findings, coverage, and the fitness statement |
+| [review-2026-08-18.md](review-2026-08-18.md) | The pre-review pass against the same list, from the model that co-authored the code — read for what it says it did *not* check |
 | [why-build-this.md](why-build-this.md) | The evaluation of existing tools and the exit condition |
 | [ui.md](ui.md) | The read-only viewer: the five views, the security properties and where each is enforced, and how it is deployed |
 | [operations/cli.md](operations/cli.md) | Every command, and the two rules that shape all of them |

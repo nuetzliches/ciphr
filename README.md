@@ -13,11 +13,15 @@ deploy pipeline, not a human.
 > browser viewer in [`ui/`](ui/) ships as its own image and is released on its own cadence. Since
 > v0.2.0: a secret nobody classified says so instead of claiming to be safe to rotate, the class is
 > on the wire and in the viewer, and setting one is recorded in the audit trail.
-> **This is the artifact the external review is performed against, not a production release — and
-> that review has not happened.** Until it does, the three crates that decide every access are
-> verified by nobody but their author, and a deployment holding real secrets before then has
-> accepted that risk rather than met a condition
-> ([`docs/security-review.md`](docs/security-review.md)). The full design lives in
+> **This is the artifact the external review was performed against.** That review happened on
+> 2026-08-21, against this tag, and is recorded in
+> [`docs/review-2026-08-21.md`](docs/review-2026-08-21.md): six findings, an explicit statement of
+> what was and was not read, and a qualified yes on fitness. Its two conditions — unwiped heap
+> copies of a token secret, and a reserved-path refusal that only the HTTP layer enforced — are
+> fixed. **Read who performed it before relying on it:** an AI model commissioned by the maintainer,
+> not the human practitioner the working paper asks for, and the record says what that is worth. The
+> maintainer accepted it as discharging the precondition; what that covers and what would reverse it
+> is in [`docs/security-review.md`](docs/security-review.md). The full design lives in
 > [`.claude/plans/PLAN.md`](.claude/plans/PLAN.md).
 
 ## Why this exists

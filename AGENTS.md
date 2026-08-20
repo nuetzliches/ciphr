@@ -46,20 +46,27 @@ Phase 4 is the first production integration: one low-risk service drawing its se
 with the way back tested and `::add-mask::` demonstrated on a real runner. **Before phase 4 an
 external review of `ciphr-crypto`, `ciphr-policy`, and the path and pattern code in `ciphr-core` is
 a precondition** — those are the crates that decide every access, and self-review is not sufficient.
-**The review has not happened.** That requirement binds this repository: it stays stated as
-outstanding, in every document that mentions it, until a review has actually taken place. A
-deployment may decide to run without it; that decision is recorded where the deployment is
-documented, and it does not change a line here.
+**The review happened on 2026-08-21** — recorded in `docs/review-2026-08-21.md`, accepted by the
+maintainer the same day, with both of its blocking findings fixed. Two rules survive it. First, the
+reviewer was an AI model rather than the human practitioner the working paper asks for: every
+document that mentions the review says so, because a repository that reports a check as cleared
+without saying who cleared it is useless the moment a stranger reads it. Second, the acceptance
+covers the code as it was read — `docs/security-review.md` names what it does not stretch to, and
+new surface in the reviewed crates or the authentication path needs its own pass rather than
+inheriting this one. A deployment still records its own risk decision where the deployment is
+documented, and that does not change a line here.
 
 Two phases are planned and not built, and as of 2026-08-20 they are in different states.
 
 **Phase 8**, honeypots and tripwires, is **decided and still not built**: ADR-15 is accepted in the
 `alert` tier only, and `disable-identity` and `freeze` are designed and deliberately absent, because
 the severe tiers are worth their cost only once one machine identity no longer serves every deploy
-target. Acceptance is not a release — the review above is a condition on the *code*, and it has not
-moved. Two things in that record are easy to lose and expensive to relearn: bait belongs outside every
-prefix any consumer fetches, and whether a prefix is fetched is a question about the code that fetches
-rather than about the policy that permits it.
+target. **The review that gated it has now happened**, so what stood in front of phase 8 is the work
+itself; what does not come with it is coverage — the review read the authentication path as it is,
+not as a tripwire would leave it, so the behaviour phase 8 adds is reviewed when it exists, against
+`docs/security-review.md`. Two things in that record are easy to lose and expensive to relearn: bait
+belongs outside every prefix any consumer fetches, and whether a prefix is fetched is a question
+about the code that fetches rather than about the policy that permits it.
 
 **Phase 9**, the unauthenticated leak-report endpoint, is **deferred** (ADR-16). The condition that
 decides its worth is whether anyone without a token can reach the endpoint at all; where every
@@ -67,9 +74,10 @@ consumer already sits inside the boundary the service listens on, a report adds 
 trail would not have carried, and the first anonymous write path against a fail-closed audit trail is
 paid for regardless. It reopens with that condition, not on its own.
 
-Neither may precede the review above — one adds behaviour to the authentication path, the other a key
-derivation and the only anonymous request path that reaches the store — and the plan says why in
-section 18.
+Neither could precede the review above — one adds behaviour to the authentication path, the other a
+key derivation and the only anonymous request path that reaches the store — and the plan says why in
+section 18. That constraint is discharged as of 2026-08-21; phase 9's own deferral is not, and stands
+on the condition in ADR-16 rather than on the review.
 
 **How either gets switched on is now one mechanism rather than three** (ADR-20, plan section 24).
 Optional behaviour is a named surface entry: off unless a deployment names it, enabled only with a

@@ -5,9 +5,12 @@
 findings, coverage, and the fitness statement this document asks for. The reviewer is an AI model
 (Claude Fable 5), commissioned by the maintainer: a different model from the one that co-authored
 the code, and not the human practitioner the *Who fits* section sketches — the record's first
-section states what that is worth, and a human review obtained later supersedes it. Two claims
-below were falsified (B6, F1; D6, F2) and are annotated in place. The design review of ADR-15 and
-ADR-16 on 2026-08-20 is a different document and says of itself that it is not this one.
+section states what that is worth, and a human review obtained later supersedes it. **The
+maintainer accepted that review as discharging the precondition on 2026-08-21**; what the
+acceptance covers, what it does not, and what would reverse it are in *The decision to accept it*
+below. Two claims below were falsified (B6, F1; D6, F2); both defects were fixed the same day and
+the rows say so. The design review of ADR-15 and ADR-16 on 2026-08-20 is a different document and
+says of itself that it is not this one.
 
 ## What this document is, and is not
 
@@ -46,6 +49,45 @@ Two consequences follow, and both matter:
 - **The design is in scope, not only the code.** A reviewer who concludes that the envelope scheme,
   the policy semantics, or the audit ordering is wrong in principle has produced the most useful
   possible result. Disagreeing with a documented decision is a finding, not a misunderstanding.
+
+## The decision to accept the review of 2026-08-21
+
+**Decided by the maintainer on 2026-08-21.** The review recorded in
+[`review-2026-08-21.md`](review-2026-08-21.md) discharges the precondition of plan section 18. That
+record deliberately declines to make the call itself — it states who performed it and leaves the
+judgement to its reader — so the call is recorded here: dated, and in the same shape this document
+asks of an operator who proceeds on an accepted risk.
+
+**What it covers.** The mandatory scope at `v0.3.0`, as read by the reviewer that record describes:
+`ciphr-crypto`, `ciphr-policy`, and `path.rs`, `pattern.rs`, `secret.rs` in `ciphr-core`, plus the
+second-tier files its coverage section names. It does not extend to what that section lists as
+skimmed or taken on trust — `ciphr-audit`, most of `ciphr-store`, the server's configuration and TLS
+code, `ui/`. Those are unreviewed, and this decision does not make them otherwise.
+
+**What it is not.** A review by a human practitioner. The reviewer was an AI model, a different one
+from the model that co-authored the code — which is why it falsified two claims the same-model pass
+of 2026-08-18 had recorded as holding, and why it is still not the independent pair of human eyes
+*Who fits* describes. A human review obtained later supersedes its fitness statement, and this
+decision with it.
+
+**The two conditions its fitness statement attached are met.** F1 (token secrets left in unwiped
+heap buffers on every authenticated request) and F2 (the reserved-prefix refusal enforced in the
+HTTP layer alone) were fixed on 2026-08-21 — decided first, fixed the same day, and recorded here
+together. The honest order matters: for the hours between, the acceptance stood on a fitness
+statement whose conditions were open. F3 to F6 are precision and hardening rather than exposure, and
+are open at the project's pace.
+
+**What it does not stretch to cover, and what would reverse it:**
+
+- **New surface in the reviewed crates, or in the authentication path, does not inherit it.** Phase
+  8 changes what a rejected credential does; the review read the code as it stands, not as that
+  phase would leave it. What that phase adds needs its own pass, against this same document.
+- **A deployment whose blast radius reaches past the maintainer's own estate**, or making this
+  repository public as something others are invited to run. Either raises the bar back to a human
+  review, because the question stops being what one operator is willing to carry.
+- **A finding that contradicts the record's coverage claims** — something wrong in a file it says it
+  read end to end. That is evidence about the review rather than about the code, and it reopens this
+  decision instead of joining the finding list.
 
 ## Scope
 
@@ -158,7 +200,7 @@ which parts do *not* need their attention.
 | B3 | The additional authenticated data binds the domain, the path length, the path, the version, and the data key identifier — so no two distinct locations produce the same AAD. | Two distinct `(path, version, dek_id)` triples with identical AAD bytes. The length prefix exists for exactly this; check the argument holds. |
 | B4 | A ciphertext cannot be moved to another path, version, or root key. | A relocation that decrypts. Property-tested across generated paths and versions. |
 | B5 | Every authentication failure returns the same error, with no distinguishable variant for wrong key, wrong AAD, tampered tag, or shredded data key. | Any path that distinguishes them, in the return value, in a message, or in observable work done. |
-| B6 | Key material is wiped: keys live in `SecretBox`, and intermediate buffers are zeroized on both the success and the failure path. | A buffer that survives — the copies in `unwrap_root_key`, `unwrap_dek`, `from_hex`, and `Token::parse` are the places to look. *Falsified 2026-08-21 (finding F1): `base64url::decode`/`decode_into` free unwiped heap copies of the token secret on every `Token::parse`, and `expose_text` drops an unwiped temporary. The hex path honours the claim.* |
+| B6 | Key material is wiped: keys live in `SecretBox`, and intermediate buffers are zeroized on both the success and the failure path. Both directions of the token codec work in a buffer the caller owns and allocate nothing. | A buffer that survives — the copies in `unwrap_root_key`, `unwrap_dek`, `from_hex`, and `Token::parse` are the places to look. *Falsified 2026-08-21 (finding F1): `base64url::decode`/`decode_into` freed unwiped heap copies of the token secret on every `Token::parse`, and `expose_text` dropped an unwiped temporary. **Fixed the same day**: `decode_into` and the new `encode_into` hold no buffer of their own, and the second sentence of the claim is what a reader should now attack.* |
 | B7 | Secret-bearing types implement neither `Debug`, `Display` nor `Serialize`; identifiers do, and are not secret. | Any accidental impl, or a `{:?}` on something secret-bearing. Verified mechanically: only the identifier types derive `Debug`. |
 | B8 | Randomness comes only from the OS CSPRNG; no seedable generator is reachable from shipped code. | A reachable `rand`. Verified mechanically: `rand` appears in `Cargo.lock` only through `proptest`, a dev-dependency, and the server graph contains none. Worth confirming independently. |
 | B9 | **The known-answer tests do not validate AES-256-GCM.** The vectors were generated by this code and pinned, so they detect a format change, not a primitive error. | Nothing — this is a stated gap. **A reviewer can close it** by checking the AES-GCM plumbing (key, nonce, and AAD ordering) against NIST vectors independently. That is the single most valuable mechanical check available here. |
@@ -189,7 +231,7 @@ which parts do *not* need their attention.
 | D3 | On a tie, denial wins, and the decision is deterministic regardless of file or iteration order. | Two equally specific rules where the outcome depends on ordering. |
 | D4 | Every decision names the rule that produced it, and every denial carries a reason. | An allow with no rule attached — checked by a fuzz target, because an unattributable allow makes the audit trail unable to say why. |
 | D5 | There is no `admin` capability and no second authorization mechanism; `sys/audit`, `sys/identities`, and `sys/policies` are ordinary paths through the same evaluator. | Any path to a privileged operation that skips `evaluate`. |
-| D6 | A real secret can never shadow a virtual `sys/` path: writes and deletes under that prefix are refused. | A way to create `sys/audit` as a secret. *Falsified 2026-08-21 (finding F2): the refusal lives only in the HTTP layer; `ciphr put sys/audit` through the CLI creates it. The store is where the claim speaks and where the check belongs.* |
+| D6 | A real secret can never shadow a virtual `sys/` path: writes and deletes under that prefix are refused **by storage**, so the refusal holds for every caller and not only for requests that arrive over HTTP. | A way to create `sys/audit` as a secret, through any interface. *Falsified 2026-08-21 (finding F2): the refusal lived only in the HTTP layer, and `ciphr put sys/audit` through the CLI created it. **Fixed the same day**: `ciphr-store` refuses it, the prefix has one definition in `ciphr-core`, and the HTTP and CLI checks are now early errors rather than the enforcement.* |
 | D7 | A policy file loads completely or not at all: unknown keys, dangling policy references, duplicate names, and duplicate patterns refuse the whole file. | A file that half-loads. A partially loaded policy set is a set of permissions nobody wrote. |
 | D8 | Listings authorize **per returned path** rather than on the prefix, so a caller sees exactly the names they hold `list` on. | An information leak through listing — a way to learn of a path one may not list. Also worth challenging as a design choice: the alternative was a special case in the evaluator, which was rejected. |
 | D9 | *What else.* | |
@@ -250,7 +292,10 @@ is the part a second pair of eyes provides that tests cannot.
 
 ## Commissioning it
 
-What is missing is not preparation. Everything above is the package; what remains is asking somebody.
+**This section describes what was done on 2026-08-21, and what a further review would need.** It is
+kept in the present tense because the acceptance above names two things that would call for another
+one — new surface in the reviewed crates, and a wider blast radius — and because the review that
+happened was not by the practitioner *Who fits* describes. What follows is the package either way.
 
 **What the reviewer needs, and nothing else.** This document, [`threat-model.md`](threat-model.md),
 [`crypto.md`](crypto.md), [`authorization.md`](authorization.md), and the source at a **named tag**
@@ -276,11 +321,12 @@ what it returns. An automated scan returns what `cargo audit` and `cargo deny` a
 every commit. Neither answers the question this precondition asks, which is whether the two designs
 that decide every access are sound and implemented as described.
 
-**What the answer changes.** The status line at the top of this document, and nothing else — that is
-stated above and is worth repeating here, because the temptation at the end of an engagement is to
-treat a clean report as permission for whatever was waiting behind it. Phase 8 is waiting behind it.
-So is any deployment that has been running on an accepted risk rather than a met condition, and those
-deployments record their own decision in their own documentation either way.
+**What the answer changes.** The status line at the top of this document, and nothing else — the
+temptation at the end of an engagement is to treat a clean report as permission for whatever was
+waiting behind it. Phase 8 was waiting behind it, and the acceptance recorded above is what released
+it; note what that acceptance says about the surface phase 8 adds, which the review did not read.
+Any deployment that has been running on an accepted risk rather than a met condition still records
+its own decision in its own documentation, and this one does not reach into it.
 
 ## What happens to the findings
 

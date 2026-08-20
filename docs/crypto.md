@@ -1,9 +1,10 @@
 # Cryptographic design, as implemented
 
-**Status:** implemented and tested as of 2026-08-18, re-read against the code on 2026-08-20 and
-unchanged. Describes the code in `crates/ciphr-crypto`, not an intention. The wire format and the
-key hierarchy have not moved since phase 1; what changed since is the wording of one refusal, which
-this document does not quote.
+**Status:** implemented and tested as of 2026-08-18, reviewed externally on 2026-08-21 and corrected
+where that review found the text stronger than the code. Describes the code in
+`crates/ciphr-crypto`, not an intention. The wire format and the key hierarchy have not moved since
+phase 1; what has changed since is the wording of one refusal, which this document does not quote,
+and the zeroization of the token codec (finding F1).
 
 The ground rule is that there are no custom constructions here. Established AEAD primitives,
 composed in the standard envelope pattern, with every deviation from the obvious approach explained.
@@ -130,8 +131,11 @@ Error types carry paths, identities, versions, and lengths. They never carry a v
   control depend on it (ADR-4).
 - **It does not defend against side channels beyond timing in credential comparison.** No protection
   against cache-timing or speculative-execution attacks.
-- **It has not been reviewed externally yet.** That review — of `ciphr-crypto`, `ciphr-policy`, and
-  the path and pattern code in `ciphr-core` — is a precondition for first production use that has not
-  been met, and until it happens this design should be treated as unverified by anyone but its
-  author. An operator may decide the risk is acceptable for what their deployment holds; that
-  decision does not change this line.
+- **It has been reviewed once, and by an AI model rather than a person.** The review of 2026-08-21
+  ([`review-2026-08-21.md`](review-2026-08-21.md)) read `ciphr-crypto`, `ciphr-policy`, and the path,
+  pattern, and secret code in `ciphr-core` end to end, reproduced the known-answer vectors with an
+  independent AES-256-GCM implementation, and returned a qualified yes; its two blocking findings are
+  fixed. It is not the review by an independent human practitioner that
+  [`security-review.md`](security-review.md) describes, and one obtained later supersedes it. Read
+  the record's first section before treating this design as verified — and note that a claim about
+  anything the coverage section lists as skimmed is a claim nobody has checked.

@@ -2,10 +2,14 @@
 
 ## Status of this project
 
-ciphr is **pre-release and not yet in production use anywhere**. There are no released versions and
-no supported versions. Nothing here should be deployed with real secrets until the cryptographic and
-authorization crates have passed external review — a condition recorded in
-[`docs/why-build-this.md`](docs/why-build-this.md).
+ciphr is **pre-release**. There are no supported versions, and no promise that an upgrade path
+exists for anything but the documented ones.
+
+The external review of the cryptographic and authorization crates — the condition recorded in
+[`docs/why-build-this.md`](docs/why-build-this.md) — took place on 2026-08-21 and was accepted;
+[`docs/review-2026-08-21.md`](docs/review-2026-08-21.md) is the record, and its first section says
+who performed it, which decides what it is worth. It was not a human practitioner. Anyone weighing a
+deployment that holds real secrets should read that section before the findings.
 
 ## Reporting a vulnerability
 

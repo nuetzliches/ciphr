@@ -49,6 +49,27 @@ enforced at the wrong layer, and the layer that was missing it is the one the cl
 - The HTTP and CLI checks stay as early, specific errors, and both now call the shared refusal. A
   refused `put` reaches the store no more than it reaches the audit trail.
 
+### Documented — the external review happened, and the decision to accept it is written down
+
+The review that plan section 18 makes a precondition took place on 2026-08-21 against `v0.3.0` and is
+recorded in [`docs/review-2026-08-21.md`](docs/review-2026-08-21.md). The maintainer accepted it the
+same day. Every document that carried the requirement as outstanding now says so — README,
+`AGENTS.md`, `SECURITY.md`, `docs/crypto.md`, `docs/why-build-this.md`, the risk table in
+`docs/README.md`, and plan section 18 — and each of them says who performed it in the same breath.
+
+- **The acceptance is a dated decision with a scope**, in `docs/security-review.md`: what it covers,
+  what it is not, and the three things that would reverse it. The record itself declines to make that
+  call, so a repository that just moved a status line would have hidden a judgement rather than
+  recorded one.
+- **Who reviewed is not a footnote.** An AI model, commissioned by the maintainer, and a different
+  model from the one that co-authored the code — which is why it falsified two claims the same-model
+  pass of 2026-08-18 had recorded as holding, and why a human review obtained later supersedes it. A
+  repository that reports a check as cleared without saying who cleared it is useless the moment
+  somebody outside reads it.
+- **Phase 8 is unblocked; it is not pre-reviewed.** The acceptance covers the authentication path as
+  it stands, not as a tripwire would leave it. Claims B6 and D6 are annotated as falsified and fixed,
+  so the two rows now describe code rather than a state that lasted one day.
+
 ### Documented — what publication has to decide about the one file that names this deployment
 
 `.forgejo/workflows/` carries a registry hostname, an image namespace and a runner label, because a

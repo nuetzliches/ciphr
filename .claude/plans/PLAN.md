@@ -1270,6 +1270,24 @@ must not do is restate the requirement as satisfied because someone chose to pro
 in `docs/security-review.md` changes when a review has happened and for no other reason. If no
 review can be arranged at all, that is an argument for falling back to OpenBao (section 2).
 
+**Met on 2026-08-21.** A commissioned review of the three crates against `v0.3.0` is recorded in
+`docs/review-2026-08-21.md`, and the maintainer accepted it as discharging this requirement the
+same day; the acceptance is written down in `docs/security-review.md`, dated, with what it covers
+and what would reverse it. Two things about it decide how far it reaches, and both belong here
+rather than only there:
+
+- **The reviewer was an AI model, not the human practitioner this section imagines.** It was a
+  different model from the one that co-authored the code, which is why it falsified two claims the
+  same-model pass of 2026-08-18 had recorded as holding — but the paragraph above about self-review
+  is only partly answered by it, and a human review obtained later supersedes it.
+- **It covers the code it read.** New surface in the reviewed crates or in the authentication path
+  does not inherit the acceptance, which is the constraint that matters most for phase 8 below: what
+  that phase adds is reviewed when it exists, not covered in advance.
+
+Its fitness statement was a qualified yes, conditional on two defects — token secrets left in
+unwiped heap buffers, and the `sys/` refusal enforced in the HTTP layer alone rather than in
+storage. Both were fixed on 2026-08-21.
+
 **After v1, in this order:**
 
 1. **OIDC auth method** (verified as implementable for Forgejo and GitHub — eliminates the
@@ -1286,11 +1304,14 @@ review can be arranged at all, that is an argument for falling back to OpenBao (
 session, or the MCP server, and none of those five items needs them. Two constraints fix where they
 can go.
 
-*The earliest.* Both add surface in the places the outstanding review exists for — phase 8 in the
+*The earliest.* Both add surface in the places the review exists for — phase 8 in the
 authentication path, phase 9 in a new key derivation plus the only unauthenticated request path that
-reaches the store — so neither may precede the external review that is already a precondition of
+reaches the store — so neither could precede the external review that is already a precondition of
 phase 4. Building a tripwire into an authentication path nobody outside this project has read is the
-wrong order, and it is the order that feels productive.
+wrong order, and it is the order that feels productive. **That constraint is discharged as of
+2026-08-21**: the review happened, and phase 8 is buildable. What does not follow is that the
+tripwire arrives reviewed — the acceptance covers the authentication path as it stands today, and
+the behaviour phase 8 adds to it is the next thing `docs/security-review.md` is for.
 
 *The sequence between them.* Phase 8 first, and not because it is smaller. It needs no new
 cryptography, it reuses `revoke_identity_tokens` and the token machinery as they stand, and it
@@ -1302,9 +1323,9 @@ ship the anonymous endpoint before the thing that makes its strongest signal leg
 The honest note against putting phase 8 earlier: honeypot tokens are worth most in the window
 *before* OIDC removes long-lived CI tokens, which argues for pulling them forward into phase 6, when
 those tokens proliferate. That argument loses to the review constraint above, and it loses only to
-that. If the review lands before phase 6 completes, planting an `alert`-tier honeypot token during
-the migration is the natural moment and the plan should be re-read at that point rather than
-followed.
+that. **The review landed on 2026-08-21, before phase 6 completed, which is the case this paragraph
+anticipated:** planting an `alert`-tier honeypot token during the migration is now the natural
+moment, and this section should be re-read at that point rather than followed.
 
 ---
 
@@ -1397,7 +1418,7 @@ The project starts private. These points cost nothing now and would be expensive
 
 | Risk | Assessment | Mitigation |
 |---|---|---|
-| **Crypto or authorization bug in a self-built system** | High, and failures are silent | Established primitives only; external review before phase 4; keep the fallback to OpenBao open (`dump --format portable`) |
+| **Crypto or authorization bug in a self-built system** | High, and failures are silent | Established primitives only; external review before phase 4, done 2026-08-21 and covering only what it read; keep the fallback to OpenBao open (`dump --format portable`) |
 | **Fail-closed causes an outage** | Medium | Three health checks including fill level; rotation; a generous volume |
 | **Master key loss = total loss** | High | Break-glass copy in a password manager plus offline; restore drill in the backup cycle |
 | **Bootstrap circularity** | Medium | The service's own configuration must never come from itself; documented at the deployment layer |
