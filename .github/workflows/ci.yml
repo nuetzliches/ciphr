@@ -77,6 +77,16 @@ jobs:
       - name: Documentation carries dates
         run: sh ci/check-docs.sh
 
+      # The gates above are shell scripts, and until 2026-08-20 nothing checked
+      # them. That is the wrong way round: they are what enforces every other
+      # rule here, so a defect in one silently stops enforcing something. Two of
+      # them were using a `test` operator POSIX leaves undefined, found by
+      # running this by hand. `shellcheck` is preinstalled on the runner image;
+      # if that ever stops being true this step fails loudly rather than
+      # skipping.
+      - name: The gates themselves are valid shell
+        run: shellcheck ci/*.sh
+
   # The viewer is its own package with its own toolchain and its own budget
   # (ADR-11, plan section 15), so it is its own job. A UI change that breaks the
   # bundle must not be reported as a Rust failure, and a Rust change must not
@@ -191,6 +201,7 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: sh ci/check-changelog.sh "$BASE" "$HEAD_SHA"
+
 
   supply-chain:
     name: Licenses, advisories, dependency budget
