@@ -68,6 +68,15 @@ path in the design that reaches the store without an identity, and the service i
 audit trail. A refused report writes no audit entry and touches no database. The endpoint is off
 unless a deployment enables it.
 
+**What "off" means is settled since (added 2026-08-20).** Not the `[report] enabled` flag of plan
+section 23 but a *build entry* under [ADR-20](0020-optional-surface.md): a Cargo feature, absent from
+the default binary. The threat model's "no anonymous endpoint except `/v1/health`" is then a property
+of the artefact rather than of a file an operator can edit, which is the strongest form that sentence
+can take — and the right one for a record that is deferred rather than rejected, because it means
+reopening this costs a build rather than a rewrite. The blind index follows the same rule from the
+other side: what `ciphr-crypto` may gain is a general subkey derivation, present unconditionally and
+reviewed once, with the index, the column and the lookup composed outside it.
+
 ## Why property 3 is load-bearing rather than tidy
 
 Refusing to serve a value known to have leaked sounds like the obviously right behaviour, and it is

@@ -80,6 +80,14 @@ identity set is granular enough that `disable-identity` costs one consumer inste
 That is the condition to cite when this is revisited; not a date, and not a judgement that the tiers
 were a bad idea.
 
+**How the built tier is switched on (added 2026-08-20).** As a Cargo feature, off in the default
+build — a *build entry* in the sense of [ADR-20](0020-optional-surface.md), not a line in a
+configuration file. Property 1 of this record claims that bait is indistinguishable on the
+authentication path; for every deployment that plants none, code which is not compiled in is the
+strongest available version of that claim, because absent code has no timing to get wrong. It also
+keeps this record's behaviour out of the default binary while the external review below is
+outstanding.
+
 **4. No unauthenticated request reaches a tier above `alert`.** The leak-report endpoint of ADR-16
 accepts candidate values from whoever can reach it. A reported honeypot value is the strongest signal
 this system can produce, and it still only alerts. The tiers that act on an identity require a

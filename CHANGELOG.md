@@ -27,6 +27,60 @@ the value index is written unconditionally, because a scanner makes the half-ind
 dangerous, not less. Rejected, with reasons in the record: answering match/no-match, shipping the
 index key to scanners, local matching of honeypot values, and the server reading logs itself.
 
+### Added — one mechanism for optional features, and a list of what may never be one
+
+This project already had three kinds of optional feature and no rule covering any of them: a
+container you do not deploy (the viewer, ADR-11), a boolean invented for one endpoint
+(`[report] enabled`, plan section 23), and a design deliberately left uncoded (ADR-15's severe
+tiers). [ADR-20](docs/adr/0020-optional-surface.md) replaces the three with one mechanism and plan
+section 24 carries the design. **Nothing is implemented**; what changed today is the decision.
+
+**The load-bearing half is a restriction rather than a feature.** Nothing optional may be reachable
+from `ciphr-crypto`, `ciphr-policy`, or the path, pattern and secret code in `ciphr-core` — no flag,
+no `#[cfg(feature)]`, no trait object one configuration installs. Where an optional feature needs
+something from those crates, the crate gains it *unconditionally* and the optional part is composed
+outside. The reason is the external review that is still outstanding: a core whose reachable code
+depends on configuration cannot be reviewed once, and a review that has to be repeated per
+configuration will not be repeated.
+
+- **Off means absent, not dormant.** A runtime entry is never registered on the router; a build entry
+  is not in the binary. There is no `if enabled { … } else { 404 }` inside a live handler, because
+  that leaves the handler compiled, wired, one boolean from serving, and invisible to anything except
+  whoever can read the configuration.
+- **Enabling one is a record, not a flag.** Whether it is on, the date the deployment accepted the
+  cost, and the reason — and the server refuses to start on an entry that is on and cannot say since
+  when and why, the same refusal it already makes when no audit device is configured.
+- **The service says what it is.** Which entries are active goes on `/v1/health`, because that is what
+  the process enforces; the reason text is authenticated, because it is prose about someone's
+  environment. Startup writes one audit entry naming the active surface, which is a change a
+  deployment can currently make without the trail recording anything.
+- **Two routes that exist today become entries**, and both are off unless named: `POST /v1/export`,
+  and the three administrative reads the viewer needs (`/v1/audit`, `/v1/identities`, `/v1/policies`).
+  The second is the one that pays for itself — those routes serve a component that is already
+  optional, and a deployment without the viewer has been putting its policy structure and identity
+  inventory on the network for nobody.
+- **ADR-15 and ADR-16 become entries of the build kind.** For a record whose central claim is that
+  bait is indistinguishable on the authentication path, code that is not compiled in is the strongest
+  form of that claim; and "no anonymous endpoint except `/v1/health`" is worth more as a property of
+  the artefact than of a file an operator can edit.
+
+**What may never become an entry is a closed list**: the audit device requirement, fail-closed
+ordering, deny by default, TLS at the listener, the envelope scheme and its AAD binding, the single
+path normalization, constant-time credential comparison. Adding an entry is an ordinary change;
+changing that list is a new ADR. The failure mode of a mechanism like this is that it grows inward one
+reasonable step at a time.
+
+**Adaptive means the choice adapts, not the process.** A service that adjusts its own posture is the
+availability weapon ADR-15 declined, arriving under a friendlier name, and it is state an adversary
+can drive. What the service will do instead is report whether an entry's precondition holds — the
+identity granularity ADR-15's severe tiers wait on, whether anything polls `/v1/health` at all, and
+whether the retention cut is running — and leave the switch to a human on the host.
+
+`AGENTS.md` also states a working rule that was practice and not written down: while the repository is
+private, a security improvement lands immediately and the consumer side pays for it. That is what
+makes changing two built routes an ordinary commit, and it stops being unconditional when the
+repository is public.
+
 ### Fixed — creating a credential is in the audit trail
 
 **No token command wrote an audit entry.** Not `issue`, not `revoke`, not `revoke-all`. The

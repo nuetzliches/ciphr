@@ -1,7 +1,7 @@
 # Architecture decision records
 
-**Status:** current as of 2026-08-19. Seventeen decisions: fourteen accepted, three proposed.
-Each file carries its own date and status.
+**Status:** current as of 2026-08-21. Twenty-one records: nineteen accepted — one of them in one
+tier only — one deferred, and one proposed. Each file carries its own date and status.
 
 One file per decision. Each records what was decided, why, and what was rejected — the rejected
 options matter as much as the chosen one, because they are what a future reader would otherwise
@@ -32,6 +32,7 @@ parts that later turned out to be wrong.
 | [ADR-17](0017-certificate-provenance.md) | Certificate provenance: a private CA for machines, a public certificate for the browser | Accepted |
 | [ADR-18](0018-one-rule-for-the-variable-name.md) | One rule for the environment variable name of a secret | Accepted |
 | [ADR-19](0019-sdk-transport-blocking-ureq.md) | The SDK's transport: blocking, and unable to trust the public CA set | Accepted |
+| [ADR-20](0020-optional-surface.md) | Optional surface, and the core it may not reach | Accepted; nothing implemented |
 | [ADR-21](0021-a-scanner-is-a-sender-with-a-token.md) | A scanner is a sender with a token: leak reports arrive authenticated | **Proposed**; gives the leak machinery its first sender — ADR-16 stays deferred and anonymous |
 
 Two of these carry more weight than the rest, because they describe the properties the project

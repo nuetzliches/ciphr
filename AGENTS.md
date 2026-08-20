@@ -71,6 +71,13 @@ Neither may precede the review above — one adds behaviour to the authenticatio
 derivation and the only anonymous request path that reaches the store — and the plan says why in
 section 18.
 
+**How either gets switched on is now one mechanism rather than three** (ADR-20, plan section 24).
+Optional behaviour is a named surface entry: off unless a deployment names it, enabled only with a
+date and a reason or the server refuses to start, and either absent from the router or absent from the
+binary — never a dormant handler behind a boolean. Two routes that exist today become entries with it,
+`POST /v1/export` and the three administrative reads the viewer needs, so this is not only about the
+two unbuilt phases.
+
 Three things later phases must not undo:
 
 - The router calls the path normalization in `ciphr-core`. Not a copy of it, not a variant that
@@ -92,9 +99,23 @@ service names, inventory counts, or infrastructure assumptions — not in `crate
 examples. Public product names in comparisons (OpenBao, Vault, Infisical, SOPS) are fine. Integration
 with a specific environment belongs in that environment's own repository, not here.
 
+**While the repository is private, a security improvement lands immediately and the consumer side
+pays for it.** Compatibility is not a reason to keep a weaker shape, and a breaking change to a route,
+a flag, or a default is an ordinary commit as long as the changelog and the upgrade document say what
+it costs. **That stops being unconditional when the repository is public**, because the consumers are
+then people who did not agree to it — from that point the same change needs a deprecation, a version,
+or an argument for why it cannot wait.
+
 **Technical decisions are argued from security and technical criteria.** "We already do it this way
 elsewhere" is not a reason. Where an alternative is genuinely better on some axis, the ADR says so —
 see ADR-1 on Go, which concedes two real advantages and decides against it anyway.
+
+**Optional features compose at the edge, never in the core.** `ciphr-crypto`, `ciphr-policy`, and
+the path, pattern and secret code in `ciphr-core` contain no flag, no `#[cfg(feature)]`, and no trait
+object that one configuration installs and another does not (ADR-20). Where an optional feature needs
+something from those crates, the crate gains it *unconditionally* and the optional part is built on
+top of it elsewhere. The reason is the external review: a core whose reachable code depends on
+configuration cannot be reviewed once.
 
 **Every new dependency is a reviewed decision** with a justification in the pull request, especially
 in `ciphr-crypto` and `ciphr-policy`. `ciphr-crypto` takes nothing beyond the cryptographic

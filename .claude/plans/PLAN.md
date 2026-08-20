@@ -792,10 +792,21 @@ type = "sqlite"
 type        = "file"
 path        = "/var/log/ciphr/audit.jsonl"
 rotate_size = "64MB"
+
+# Optional surface (ADR-20, section 24). Every entry is off unless it appears here,
+# and an entry that is on states since when and why or the server refuses to start.
+[surface.bulk_export]
+enabled  = true
+accepted = "2026-08-20"
+reason   = "route B: the wrapper fetches by prefix at every container start"
 ```
 
 The server **refuses to start** if no audit device is configured. A secret store without an
 audit trail is a configuration error in this project, not an operating mode.
+
+The same refusal applies to a surface entry that is enabled without a date and a reason
+(ADR-20). A flag that nobody had to justify is a flag whose safest-looking reading, months
+later, is to leave it where it is.
 
 ---
 
@@ -1450,6 +1461,12 @@ The project starts private. These points cost nothing now and would be expensive
    stated where the schema is documented — a half-indexed corpus is the more dangerous state, because
    a miss then means nothing and the endpoint cannot say so. Decide before the migration in phase 9,
    not during it.
+
+   **Answered 2026-08-21 by [ADR-21](../../docs/adr/0021-a-scanner-is-a-sender-with-a-token.md):
+   unconditionally**, on every `put`, in every deployment. A scanner's silence only means something
+   if a miss means "not ours" rather than "not indexed yet", so the duplicate-visibility cost is paid
+   by deployments that never scan. Kept in place rather than moved, because two records cite this
+   question by number.
 6. **Whether `POST /v1/report` gets its own listener.** A drop box only reports what its reporters can
    reach, and an internal-only drop box reports nothing an internal identity could not already have
    produced in the audit trail. Exposing it means a listener on a different boundary from the
@@ -1796,3 +1813,133 @@ Audit actions: `report`, `leak-marked`, and one for the aggregate refusal entry.
 - **A miss is evidence of nothing.** An unindexed older version, a re-encoded value, a trailing
   newline — all of them miss, and the endpoint's deliberate silence means a reporter cannot tell
   "not ours" from "we cannot tell yet".
+
+---
+
+## 24. Optional Surface
+
+Planned, not built. [ADR-20](../../docs/adr/0020-optional-surface.md) carries the decision; this
+section carries the design and the first entries. **Numbered after section 23 because it generalizes
+what sections 22 and 23 each invented for themselves**, not because it comes later in time — the
+mechanism is a precondition for the way both of those get switched on.
+
+### The rule everything else serves
+
+**Nothing optional is reachable from `ciphr-crypto`, `ciphr-policy`, or the path, pattern and secret
+code in `ciphr-core`.** No flag, no `#[cfg(feature)]`, no trait object installed by one configuration
+and not another. Where an entry needs something from those crates, the crate gains it
+*unconditionally* — a general function, in every build, reviewed once — and the optional part is
+composed on top of it in `ciphr-server`, `ciphr-store` or `ciphr-cli`.
+
+The reason is the external review of section 18. Three crates, about 1500 lines, read end to end by
+one person. A core whose reachable code depends on configuration cannot be reviewed once, and a
+review that has to be repeated per configuration will not be repeated at all.
+
+### Two kinds of entry
+
+| Kind | Off means | Choose it when |
+|---|---|---|
+| **Runtime** | The route is never registered; the hook is never installed. axum answers from the fallback. | The claim is that the feature is not *offered*. |
+| **Build** | A Cargo feature, absent from the default build. The code is not in the binary. | The claim is that the code is not *there* — because a deployment has to be able to prove it. |
+
+Off is absent, never dormant. An `if enabled { … } else { 404 }` inside a live handler leaves the
+handler compiled, wired, and one boolean from serving, and it makes the off state invisible to
+everything except whoever can read the configuration file.
+
+### The first entries
+
+Every entry is off unless the configuration names it. That includes the two that are already built:
+a deployment that needs them names them, with a reason, which is the point rather than a migration
+cost. While the repository is private that change lands immediately and the consumer side pays for
+it, per the rule in `AGENTS.md`.
+
+| Entry | Kind | What it adds | What its absence costs | Record |
+|---|---|---|---|---|
+| `viewer_api` | runtime | `GET /v1/audit`, `/v1/identities`, `/v1/policies` on the network | The viewer stops working. The CLI does not: it reads all three from the store without a network hop. | ADR-11 |
+| `bulk_export` | runtime | `POST /v1/export` | Route B and route C fetch by named path instead of by prefix, one request each. `ciphr-run` refuses with `125` rather than starting a service without its secrets. | ADR-14, ADR-18 |
+| `honeypot_alert` | build | The `alert` tier: bait recognition on the authentication path, the trip row, the marker file, the `/v1/health` flag | No detection of bait. A deployment that plants none pays nothing for the absence — and gets the strongest form of ADR-15's property 1, since code that is not compiled in has no timing to get wrong. | ADR-15 |
+| `report` | runtime | `POST /v1/report` for an identity holding `write` on `sys/report`, with `GET /v1/leaks` and `ciphr leak list` beside it | No sender for the leak machinery: a value that escaped into a logfile stays invisible. | ADR-21 |
+| *the anonymous variant* | build | The same handler, exposed without an identity | Nothing, while every consumer sits inside the boundary the service listens on — which is why ADR-16 is deferred rather than listed here as an entry to enable. | ADR-16 |
+
+**`viewer_api` is the entry that pays for itself immediately.** Those three routes exist for a
+component that is already optional (ADR-11), and they put the policy structure and the identity
+inventory on the network for anyone holding any token. A deployment without the viewer has been
+serving them to nobody. This does not weaken the rule that no endpoint exists solely for the UI — the
+CLI reaches the same data, and the rule is about capability parity rather than about which transport a
+given deployment exposes.
+
+**The value index is not an entry.** ADR-21 answers question 5 of section 21 by writing it on every
+`put` in every deployment: an index that exists only where reporting is enabled makes a miss mean two
+things, and the endpoint is designed not to be able to say which. What is optional is the route, not
+the column.
+
+**`bulk_export` is where the honeypot placement problem is decided**, and the two entries are worth
+reading together. The scope question underneath it — an exact grant against a sub-path, and a named
+fetch against a prefix fetch — is answered in
+[authorization.md](../../docs/authorization.md#choosing-the-scope-of-a-machine-identity). A consumer that fetches a prefix reads the value of every path under it, which is
+why ADR-15 sends bait outside every fetched prefix. A deployment that turns `bulk_export` off, and
+whose consumers therefore name their paths, has no fetched prefixes to stay out of. Whether that trade
+is available depends on the consumer, which is exactly the shape of question the surface list exists
+to make explicit.
+
+### What the service says about itself
+
+```
+GET /v1/health          →  which entries are active                (unauthenticated)
+GET /v1/surface         →  entries, dates, reasons, cost sentences (read on sys/surface)
+ciphr surface show      →  the same, from the host
+ciphr surface enable    →  on the host only; there is no route that flips an entry
+```
+
+`sys/surface` is a virtual path, as in sections 22 and 23. No new capability.
+
+The split follows section 10: an unauthenticated endpoint may report **what the process enforces** and
+never **what is stored**. Which entries are active is enforcement. The reason text is prose an operator
+wrote about their environment, so it is authenticated.
+
+Startup writes one audit entry naming the active surface. A deployment that changes its own shape
+currently leaves no record the trail can be asked about.
+
+### Readiness, which is the only thing that adapts
+
+The process never changes its own posture — that is the availability weapon ADR-15 declined, and state
+an adversary can drive. What it does is measure whether an entry's precondition holds and report it, so
+that a condition written in a record becomes something an operator can see:
+
+- **Identity granularity**, which is the condition ADR-15 puts on its severe tiers. Countable: how many
+  consumers stop when one identity's tokens are revoked.
+- **Whether anything polls `/v1/health`.** ADR-15 says an alert nobody polls is not an alert and that
+  nothing here can check the last step. The necessary half is checkable — the process knows when its
+  health endpoint was last fetched — and `ciphr surface enable honeypot_alert` refuses on a host where
+  nothing has asked in days. It remains a necessary condition and not a sufficient one.
+- **Whether the retention cut is running**, which is what ADR-16's property 4 assumes when it bounds an
+  anonymous write path against a finite store.
+
+### Testing
+
+Default (everything off), everything on, and each entry alone: **n+2 configurations**. Affordable while
+n is small, and unaffordable at exactly the point where the set has become a framework. When the rule
+starts to hurt, the answer is fewer entries rather than fewer tests.
+
+`openapi.yaml` marks an optional route as optional. A specification describing routes that no
+deployment necessarily serves describes a system nobody runs.
+
+### What may never become an entry
+
+The audit device requirement. Fail-closed ordering. Deny by default. TLS at the listener. The envelope
+scheme and its AAD binding. The single path normalization. Constant-time credential comparison.
+
+Adding an entry is an ordinary change; changing *this* list is a new ADR. The failure mode of a
+mechanism like this one is that it grows inward, one reasonable-sounding step at a time, and a list
+somebody can point at is the counter.
+
+### What this does not solve
+
+- **It does not make a deployment safer by existing.** Every entry is off until somebody turns it on,
+  and the entries that matter get turned on by the deployments that need them — which are the
+  deployments carrying the surface either way.
+- **It does not bound what an entry costs once it is on.** The cost sentence is documentation; the
+  limiter, the placement rule and the tier are what actually bound anything.
+- **It makes two installations of one version answer differently**, and no amount of specification
+  removes that. It is the price of the mechanism, and the reason the set has to stay small enough to
+  hold in your head.

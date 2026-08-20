@@ -92,7 +92,7 @@ deliberately out of scope, is in [`docs/threat-model.md`](docs/threat-model.md).
 | Where | What |
 |---|---|
 | [`docs/`](docs/README.md) | The documentation index, including a table of risk areas |
-| [`docs/adr/`](docs/adr/) | The 19 architecture decisions, one file each, with what was rejected and why |
+| [`docs/adr/`](docs/adr/) | The 21 architecture records, one file each, with what was rejected and why |
 | [`docs/crypto.md`](docs/crypto.md) | The implemented key hierarchy and wire format, and what the tests establish |
 | [`docs/authorization.md`](docs/authorization.md) | The policy file, the pattern language, and the four rules of the decision |
 | [`docs/security-review.md`](docs/security-review.md) | What an external reviewer should attack, and what would falsify each claim |
