@@ -23,6 +23,7 @@
 
 use core::fmt;
 
+use ciphr_core::{BIND_MOUNT_HINT, BIND_MOUNT_MODE};
 use ciphr_sdk::SdkError;
 
 /// `ciphr-run` failed before the child started.
@@ -110,11 +111,17 @@ impl fmt::Display for RunError {
             Self::TokenFile { path, reason } => {
                 write!(formatter, "cannot read the token file {path}: {reason}")
             }
-            Self::TokenFileWorldReadable { path, mode } => write!(
-                formatter,
-                "the token file {path} is mode {mode:04o} and world-readable; restrict it to its \
-                 owner (and group, if a service needs it)"
-            ),
+            Self::TokenFileWorldReadable { path, mode } => {
+                write!(
+                    formatter,
+                    "the token file {path} is mode {mode:04o} and world-readable; restrict it to \
+                     its owner (and group, if a service needs it)"
+                )?;
+                if *mode == BIND_MOUNT_MODE {
+                    formatter.write_str(BIND_MOUNT_HINT)?;
+                }
+                Ok(())
+            }
             Self::AuthorityFile { path, reason } => write!(
                 formatter,
                 "cannot read the certificate authority {path}: {reason}"
@@ -238,5 +245,29 @@ mod tests {
         }
         .to_string();
         assert!(message.contains("nothing was started"), "{message}");
+    }
+
+    #[test]
+    fn a_refusal_at_0777_names_the_cause_that_platform_actually_has() {
+        // Same hint as the master key check in `ciphr-crypto`, and for the same
+        // reason: this wrapper runs in containers, which is exactly where a bind
+        // mount from a host without Unix permissions reports 0777 for everything.
+        let message = RunError::TokenFileWorldReadable {
+            path: "/run/secrets/token".to_owned(),
+            mode: 0o777,
+        }
+        .to_string();
+        assert!(message.contains("bind mount"), "{message}");
+        assert!(message.contains("named volume"), "{message}");
+    }
+
+    #[test]
+    fn a_refusal_at_any_other_mode_does_not_offer_the_excuse() {
+        let message = RunError::TokenFileWorldReadable {
+            path: "/run/secrets/token".to_owned(),
+            mode: 0o644,
+        }
+        .to_string();
+        assert!(!message.contains("bind mount"), "{message}");
     }
 }

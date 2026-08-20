@@ -19,6 +19,7 @@
 pub mod base64url;
 pub mod capability;
 pub mod env_name;
+pub mod file_mode;
 pub mod hex;
 pub mod path;
 pub mod pattern;
@@ -28,6 +29,7 @@ pub mod version;
 
 pub use capability::{Capability, CapabilityError};
 pub use env_name::{EnvNameError, EnvVarName, NameFault};
+pub use file_mode::{BIND_MOUNT_HINT, BIND_MOUNT_MODE};
 pub use path::{PathError, SecretPath};
 pub use pattern::{PathPattern, PatternError};
 pub use rotation::{Rotation, RotationError};

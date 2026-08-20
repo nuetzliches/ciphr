@@ -15,6 +15,7 @@
 use core::fmt;
 
 use ciphr_core::hex::HexError;
+use ciphr_core::{BIND_MOUNT_HINT, BIND_MOUNT_MODE};
 
 /// Something went wrong in the cryptographic layer.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,10 +109,17 @@ impl fmt::Display for CryptoError {
             Self::MasterKeyFileUnreadable { path, reason } => {
                 write!(f, "cannot read the master key file {path}: {reason}")
             }
-            Self::MasterKeyFileWorldReadable { path, mode } => write!(
-                f,
-                "the master key file {path} is mode {mode:04o} and world-readable;                  restrict it to its owner (and group, if a service needs it)"
-            ),
+            Self::MasterKeyFileWorldReadable { path, mode } => {
+                write!(
+                    f,
+                    "the master key file {path} is mode {mode:04o} and world-readable; \
+                     restrict it to its owner (and group, if a service needs it)"
+                )?;
+                if *mode == BIND_MOUNT_MODE {
+                    f.write_str(BIND_MOUNT_HINT)?;
+                }
+                Ok(())
+            }
             Self::TokenFormat => f.write_str("not a valid token"),
         }
     }
@@ -146,5 +154,32 @@ mod tests {
             CryptoError::Aead.to_string(),
             "authenticated decryption failed"
         );
+    }
+
+    #[test]
+    fn a_refusal_at_0777_names_the_cause_that_platform_actually_has() {
+        // The check is right and stays. What was wrong is the message: on a bind
+        // mount from a host without Unix permissions every file reports 0777, so the
+        // reader was sent looking for a permission nobody set.
+        let message = CryptoError::MasterKeyFileWorldReadable {
+            path: "/etc/ciphr/master.key".to_owned(),
+            mode: 0o777,
+        }
+        .to_string();
+        assert!(message.contains("bind mount"), "{message}");
+        assert!(message.contains("named volume"), "{message}");
+    }
+
+    #[test]
+    fn a_refusal_at_any_other_mode_does_not_offer_the_excuse() {
+        // 0644 is a permission somebody set. Suggesting a bind mount here would teach
+        // the reader that this refusal is usually spurious, which is the opposite of
+        // true.
+        let message = CryptoError::MasterKeyFileWorldReadable {
+            path: "/etc/ciphr/master.key".to_owned(),
+            mode: 0o644,
+        }
+        .to_string();
+        assert!(!message.contains("bind mount"), "{message}");
     }
 }

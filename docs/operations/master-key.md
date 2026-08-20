@@ -74,6 +74,16 @@ configuration does not, but not "never at rest". Know which case your deployment
 A world-readable key file **stops the process**. Group-readable is accepted: root-owned and read by a
 service group is a legitimate arrangement. Windows has no equivalent bit and no check runs there.
 
+**Mode 0777 exactly usually means something else** (noted 2026-08-20). A file bind-mounted from a
+filesystem that has no Unix permissions — a Windows or macOS host under a Linux container engine, or
+a CIFS share — reports 0777 for every file it exposes, whatever the file is on that host. The check
+fires correctly and the message would send you looking for a permission you never set, so at that
+one mode it now says so itself.
+
+The answer is a **named volume**, not a weaker check: put the key file in a volume the engine owns,
+and the permission bits mean what they say again. This is the normal case for developing against a
+container on Windows, and it costs an hour the first time nobody has written it down.
+
 ## What either source buys, and what it does not
 
 The key sits in a file or a variable that the deployment supplies, mode `0600`, owned by the account
@@ -161,6 +171,7 @@ cannot simply be replaced: see [rotating-secrets.md](rotating-secrets.md).
 | Situation | What you will see | What to do |
 |---|---|---|
 | Key file world-readable | Startup fails naming the file and its mode | `chmod 0600`, or `0640` if a service group needs it |
+| Key file reports mode 0777 in a container | The same refusal, plus a sentence about bind mounts | It is almost certainly a bind mount from a host without Unix permissions; move the key into a named volume |
 | Key file missing or unreadable | Startup fails naming the path and the I/O category, never the content | Check the mount actually landed; a secret that failed to mount looks exactly like this |
 | Variable not set | Startup fails naming the variable | Set it; do not "temporarily" generate a new one — a new key cannot read the existing database |
 | Wrong key, valid format | Unsealing fails as an authentication failure, indistinguishable from a corrupted record | Check you are pointing at the intended environment file before concluding the database is damaged |

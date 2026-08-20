@@ -39,6 +39,22 @@ had drawn the same line for the wrapper, which left route B correct here and unr
 - A `.dockerignore` keeps `target/` out of the build context. It changes no image — both Dockerfiles
   copy explicit paths — only what has to be transferred before a build starts.
 
+### Changed — a refusal at mode 0777 names the cause that platform actually has
+
+A world-readable master key file or token file stops the process, and that check does not change.
+The message did. **A bind mount from a filesystem without Unix permissions reports mode 0777 for
+every file** — a Windows or macOS host under a Linux container engine, or a CIFS share — whatever the
+file is on that host. The refusal was correct and sent the reader looking for a permission nobody had
+set, which cost an hour the first time it happened and would have cost it again for every new
+contributor on such a platform.
+
+At mode 0777 exactly, both refusals now say so and name the fix: **a named volume, not a weaker
+check.** At any other mode the sentence does not appear — a hint attached to every refusal would
+teach readers to skip the part that matters, and 0777 is not a state anyone reaches deliberately for
+a credential. The text lives once in `ciphr-core` (`file_mode`), shared by `ciphr-crypto` and
+`ciphr-run`, with tests on both sides pinning that it appears at 0777 and only there.
+`docs/operations/master-key.md` carries the same thing for someone reading ahead of the failure.
+
 ### Added — `ciphr-run`, so route B costs a bind-mount instead of a derived image
 
 [ADR-14](docs/adr/0014-ciphr-run-injects-into-a-child-process.md) is **accepted** and built. A
