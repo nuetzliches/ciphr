@@ -130,6 +130,27 @@ export interface VersionSummary {
   destroyed: boolean;
 }
 
+/**
+ * How safe a secret is recorded to be to rotate.
+ *
+ * `class` is kept as the string the service sent rather than a union type: a viewer
+ * that could not render a class a later service added would be worse than one that
+ * shows an unfamiliar word. `needs_care` is the service's own answer to whether this
+ * should stop somebody, so the styling below does not re-derive that rule — and
+ * `advice` is the same text the CLI prints, which is why it is not duplicated here.
+ */
+export interface Classification {
+  class: string;
+  needs_care: boolean;
+  advice: string;
+}
+
+export interface History {
+  path: string;
+  rotation: Classification;
+  versions: VersionSummary[];
+}
+
 export interface Secret {
   path: string;
   version: number;
@@ -265,8 +286,8 @@ export const api = {
     return request<Listing>(`/v1/list/${encodePath(prefix)}`);
   },
 
-  versions(path: string): Promise<VersionSummary[]> {
-    return request<VersionSummary[]>(`/v1/versions/${encodePath(path)}`);
+  versions(path: string): Promise<History> {
+    return request<History>(`/v1/versions/${encodePath(path)}`);
   },
 
   /**

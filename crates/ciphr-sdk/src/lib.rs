@@ -80,4 +80,4 @@ pub mod types;
 pub use client::{Client, ClientBuilder};
 pub use environment::Environment;
 pub use error::SdkError;
-pub use types::{DeviceHealth, Health, Secret, VersionSummary, Written};
+pub use types::{Classification, DeviceHealth, Health, History, Secret, VersionSummary, Written};

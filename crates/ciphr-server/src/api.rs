@@ -108,6 +108,38 @@ struct WriteResponse {
     version: u32,
 }
 
+/// What `GET /v1/versions/{path}` returns.
+///
+/// An object rather than the bare array this used to be. The rotation class is a
+/// property of the secret and not of any one version, so it has nowhere to live in
+/// an array of versions — and a top-level JSON array cannot grow a field at all,
+/// ever, which means the next piece of per-secret metadata would hit the same wall.
+/// Changing the shape once, while there are two known consumers, is cheaper than
+/// changing it every later time.
+#[derive(Debug, Serialize)]
+struct VersionsResponse {
+    path: String,
+    rotation: RotationResponse,
+    versions: Vec<VersionResponse>,
+}
+
+/// How safe the secret is recorded to be to rotate.
+///
+/// Three fields rather than the class alone, and each earns its place. `needs_care`
+/// keeps the rule about which classes are dangerous in one implementation instead of
+/// being re-derived by every consumer -- a client that decided "anything but
+/// `rotatable`" would be right today and wrong the moment a class is added. `advice`
+/// is prose in a JSON payload, which is unusual and deliberate: the text is defined
+/// next to the classification precisely so that whoever shows it shows it at the
+/// moment of the decision, and a second copy in the viewer's TypeScript is a copy
+/// that drifts silently from the one the CLI prints.
+#[derive(Debug, Serialize)]
+struct RotationResponse {
+    class: String,
+    needs_care: bool,
+    advice: String,
+}
+
 /// One entry of `GET /v1/versions/{path}`.
 #[derive(Debug, Serialize)]
 struct VersionResponse {
@@ -390,16 +422,30 @@ async fn list_versions(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(path): Path<String>,
-) -> Result<Json<Vec<VersionResponse>>, ApiError> {
+) -> Result<Json<VersionsResponse>, ApiError> {
     let request = request_context(&headers);
     let caller = authenticate(&state, &headers, Action::List, &request)?;
     let path = parse_path(&path)?;
 
     state.authorize_and_record(&caller, Action::List, Capability::List, &path, &request)?;
 
-    let versions = state.with_store(|store| store.versions(&path).map_err(ApiError::from))?;
-    Ok(Json(
-        versions
+    // Both reads in one borrow of the store, and both fail identically for a path
+    // that does not exist -- each goes through `require_secret` -- so carrying the
+    // classification here changes no error behaviour.
+    let (metadata, versions) = state.with_store(|store| {
+        let metadata = store.metadata(&path)?;
+        let versions = store.versions(&path)?;
+        Ok::<_, ApiError>((metadata, versions))
+    })?;
+
+    Ok(Json(VersionsResponse {
+        path: path.as_str().to_owned(),
+        rotation: RotationResponse {
+            class: metadata.rotation.as_str().to_owned(),
+            needs_care: metadata.rotation.needs_care(),
+            advice: metadata.rotation.advice().to_owned(),
+        },
+        versions: versions
             .into_iter()
             .map(|summary| VersionResponse {
                 version: summary.version.get(),
@@ -409,7 +455,7 @@ async fn list_versions(
                 destroyed: summary.destroyed_at.is_some(),
             })
             .collect(),
-    ))
+    }))
 }
 
 /// `GET /v1/list/{prefix}` — the paths under a prefix.

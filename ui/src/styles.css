@@ -278,6 +278,17 @@ th.num {
   max-width: 90ch;
 }
 
+/* The rotation class of a secret, above its versions.
+   The class word takes .allow or .warn from the service's own `needs_care`, so
+   the styling never re-derives which classes are dangerous. */
+.rotation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: baseline;
+  margin: 0 0 1rem;
+}
+
 /* The sign-in gate ------------------------------------------------------- */
 
 .gate {

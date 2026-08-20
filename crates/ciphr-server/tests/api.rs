@@ -487,12 +487,49 @@ fn the_version_history_is_available_without_values() {
     );
 
     assert_eq!(status, StatusCode::OK);
-    let versions = body.as_array().expect("an array");
+    let versions = body["versions"].as_array().expect("an array of versions");
     assert_eq!(versions.len(), 2);
     assert_eq!(versions[0]["version"], 1);
     assert_eq!(versions[1]["version"], 2);
     // No values anywhere in a version listing.
     assert!(!body.to_string().contains("second"));
+}
+
+#[test]
+fn the_version_history_carries_the_rotation_class() {
+    // The class is what tells a reader whether rotating this secret destroys
+    // anything, and until now it existed only in the store and the CLI -- so the
+    // viewer could not show it and no API consumer could see it at all.
+    let harness = Harness::new();
+    harness.send(Harness::build(
+        "PUT",
+        "/v1/secrets/infra/service-a/DB_PASSWORD",
+        Some(&harness.deploy_token),
+        Some(serde_json::json!({ "value": "first" })),
+    ));
+
+    let (status, body) = harness.get(
+        "/v1/versions/infra/service-a/DB_PASSWORD",
+        Some(&harness.deploy_token),
+    );
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["path"], "infra/service-a/DB_PASSWORD");
+    // Written through the API without a class, so nobody has classified it.
+    assert_eq!(body["rotation"]["class"], "unclassified");
+    // And the absence of an answer is not reported as a safe one.
+    assert_eq!(body["rotation"]["needs_care"], true);
+    // The advice travels with the class so the viewer shows the same words the CLI
+    // prints, rather than a second copy that drifts. For this class the words that
+    // matter are the ones naming how to record an answer.
+    assert!(
+        body["rotation"]["advice"]
+            .as_str()
+            .expect("advice")
+            .contains("ciphr rotation"),
+        "the advice should say what to do about it: {}",
+        body["rotation"]["advice"]
+    );
 }
 
 #[test]

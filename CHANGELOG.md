@@ -8,6 +8,41 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Changed — the rotation class is on the wire, and the viewer shows it
+
+The class said what happens when a value is rotated, and **no API response contained it**. The plan
+said it "drives warnings in the CLI and the UI"; the CLI half was true and the UI half could not be,
+because the viewer had no way to learn it. Someone looking at a secret in a browser could not see
+that rotating it destroys data.
+
+- **`GET /v1/versions/{path}` now returns an object** — `{ path, rotation, versions }` — where it
+  returned a bare array of versions. **This is a breaking change to that endpoint**, and it is the
+  one place a shape change was unavoidable: the class belongs to the secret rather than to any one
+  version, and a top-level JSON array cannot grow a field at all, so the next piece of per-secret
+  metadata would have met the same wall. Changed once, while the consumers could be counted.
+- **The class travels with `needs_care` and `advice`.** `needs_care` is the service's own answer to
+  whether this should stop somebody, so no client re-derives the rule — one that decided "anything
+  but `rotatable`" would be right today and wrong the moment a class is added. `advice` is prose in a
+  payload, which is unusual and deliberate: the text is defined next to the classification precisely
+  so whoever shows it shows it at the moment of the decision, and a copy in the viewer's TypeScript
+  is a copy that drifts from what the CLI prints.
+- **`class` is an open string, not a closed enum**, for the same reason: a client that could not
+  parse a class a later service added would break for a reason that has nothing to do with it.
+- **The viewer shows it above the versions**, styled from `needs_care` — so `unclassified` reads as a
+  warning rather than an all-clear, which is the entire point of the class.
+- `ciphr-sdk`'s `versions()` returns `History { rotation, versions }` instead of
+  `Vec<VersionSummary>`, with `Classification` carrying the three fields. The end-to-end test over a
+  real TLS socket asserts the classification arrives from the real service.
+
+**Two things a deployment has to sequence.** The viewer built from this commit requires the new
+response shape, so **it must not be deployed ahead of the service** — against 0.2.0 it will find no
+`versions` field. And any client of `/v1/versions/{path}` that parsed a bare array needs the same
+upgrade; `openapi.yaml` carries the new schema.
+
+`ui/package.json` also moves to `0.2.0`. It had been left at `0.1.0` while the tag was `ui-v0.1.1` —
+the image version comes from the tag, so nothing was wrong, but the number in the file said something
+untrue.
+
 ### Added — `import --stdin`, and the boundary an import cannot cross
 
 `import --from-dotenv` presumed a file exists. A service whose container definition reads its

@@ -184,13 +184,11 @@ paths:
         warns about. Suffix parsing on catch-all routes is forbidden throughout.
       responses:
         "200":
-          description: The versions, oldest first.
+          description: The rotation class, and the versions oldest first.
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/VersionSummary"
+                $ref: "#/components/schemas/History"
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -638,6 +636,56 @@ components:
       properties:
         path: { type: string }
         version: { type: integer, format: int32, minimum: 1 }
+
+    History:
+      type: object
+      required: [path, rotation, versions]
+      description: |
+        An object rather than the bare array this returned before 2026-08-20. The
+        rotation class belongs to the secret and not to any one version, so it has
+        nowhere to live inside an array of versions — and a top-level JSON array
+        cannot grow a field at all, which means the next piece of per-secret metadata
+        would meet the same wall. The shape was changed once, while the consumers
+        could be counted.
+      properties:
+        path: { type: string }
+        rotation: { $ref: "#/components/schemas/Classification" }
+        versions:
+          type: array
+          items:
+            $ref: "#/components/schemas/VersionSummary"
+
+    Classification:
+      type: object
+      required: [class, needs_care, advice]
+      description: |
+        How safe the secret is recorded to be to rotate. Metadata only: it never
+        influences an authorization decision, so a wrong classification is an
+        operational problem and never an access-control one.
+
+        `class` is open rather than a closed enum on purpose — a client that could not
+        parse a class a later service added would break for a reason that has nothing
+        to do with it. Decide on `needs_care` instead, which is the service's own
+        answer to whether this should stop somebody; re-deriving it from the class name
+        is right until the set of classes changes.
+      properties:
+        class:
+          type: string
+          examples: ["unclassified", "rotatable", "breaks-data"]
+          description: |
+            `unclassified` is the default and means nobody has said. It is not a claim
+            that rotating is safe, and it counts as needing care.
+        needs_care:
+          type: boolean
+          description: |
+            Whether changing this value can destroy data or silently do nothing. True
+            for every class except `rotatable`, including `unclassified`.
+        advice:
+          type: string
+          description: |
+            What to do instead of rotating blindly, in prose. Carried in the payload so
+            that whatever shows it shows the same words the CLI prints at the same
+            moment — a second copy in a client is a copy that drifts.
 
     VersionSummary:
       type: object

@@ -30,8 +30,8 @@ use secrecy::{ExposeSecret, SecretString};
 use crate::environment::Environment;
 use crate::error::SdkError;
 use crate::types::{
-    DeviceHealth, DeviceHealthWire, ErrorWire, ExportWire, Health, HealthWire, ListingWire, Secret,
-    SecretWire, VersionSummary, VersionSummaryWire, Written, WrittenWire,
+    Classification, DeviceHealth, DeviceHealthWire, ErrorWire, ExportWire, Health, HealthWire,
+    History, ListingWire, Secret, SecretWire, VersionSummary, VersionsWire, Written, WrittenWire,
 };
 
 /// How long a request may take in total, if the caller states nothing else.
@@ -170,7 +170,7 @@ impl Client {
     /// # Errors
     ///
     /// See [`SdkError`].
-    pub fn versions(&self, path: &SecretPath) -> Result<Vec<VersionSummary>, SdkError> {
+    pub fn versions(&self, path: &SecretPath) -> Result<History, SdkError> {
         let url = self.url(&["versions", path.as_str()], None);
         let response = self
             .agent
@@ -178,18 +178,27 @@ impl Client {
             .header("authorization", self.header())
             .call();
 
-        let wire: Vec<VersionSummaryWire> = decode(response, path.as_str())?;
-        wire.into_iter()
-            .map(|entry| {
-                Ok(VersionSummary {
-                    version: parse_version(entry.version)?,
-                    created_at: entry.created_at,
-                    created_by: entry.created_by,
-                    deleted: entry.deleted,
-                    destroyed: entry.destroyed,
+        let wire: VersionsWire = decode(response, path.as_str())?;
+        Ok(History {
+            rotation: Classification {
+                class: wire.rotation.class,
+                needs_care: wire.rotation.needs_care,
+                advice: wire.rotation.advice,
+            },
+            versions: wire
+                .versions
+                .into_iter()
+                .map(|entry| {
+                    Ok(VersionSummary {
+                        version: parse_version(entry.version)?,
+                        created_at: entry.created_at,
+                        created_by: entry.created_by,
+                        deleted: entry.deleted,
+                        destroyed: entry.destroyed,
+                    })
                 })
-            })
-            .collect()
+                .collect::<Result<Vec<_>, SdkError>>()?,
+        })
     }
 
     /// The paths under a prefix that this identity may see.

@@ -23,7 +23,7 @@
  */
 import { onUnmounted, ref } from "vue";
 
-import { ApiError, api, type Secret, type VersionSummary } from "../api";
+import { ApiError, api, type Classification, type Secret, type VersionSummary } from "../api";
 
 const prefix = ref("");
 const paths = ref<string[]>([]);
@@ -33,6 +33,7 @@ const listing = ref(false);
 
 const chosen = ref<string | null>(null);
 const versions = ref<VersionSummary[]>([]);
+const rotation = ref<Classification | null>(null);
 const versionProblem = ref<string | null>(null);
 
 const revealed = ref<Secret | null>(null);
@@ -52,6 +53,7 @@ async function list(): Promise<void> {
   forget();
   chosen.value = null;
   versions.value = [];
+  rotation.value = null;
   try {
     const result = await api.list(prefix.value.trim().replace(/^\/+|\/+$/g, ""));
     paths.value = result.paths;
@@ -70,8 +72,11 @@ async function choose(path: string): Promise<void> {
   forget();
   versionProblem.value = null;
   versions.value = [];
+  rotation.value = null;
   try {
-    versions.value = await api.versions(path);
+    const history = await api.versions(path);
+    versions.value = history.versions;
+    rotation.value = history.rotation;
   } catch (error) {
     versionProblem.value = error instanceof ApiError ? error.text : "The request failed.";
   }
@@ -146,6 +151,18 @@ function when(millis: number): string {
 
     <div v-if="chosen" class="panel">
       <h2 class="mono">{{ chosen }}</h2>
+
+      <!--
+        Above the versions, not beside them: the class is a property of the secret,
+        and it is what a reader needs *before* deciding to write a new version. The
+        wording comes from the service so that it cannot drift from what the CLI
+        prints at the same moment.
+      -->
+      <p v-if="rotation" class="rotation">
+        <span :class="rotation.needs_care ? 'warn' : 'allow'">{{ rotation.class }}</span>
+        <span class="note">{{ rotation.advice }}</span>
+      </p>
+
       <p v-if="versionProblem" class="error">{{ versionProblem }}</p>
       <table v-else>
         <thead>

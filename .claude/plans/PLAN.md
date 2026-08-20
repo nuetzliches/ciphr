@@ -565,7 +565,9 @@ unreadable — the classification belongs in the data model:
 | `invalidates-sessions` | Rotation works, but discards all sessions and derived tokens |
 
 `rotation` is pure metadata and does **not** influence authorization — it drives warnings in
-the CLI and the UI. It is in v1 deliberately, because classifying an existing corpus after the
+the CLI and the UI. Both reach it the same way since 2026-08-20: `GET /v1/versions/{path}`
+returns the class, a `needs_care` flag and the advice text alongside the versions, so the viewer
+shows the words the CLI prints instead of a second copy that drifts. It is in v1 deliberately, because classifying an existing corpus after the
 fact is far more tedious than carrying the field from the start.
 
 **The default was `rotatable` until 2026-08-20, and that was a defect in this table.** A default

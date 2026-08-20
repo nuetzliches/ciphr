@@ -46,6 +46,35 @@ pub struct Written {
     pub version: SecretVersion,
 }
 
+/// A secret's history, and how safe it is recorded to be to rotate.
+///
+/// The classification belongs to the secret rather than to any one version, which
+/// is why it is here and not on [`VersionSummary`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct History {
+    /// How safe this secret is recorded to be to rotate.
+    pub rotation: Classification,
+    /// Every version, oldest first.
+    pub versions: Vec<VersionSummary>,
+}
+
+/// How safe a secret is recorded to be to rotate.
+///
+/// The class is carried as the string the service sent rather than as an enum, and
+/// that is deliberate: a client built against one version of the service must not
+/// fail to parse a class a later one added. `needs_care` is the service's own answer
+/// to "should this stop somebody", so a client that acts on it stays correct when the
+/// set of classes grows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Classification {
+    /// The class, as the service names it — `unclassified`, `rotatable`, and so on.
+    pub class: String,
+    /// Whether changing this value can destroy data or silently do nothing.
+    pub needs_care: bool,
+    /// What to do instead of rotating blindly, in the service's own words.
+    pub advice: String,
+}
+
 /// One entry of a version listing.
 ///
 /// `deleted` and `destroyed` are separate states and not degrees of the same one: a
@@ -119,6 +148,19 @@ pub(crate) struct SecretWire {
 pub(crate) struct WrittenWire {
     pub(crate) path: String,
     pub(crate) version: u32,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct VersionsWire {
+    pub(crate) rotation: RotationWire,
+    pub(crate) versions: Vec<VersionSummaryWire>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct RotationWire {
+    pub(crate) class: String,
+    pub(crate) needs_care: bool,
+    pub(crate) advice: String,
 }
 
 #[derive(Deserialize)]

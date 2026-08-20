@@ -266,9 +266,17 @@ fn the_client_and_the_service_agree() {
     assert_eq!(first.value.expose(), b"seeded-db");
 
     // -- versions and list --------------------------------------------------------------
-    let versions = client.versions(&path).expect("versions");
-    assert_eq!(versions.len(), 2);
-    assert!(versions.iter().all(|entry| !entry.destroyed));
+    let history = client.versions(&path).expect("versions");
+    assert_eq!(history.versions.len(), 2);
+    assert!(history.versions.iter().all(|entry| !entry.destroyed));
+
+    // The classification arrives with the history, over the wire, from the real
+    // service: nothing here wrote a class, so nobody has classified this secret --
+    // and the service says that rather than reporting the safe-sounding default it
+    // used to invent.
+    assert_eq!(history.rotation.class, "unclassified");
+    assert!(history.rotation.needs_care);
+    assert!(history.rotation.advice.contains("ciphr rotation"));
 
     let prefix = SecretPath::parse("infra/service-a").expect("valid");
     let mut listed: Vec<String> = client

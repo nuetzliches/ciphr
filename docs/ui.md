@@ -56,6 +56,13 @@ from an empty prefix. Selecting a path shows its versions, who wrote them, and w
 deleted or destroyed. **Reveal** reads one value, and produces the same audit entry a machine read
 would.
 
+Above the versions sits the **rotation class** and what to do about it — `unclassified` for a secret
+nobody has classified, which is the default and is styled as a warning rather than as an
+all-clear. The wording is not the viewer's: the class, whether it needs care, and the advice all come
+from the service, so the browser cannot say something different from what the CLI says at the same
+moment. Which classes count as dangerous is likewise the service's answer, so adding a class later
+does not need a change here.
+
 **Identities** and **Policies.** Read-only views of the policy file as loaded, including each rule's
 specificity — the number of literal segments, which is what decides between two matching rules. The
 most specific match wins entirely and inherits nothing, and an empty capability list is an explicit

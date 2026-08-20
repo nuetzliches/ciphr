@@ -1,7 +1,7 @@
 # Rotating secrets that do not want to be rotated
 
 **Status:** current as of 2026-08-20. The classification is implemented, stored, readable and
-filterable from the CLI; the UI does not show it yet.
+filterable from the CLI, returned by the API, and shown by the viewer.
 
 Rotation is the operational promise of a secret store, and versioning makes it *easier* to get wrong,
 not harder: write a new version, the next deploy renders it, and data encrypted under the old value is
@@ -24,7 +24,9 @@ is an operational problem and never an access-control one.
 | `invalidates-sessions` | Rotation works, but discards all sessions and derived tokens. |
 
 The advice for each class also lives in the code, on `Rotation::advice`, so that the CLI and the UI can
-show it at the moment of the decision rather than in a document nobody opens under pressure. That is
+show it at the moment of the decision rather than in a document nobody opens under pressure. The
+viewer does not keep its own copy of it: `GET /v1/versions/{path}` carries the class, the
+`needs_care` flag and the advice text, so the browser shows the same words the CLI prints. That is
 deliberate duplication of *wording*, not of truth: a test asserts every class that needs care carries
 more than a one-line explanation.
 
