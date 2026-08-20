@@ -226,20 +226,23 @@ mod tests {
         // including nulls: a reader years later can tell "not applicable" from "this
         // version did not record it".
         //
-        // Last changed when `results` was added, for listings, which authorize per
-        // returned path and therefore have no single decision to record.
+        // Last changed on 2026-08-20, when `subject` was added for the token
+        // actions: an operator issues a credential *for* an identity, and the
+        // actor and the party it concerns are two different things. The hash below
+        // was recomputed independently rather than copied from the failure output,
+        // which is the only way this vector pins anything.
         let chain = Chain::new();
         let record = chain.encode(&sample_entry(), 1_767_225_599_999).unwrap();
 
         assert_eq!(
             record.payload,
-            r#"{"seq":1,"ts":"2025-12-31T23:59:59.999Z","prev_hash":"0000000000000000000000000000000000000000000000000000000000000000","entry":{"principal":{"name":"deploy-runner","kind":"machine","token_id":"a1b2c3d4"},"action":"read","path":"infra/service-a/DB_PASSWORD","version":1,"allowed":true,"deny_reason":null,"rule":{"policy":"infra-read","pattern":"infra/**"},"results":null,"request":{"request_id":"r-1","client_ip":"10.0.0.7","user_agent":"curl/8.5.0","http_status":200,"channel":null}}}"#
+            r#"{"seq":1,"ts":"2025-12-31T23:59:59.999Z","prev_hash":"0000000000000000000000000000000000000000000000000000000000000000","entry":{"principal":{"name":"deploy-runner","kind":"machine","token_id":"a1b2c3d4"},"subject":null,"action":"read","path":"infra/service-a/DB_PASSWORD","version":1,"allowed":true,"deny_reason":null,"rule":{"policy":"infra-read","pattern":"infra/**"},"results":null,"request":{"request_id":"r-1","client_ip":"10.0.0.7","user_agent":"curl/8.5.0","http_status":200,"channel":null}}}"#
         );
         assert_eq!(record.hash_hex(), KAT_HASH);
         assert_eq!(record.prev_hash, GENESIS);
     }
 
-    const KAT_HASH: &str = "20506cb4c414a844c7a205013baac73a267891c34ce0426ac0977f3be7a5a390";
+    const KAT_HASH: &str = "c0a9a6d9372c4280096ba01a551c0866772301749a6b2b99e53a43cfa18bde14";
 
     #[test]
     fn absent_fields_are_written_as_null_rather_than_omitted() {

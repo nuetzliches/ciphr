@@ -10,10 +10,17 @@ that could not be logged must not happen.**
 ## What is recorded
 
 Per entry: the sequence number, an RFC 3339 UTC timestamp, the previous entry's hash, the principal
-(identity name, kind, and the non-secret identifier of the token used), the action, the normalized
-path, the version, whether it was allowed, why it was refused, the rule that decided it, and the
-request context — request id, client address, user agent, HTTP status, and the channel it arrived
-through.
+(identity name, kind, and the non-secret identifier of the token used), the **subject** where the
+action was about someone other than the actor, the action, the normalized path, the version, whether
+it was allowed, why it was refused, the rule that decided it, and the request context — request id,
+client address, user agent, HTTP status, and the channel it arrived through.
+
+**The subject exists for the token actions** (added 2026-08-20). An operator on the host issues a
+credential *for* an identity, and those are two parties: the principal is `cli:<account>`, the
+subject is the identity and the new token's non-secret id. Folding one into the other would make the
+trail say the operator authenticated with a token they had just created. The recorded id is the same
+one every later access with that credential carries, which is what lets a reader join the creation
+of a credential to its use.
 
 **Never recorded:** the secret value, key material, or a token. Only a token's non-secret
 identifier. That is structural rather than reviewed: the types that hold secrets implement no
@@ -100,6 +107,23 @@ of the value of having a second one.
 The SQLite device writes into the same database as the secrets; the file device is the second copy
 that is deliberately *not* in that database. A break in one and not the other localizes the damage —
 which is the main reason to run both.
+
+### What a recorded token issuance is worth, and what it is not
+
+`issue-token` and `revoke-token` entries do **not** defend against whoever can already read the
+master key. Issuing a token needs that key, and anyone holding it plus the database decrypts every
+secret directly — the threat model puts that reader outside the defended boundary deliberately (A5,
+`../threat-model.md`), and no audit entry moves that line.
+
+What the entries change is what the trail can be asked afterwards. Until 2026-08-20 no token command
+wrote one, so a credential created that way was invisible, and every access made with it read as
+ordinary activity of a legitimate identity — the trail answered *"who read this"* confidently and
+wrongly. The chain could not help: it proves nothing was **removed**, and this was never written.
+
+With the entry, concealing the act requires rewriting the chain forward from it, which is exactly
+what an anchor kept outside the store detects. So the value is conditional and worth stating plainly:
+**it is only as good as the anchor schedule.** Two anchors bracketing the issuance turn "somebody may
+have minted a credential" into "the chain between these two heads was rewritten".
 
 ### Stores initialized before 2026-08-19 are missing the first line of their file copy
 

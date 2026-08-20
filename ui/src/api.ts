@@ -173,6 +173,12 @@ export interface AuditEntry {
     prev_hash: string;
     entry: {
       principal?: { name?: string; kind?: string | null; token_id?: string | null } | null;
+      /**
+       * Who or what the action was about, when that is not the actor. Set by the
+       * token actions: an operator issues a credential *for* an identity, so the
+       * principal is the operator and this is the identity plus the token's id.
+       */
+      subject?: { name?: string; kind?: string | null; token_id?: string | null } | null;
       action: string;
       path?: string | null;
       version?: number | null;

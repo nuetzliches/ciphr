@@ -8,6 +8,44 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — creating a credential is in the audit trail
+
+**No token command wrote an audit entry.** Not `issue`, not `revoke`, not `revoke-all`. The
+`tokens` table grew a row and the trail said nothing, and there was no decision recorded anywhere
+that this was intended — `init` and `rotate-master-key`, the other local administrative operations,
+have been audited from the start.
+
+**What this does not do is defend against anyone.** Issuing a token needs the master key, and
+whoever holds that and the database decrypts every secret directly; the threat model puts that
+reader outside the boundary on purpose (A5) and no entry moves that line. It is also not the
+shortest path for such a reader — a token is the long way round to data they already have.
+
+**What it changes is what the trail can be asked.** A token minted that way was invisible, and every
+access made with it afterwards read as ordinary activity of a legitimate identity — so the trail
+answered *"who read this"* confidently and wrongly. The chain could not help: it proves nothing was
+**removed**, and this was never written into it. With the entry, concealing the act requires
+rewriting the chain forward, which is what an anchor kept outside the store detects. The value is
+therefore conditional and the documentation says so: it is only as good as the anchor schedule.
+
+- **`issue-token` and `revoke-token` are new actions**, and `openapi.yaml` carries both.
+- **Audit entries gain a `subject` field.** An operator on the host issues a credential *for* an
+  identity, and those are two parties: `principal` is `cli:<account>`, `subject` is the identity and
+  the token's non-secret id. Folding one into the other would have made the trail say the operator
+  authenticated with a token they had just created. The recorded id is the one every later access
+  with that credential carries, which is what joins the two.
+- **The stored record format therefore changed**, and the pinned known-answer vector in
+  `ciphr-audit` changed with it. Records written before and after differ in shape; **records written
+  earlier keep verifying exactly as they did**, because verification hashes the stored bytes and
+  re-serializes nothing. That property was designed in and is now exercised.
+- **`revoke-all` writes one entry per token**, not one for the batch, because the question asked
+  afterwards is when *this* credential stopped working. Revoking an identity twice records nothing
+  the second time, and revoking a token that does not exist records nothing at all.
+- **The CLI and the viewer both show the subject** where they used to show only a path — an
+  `issue-token` row that says a credential was created and refuses to say for whom is not worth
+  printing. The viewer's column is now `Subject` rather than `Path`.
+
+The token itself never enters the trail, only its non-secret identifier; a test asserts it.
+
 ### Changed — the masking claim now covers the runner that was measured, and stops there
 
 `docs/operations/cli.md` said that verifying `::add-mask::` "by a Forgejo runner and by act_runner is

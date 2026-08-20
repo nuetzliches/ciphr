@@ -802,7 +802,22 @@ components:
                   audit-device-failed,
                   destroy,
                   classify,
+                  issue-token,
+                  revoke-token,
                 ]
+            subject:
+              type: [object, "null"]
+              description: |
+                Who or what the action was *about*, when that is not the actor. Set by
+                `issue-token` and `revoke-token` and by nothing else so far: an operator
+                on the host issues a credential **for** an identity, so `principal` is
+                the operator and `subject` is the identity plus the token's non-secret
+                id. That id is what joins the entry to every later access made with the
+                credential.
+              properties:
+                name: { type: string }
+                kind: { type: [string, "null"] }
+                token_id: { type: [string, "null"] }
             path: { type: [string, "null"] }
             version: { type: [integer, "null"], format: int32 }
             allowed: { type: boolean }

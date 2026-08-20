@@ -844,6 +844,74 @@ fn import(cli: &Context, args: &ImportArgs) -> Result<(), CliError> {
     Ok(())
 }
 
+/// `ciphr token issue`.
+///
+/// Its own function because it is the longest of the token commands and the only
+/// one that both creates a credential and prints it -- keeping it inline pushed
+/// `token` past the length this workspace lints for, and the lint was right.
+fn issue_token(
+    cli: &Context,
+    identity: String,
+    ttl: Option<&str>,
+    force: bool,
+) -> Result<(), CliError> {
+    // The identity must exist in the policy file. Issuing a token for a name
+    // nobody granted anything would produce a credential that authenticates and
+    // can do nothing, which is a confusing thing to hand someone.
+    let policies = PolicySet::from_toml(&std::fs::read_to_string(&cli.policies)?)?;
+    if policies.identity(&identity).is_none() {
+        return Err(CliError::UnknownIdentity { name: identity });
+    }
+
+    guard_secret_output(force)?;
+
+    let expires_at = ttl
+        .map(parse_duration_millis)
+        .transpose()?
+        .map(|millis| now_millis() + millis);
+
+    let kind = policies
+        .identity(&identity)
+        .map(|found| found.kind().as_str().to_owned());
+
+    let mut session = open(cli)?;
+    let token = Token::generate()?;
+    // The session already derived the pepper when it unsealed; deriving a second
+    // one would be one more place for the label to be spelled differently.
+    let pepper = std::mem::replace(
+        &mut session.pepper,
+        ciphr_crypto::TokenPepper::derive(&session.root),
+    );
+    // Recorded before the row exists, like every other mutation here. The
+    // subject is the identity and the token's non-secret id -- the same id
+    // every later access made with this credential will carry, which is what
+    // lets a reader join the two.
+    session.record(
+        &Session::operator_entry(Action::IssueToken, true, None).with_subject(
+            ciphr_audit::Principal {
+                name: identity.clone(),
+                kind,
+                token_id: Some(token.id().as_text().clone()),
+            },
+        ),
+    )?;
+    session
+        .store
+        .issue_token(&identity, &token, &pepper, "cli", expires_at)?;
+
+    // Printed once, here, and never recoverable afterwards: what the database
+    // holds is a verifier, not the token.
+    println!("{}", token.expose_text().as_str());
+    eprintln!();
+    eprintln!("Identity {identity}, token id {}.", token.id());
+    match expires_at {
+        Some(at) => eprintln!("Expires {}.", ciphr_audit::time::rfc3339_millis(at)),
+        None => eprintln!("No expiry. Consider --ttl for anything held by CI."),
+    }
+    eprintln!("This is the only time the token is shown.");
+    Ok(())
+}
+
 /// `ciphr token …`.
 fn token(cli: &Context, command: TokenCommand) -> Result<(), CliError> {
     match command {
@@ -851,48 +919,7 @@ fn token(cli: &Context, command: TokenCommand) -> Result<(), CliError> {
             identity,
             ttl,
             force,
-        } => {
-            // The identity must exist in the policy file. Issuing a token for a name
-            // nobody granted anything would produce a credential that authenticates and
-            // can do nothing, which is a confusing thing to hand someone.
-            let policies = PolicySet::from_toml(&std::fs::read_to_string(&cli.policies)?)?;
-            if policies.identity(&identity).is_none() {
-                return Err(CliError::UnknownIdentity { name: identity });
-            }
-
-            guard_secret_output(force)?;
-
-            let expires_at = ttl
-                .as_deref()
-                .map(parse_duration_millis)
-                .transpose()?
-                .map(|millis| now_millis() + millis);
-
-            let mut session = open(cli)?;
-            let token = Token::generate()?;
-            // The session already derived the pepper when it unsealed; deriving a second
-            // one would be one more place for the label to be spelled differently.
-            let pepper = std::mem::replace(
-                &mut session.pepper,
-                ciphr_crypto::TokenPepper::derive(&session.root),
-            );
-            session
-                .store
-                .issue_token(&identity, &token, &pepper, "cli", expires_at)?;
-
-            // Printed once, here, and never recoverable afterwards: what the database
-            // holds is a verifier, not the token.
-            println!("{}", token.expose_text().as_str());
-            eprintln!();
-            eprintln!("Identity {identity}, token id {}.", token.id());
-            match expires_at {
-                Some(at) => eprintln!("Expires {}.", ciphr_audit::time::rfc3339_millis(at)),
-                None => eprintln!("No expiry. Consider --ttl for anything held by CI."),
-            }
-            eprintln!("This is the only time the token is shown.");
-            Ok(())
-        }
-
+        } => issue_token(cli, identity, ttl.as_deref(), force),
         TokenCommand::List { identity } => {
             let session = open(cli)?;
             for record in session.store.tokens(identity.as_deref())? {
@@ -920,6 +947,30 @@ fn token(cli: &Context, command: TokenCommand) -> Result<(), CliError> {
 
         TokenCommand::Revoke { token_id } => {
             let mut session = open(cli)?;
+            // Looked up first so that a revocation of a token that does not exist
+            // is refused without recording one that never happened. The store
+            // refuses it too; recording afterwards would put the claim in the trail
+            // before the refusal.
+            let identity = session
+                .store
+                .tokens(None)?
+                .into_iter()
+                .find(|record| record.token_id == token_id)
+                .map(|record| record.identity);
+            let Some(identity) = identity else {
+                return Err(CliError::Store(ciphr_store::StoreError::TokenNotFound {
+                    token_id: token_id.clone(),
+                }));
+            };
+            session.record(
+                &Session::operator_entry(Action::RevokeToken, true, None).with_subject(
+                    ciphr_audit::Principal {
+                        name: identity,
+                        kind: None,
+                        token_id: Some(token_id.clone()),
+                    },
+                ),
+            )?;
             session.store.revoke_token(&token_id)?;
             println!("{token_id} revoked");
             Ok(())
@@ -927,7 +978,34 @@ fn token(cli: &Context, command: TokenCommand) -> Result<(), CliError> {
 
         TokenCommand::RevokeAll { identity } => {
             let mut session = open(cli)?;
+
+            // One entry per token rather than one for the batch. The question asked
+            // afterwards is "when did *this* credential stop working", and a single
+            // entry carrying a count cannot answer it. Only the tokens this call
+            // will actually revoke: an already-revoked one is not revoked again, and
+            // recording it would put an event in the trail that did not happen.
+            let revoking: Vec<String> = session
+                .store
+                .tokens(Some(&identity))?
+                .into_iter()
+                .filter(|record| record.revoked_at.is_none())
+                .map(|record| record.token_id)
+                .collect();
+
+            for token_id in &revoking {
+                session.record(
+                    &Session::operator_entry(Action::RevokeToken, true, None).with_subject(
+                        ciphr_audit::Principal {
+                            name: identity.clone(),
+                            kind: None,
+                            token_id: Some(token_id.clone()),
+                        },
+                    ),
+                )?;
+            }
+
             let count = session.store.revoke_identity_tokens(&identity)?;
+            debug_assert_eq!(count, revoking.len(), "the lock makes these agree");
             println!("{count} token(s) of {identity} revoked");
             Ok(())
         }
@@ -977,8 +1055,23 @@ fn audit(cli: &Context, command: &AuditCommand) -> Result<(), CliError> {
                 let record: serde_json::Value = serde_json::from_str(&row.payload)
                     .map_err(|error| CliError::Audit(format!("unreadable record: {error}")))?;
                 let entry = &record["entry"];
+                // The last column is whatever the action was about: a path for the
+                // secret actions, and for the token actions the identity and the
+                // token's id. Without it `issue-token allow -` says that a
+                // credential was created and refuses to say for whom, which is the
+                // one thing somebody reading this line needs.
+                let about = match entry["path"].as_str() {
+                    Some(path) => path.to_owned(),
+                    None => match entry["subject"]["name"].as_str() {
+                        Some(name) => match entry["subject"]["token_id"].as_str() {
+                            Some(token_id) => format!("{name} ({token_id})"),
+                            None => name.to_owned(),
+                        },
+                        None => "-".to_owned(),
+                    },
+                };
                 println!(
-                    "{:>6}  {}  {:<24}  {:<8}  {:<7}  {}",
+                    "{:>6}  {}  {:<24}  {:<13}  {:<7}  {}",
                     row.seq,
                     record["ts"].as_str().unwrap_or("?"),
                     entry["principal"]["name"].as_str().unwrap_or("-"),
@@ -988,7 +1081,7 @@ fn audit(cli: &Context, command: &AuditCommand) -> Result<(), CliError> {
                     } else {
                         "deny"
                     },
-                    entry["path"].as_str().unwrap_or("-"),
+                    about,
                 );
             }
             Ok(())

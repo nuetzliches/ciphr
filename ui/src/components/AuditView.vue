@@ -83,6 +83,28 @@ const shownJson = computed(() =>
   shownRecord.value === null ? "" : JSON.stringify(shownRecord.value.record, null, 2),
 );
 
+/**
+ * The last column: what the action was about.
+ *
+ * A path for the secret actions, and for the token actions the identity the
+ * credential belongs to and its non-secret id. Without this an `issue-token` row
+ * says a credential was created and refuses to say for whom — which is the one
+ * thing a reader of that row needs.
+ */
+function aboutOf(entry: AuditEntry): string {
+  const record = entry.record.entry;
+  if (record.path !== null && record.path !== undefined) {
+    return record.path;
+  }
+  const subject = record.subject;
+  if (subject === null || subject === undefined || subject.name === undefined) {
+    return "—";
+  }
+  return subject.token_id === null || subject.token_id === undefined
+    ? subject.name
+    : `${subject.name} (${subject.token_id})`;
+}
+
 function principalOf(entry: AuditEntry): string {
   const principal = entry.record.entry.principal;
   if (principal === null || principal === undefined || principal.name === undefined) {
@@ -183,7 +205,9 @@ onMounted(() => {
           <th>When</th>
           <th>Identity</th>
           <th>Action</th>
-          <th>Path</th>
+          <!-- Not "Path": for the token actions this column carries the identity a
+               credential was issued for and the token's id. -->
+          <th>Subject</th>
           <th>Outcome</th>
           <th class="num">HTTP</th>
         </tr>
@@ -199,7 +223,7 @@ onMounted(() => {
           <td class="mono">{{ entry.record.ts }}</td>
           <td>{{ principalOf(entry) }}</td>
           <td class="mono">{{ entry.record.entry.action }}</td>
-          <td class="mono">{{ entry.record.entry.path ?? "—" }}</td>
+          <td class="mono">{{ aboutOf(entry) }}</td>
           <td :class="entry.record.entry.allowed ? 'allow' : 'deny'">{{ outcomeOf(entry) }}</td>
           <td class="num mono">{{ entry.record.entry.request?.http_status ?? "—" }}</td>
         </tr>

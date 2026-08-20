@@ -259,6 +259,12 @@ A TTL needs a unit: `90d`, `12h`, `30m`, `3600s`. A bare number is refused rathe
 seconds, because "90" meaning seconds when days were intended is a token that expires mid-deploy.
 Prefer shorter lifetimes for CI than for a host: those tokens are spread across more systems.
 
+Issuing and revoking are audited (`issue-token`, `revoke-token`), naming the operator who ran the
+command, the identity the credential is for, and the token's non-secret id — never the token. A
+`revoke-all` writes one entry per token rather than one for the batch, because the question asked
+afterwards is when *this* credential stopped working. What that buys, and what it does not, is in
+[audit-trail.md](audit-trail.md).
+
 `revoke-all` is what to reach for when an identity is compromised — one call, rather than listing
 tokens and hoping the list was complete.
 

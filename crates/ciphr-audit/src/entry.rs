@@ -41,6 +41,26 @@ pub enum Action {
     RotateMasterKey,
     /// Crypto-shred a version, irreversibly.
     Destroy,
+    /// Issue a token for an identity.
+    ///
+    /// Recorded because a credential is created here and nowhere else. Until
+    /// 2026-08-20 it was not: the `tokens` table grew a row and the trail said
+    /// nothing, so a token minted by whoever could reach the store and the master
+    /// key was invisible — and every access made with it afterwards read as
+    /// ordinary activity of a legitimate identity.
+    ///
+    /// This does not defend against that reader; nothing in software can, and the
+    /// threat model says so (A5). What it changes is that hiding the act now
+    /// requires rewriting the chain, which is exactly what the anchor outside the
+    /// store detects. A chain can prove nothing was removed. It cannot show
+    /// something that was never written into it.
+    IssueToken,
+    /// Revoke a token.
+    ///
+    /// One entry per token, including when a whole identity is revoked at once:
+    /// the question asked afterwards is "when did *this* credential stop working",
+    /// and a single entry with a count cannot answer it.
+    RevokeToken,
     /// Change how safe a secret is recorded to be to rotate.
     ///
     /// Its own action rather than a [`Action::Write`], because the question it
@@ -74,6 +94,8 @@ impl Action {
             Self::RotateMasterKey => "rotate-master-key",
             Self::Destroy => "destroy",
             Self::Classify => "classify",
+            Self::IssueToken => "issue-token",
+            Self::RevokeToken => "revoke-token",
             Self::AuditDeviceFailed => "audit-device-failed",
         }
     }
@@ -165,6 +187,17 @@ pub struct Entry {
     /// Who acted. `None` when authentication failed before an identity was
     /// established, which is itself worth recording.
     pub principal: Option<Principal>,
+    /// Who or what the action was *about*, when that is not the actor.
+    ///
+    /// Set by the token actions and by nothing else so far. An operator on the
+    /// host issues a credential *for* an identity, and those are two different
+    /// parties: `principal` is `cli:<account>`, `subject` is the identity and the
+    /// token's non-secret id. Folding the second into the first would make the
+    /// trail say the operator authenticated with a token they had just minted.
+    ///
+    /// The token id is what joins this entry to every later access made with that
+    /// credential, which is the whole reason it is here rather than in prose.
+    pub subject: Option<Principal>,
     /// What was attempted.
     pub action: Action,
     /// The normalized path, when the action has one.
@@ -199,6 +232,7 @@ impl Entry {
     pub fn allowed(action: Action) -> Self {
         Self {
             principal: None,
+            subject: None,
             action,
             path: None,
             version: None,
@@ -214,6 +248,7 @@ impl Entry {
     pub fn denied(action: Action, reason: impl Into<String>) -> Self {
         Self {
             principal: None,
+            subject: None,
             action,
             path: None,
             version: None,
@@ -229,6 +264,15 @@ impl Entry {
     #[must_use]
     pub fn with_principal(mut self, principal: Principal) -> Self {
         self.principal = Some(principal);
+        self
+    }
+
+    /// Attach the subject: who or what the action was about.
+    ///
+    /// Distinct from [`Entry::with_principal`], which is who performed it.
+    #[must_use]
+    pub fn with_subject(mut self, subject: Principal) -> Self {
+        self.subject = Some(subject);
         self
     }
 
