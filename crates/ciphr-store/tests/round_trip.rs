@@ -357,3 +357,41 @@ fn a_reopened_database_keeps_everything() {
     let unsealed = seal.unseal(&state.wrapped_root_key).expect("unseal");
     assert_eq!(read(&store, &unsealed, &at, None), b"persisted");
 }
+
+#[test]
+fn the_reserved_prefix_cannot_hold_a_secret() {
+    // Finding F2 of the 2026-08-21 review: the refusal used to live in the HTTP
+    // layer alone, so `ciphr put sys/audit` created a real secret that shadowed the
+    // virtual path an auditor's `read` rule names. The store is where the claim
+    // speaks, so this test asks the store — no server, no CLI.
+    let (mut store, root) = initialized();
+    let plaintext = Plaintext::from(&b"planted"[..]);
+
+    for text in ["sys/audit", "sys/identities", "sys/anything/deeper"] {
+        let at = path(text);
+        let refused = store.put(&at, "operator", &mut |version| {
+            encrypt(&root, &at, version, &plaintext)
+        });
+        assert!(
+            matches!(refused, Err(StoreError::Reserved { .. })),
+            "{text} must be refused"
+        );
+        assert!(
+            matches!(store.metadata(&at), Err(StoreError::NotFound { .. })),
+            "{text} must not exist afterwards"
+        );
+        assert!(
+            matches!(
+                store.delete(&at, SecretVersion::FIRST),
+                Err(StoreError::Reserved { .. })
+            ),
+            "deleting {text} must be refused too"
+        );
+    }
+
+    // Segment-aware, so an ordinary path that merely starts with those letters is
+    // untouched.
+    let ordinary = path("system/config");
+    put(&mut store, &root, &ordinary, b"ordinary");
+    assert_eq!(read(&store, &root, &ordinary, None), b"ordinary");
+}

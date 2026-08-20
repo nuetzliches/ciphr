@@ -414,6 +414,11 @@ fn run(cli: Cli) -> Result<(), CliError> {
 
         Command::Put { path, rotation } => {
             let path = SecretPath::parse(&path)?;
+            // Refused before the value is read and before anything is recorded, the
+            // same way a malformed path is. The store refuses it too, and that is
+            // where the rule lives; checking here keeps the trail from carrying an
+            // allowed write that storage was always going to turn down.
+            ciphr_store::reject_reserved(&path)?;
             let value = read_value_from_stdin()?;
             let rotation = rotation.as_deref().map(Rotation::parse).transpose()?;
 
@@ -528,6 +533,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
 
         Command::Delete { path, version } => {
             let path = SecretPath::parse(&path)?;
+            ciphr_store::reject_reserved(&path)?;
             let mut session = open(&cli)?;
             let version = match version.and_then(SecretVersion::new) {
                 Some(version) => version,

@@ -23,6 +23,7 @@ use crate::error::StoreError;
 use crate::migrations::{self, SCHEMA_VERSION};
 use crate::store::{
     EncryptForVersion, SealState, SecretMetadata, Store, StoredVersion, VersionSummary,
+    reject_reserved,
 };
 
 /// Meta keys holding the seal record. All four are written together or not at all.
@@ -236,6 +237,8 @@ impl Store for SqliteStore {
         created_by: &str,
         encrypt: EncryptForVersion<'_>,
     ) -> Result<SecretVersion, StoreError> {
+        reject_reserved(path)?;
+
         let now = now_millis();
         let transaction = self
             .connection
@@ -489,6 +492,8 @@ impl Store for SqliteStore {
     }
 
     fn delete(&mut self, path: &SecretPath, version: SecretVersion) -> Result<(), StoreError> {
+        reject_reserved(path)?;
+
         let (secret_id, _, _) = self.require_secret(path)?;
         let changed = self.connection.execute(
             "UPDATE secret_versions SET deleted_at = ?3

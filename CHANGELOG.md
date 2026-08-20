@@ -29,6 +29,26 @@ was not holding on the hottest path in the codebase.
 - The two functions that carry credentials are documented as the pair that does, and `decode` and
   `encode` say in as many words that what they return is not wiped by anything.
 
+### Security — the reserved `sys/` prefix is refused by storage, not only over HTTP
+
+Finding F2 of the same review, which falsified claim D6. The refusal lived in `ciphr-server` alone,
+so `ciphr put sys/audit` created a real secret at a path that names a virtual one. One rule granting
+an auditor `read` on `sys/audit` — the natural grant — then authorized two different things: the
+audit trail, and whatever an operator had planted there.
+
+Creating the shadow took host CLI access, so this was not an escalation path. It was a claim
+enforced at the wrong layer, and the layer that was missing it is the one the claim speaks about.
+
+- **`ciphr-store` refuses writes and deletes under the prefix** (`StoreError::Reserved`), so every
+  caller is covered rather than the ones that arrive over HTTP. `put` is the gate that matters — it
+  is the only way a secret comes into existence — and `delete` checks too, because the claim names
+  deletes.
+- **The prefix has one definition**, `ciphr_core::path::RESERVED_PREFIX`, with
+  `SecretPath::is_reserved` beside it. Two places deciding what "reserved" means is how they come to
+  disagree.
+- The HTTP and CLI checks stay as early, specific errors, and both now call the shared refusal. A
+  refused `put` reaches the store no more than it reaches the audit trail.
+
 ### Documented — what publication has to decide about the one file that names this deployment
 
 `.forgejo/workflows/` carries a registry hostname, an image namespace and a runner label, because a

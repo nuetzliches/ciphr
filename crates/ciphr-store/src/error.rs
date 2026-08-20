@@ -6,6 +6,7 @@
 
 use core::fmt;
 
+use ciphr_core::path::RESERVED_PREFIX;
 use ciphr_core::{PathError, RotationError, SecretVersion};
 use ciphr_crypto::CryptoError;
 
@@ -68,6 +69,18 @@ pub enum StoreError {
     TokenNotFound {
         /// The identifier that was requested.
         token_id: String,
+    },
+    /// The path lies under the reserved prefix, which cannot hold secrets.
+    ///
+    /// `sys/**` names the virtual paths the administrative operations authorize
+    /// against. A secret stored there would shadow one of them, and a rule granting
+    /// `read` on `sys/audit` would then authorize both the audit trail and whatever
+    /// was planted under that name. Refused here rather than at a caller, so that
+    /// every way in is covered — the review of 2026-08-21 found the check living in
+    /// the HTTP layer alone, where the CLI walked past it (finding F2).
+    Reserved {
+        /// The path that was refused.
+        path: String,
     },
     /// The store already holds a sealed root key.
     ///
@@ -155,6 +168,10 @@ impl fmt::Display for StoreError {
                 write!(f, "version {version} of '{path}' was destroyed")
             }
             Self::TokenNotFound { token_id } => write!(f, "no token with id '{token_id}'"),
+            Self::Reserved { path } => write!(
+                f,
+                "'{RESERVED_PREFIX}/' is reserved and cannot hold secrets, so '{path}' was refused"
+            ),
             Self::AlreadyInitialized => f.write_str("the store is already initialized"),
             Self::NotInitialized => f.write_str("the store is not initialized"),
             Self::SchemaTooNew { found, supported } => write!(

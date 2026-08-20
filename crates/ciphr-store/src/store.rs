@@ -132,7 +132,8 @@ pub trait Store {
     ///
     /// # Errors
     ///
-    /// Returns whatever `encrypt` returns, wrapped in [`StoreError::Crypto`];
+    /// Returns [`StoreError::Reserved`] for a path under `sys/`, which no caller may
+    /// create; whatever `encrypt` returns, wrapped in [`StoreError::Crypto`];
     /// [`StoreError::VersionOverflow`] if the path has exhausted its version
     /// numbers; or [`StoreError::Sqlite`] on a database error. On any error the
     /// transaction is rolled back and no version is created.
@@ -190,8 +191,9 @@ pub trait Store {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::NotFound`] or [`StoreError::VersionNotFound`] if
-    /// there is nothing to delete.
+    /// Returns [`StoreError::Reserved`] for a path under `sys/`, or
+    /// [`StoreError::NotFound`] / [`StoreError::VersionNotFound`] if there is
+    /// nothing to delete.
     fn delete(&mut self, path: &SecretPath, version: SecretVersion) -> Result<(), StoreError>;
 
     /// Restore a soft-deleted version.
@@ -214,4 +216,31 @@ pub trait Store {
     /// Returns [`StoreError::NotFound`] or [`StoreError::VersionNotFound`] if
     /// there is nothing to destroy.
     fn destroy(&mut self, path: &SecretPath, version: SecretVersion) -> Result<(), StoreError>;
+}
+
+/// Refuse a path under the reserved prefix. Part of the [`Store`] contract, not of
+/// one implementation.
+///
+/// Every implementation of [`Store::put`] and [`Store::delete`] calls this. It lives
+/// here rather than in `sqlite.rs` so that a second backend inherits the rule instead
+/// of having to remember it, and it lives in the storage layer rather than in a
+/// caller because that is where the claim speaks: no secret may exist under `sys/`,
+/// for any way in, not merely for requests that arrive over HTTP.
+///
+/// [`Store::put`] is the gate that matters — it is the only way a secret comes into
+/// existence, so nothing reserved can be there for the other operations to find.
+/// [`Store::delete`] checks anyway, because the claim names deletes too and a
+/// refusal is cheaper than an argument about why it is unnecessary.
+///
+/// # Errors
+///
+/// Returns [`StoreError::Reserved`] if `path` lies under
+/// [`ciphr_core::path::RESERVED_PREFIX`].
+pub fn reject_reserved(path: &SecretPath) -> Result<(), StoreError> {
+    if path.is_reserved() {
+        return Err(StoreError::Reserved {
+            path: path.as_str().to_owned(),
+        });
+    }
+    Ok(())
 }

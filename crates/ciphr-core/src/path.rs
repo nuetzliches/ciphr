@@ -47,6 +47,18 @@ pub const MAX_PATH_LEN: usize = 1024;
 /// Maximum length of a single segment, in bytes of its NFC form.
 pub const MAX_SEGMENT_LEN: usize = 128;
 
+/// The first segment of the virtual administrative paths.
+///
+/// `sys/audit`, `sys/identities`, and `sys/policies` are what the administrative
+/// endpoints authorize against, through the ordinary evaluator — which is why no
+/// `admin` capability exists. They are not secrets and no secret may be created
+/// under them; see [`SecretPath::is_reserved`].
+///
+/// Defined here, in the crate that owns the path type, because two places deciding
+/// what "reserved" means is how they come to disagree — the same reason
+/// normalization has exactly one home (ADR-9).
+pub const RESERVED_PREFIX: &str = "sys";
+
 /// A normalized secret path.
 ///
 /// The only way to obtain one is [`SecretPath::parse`], so a value of this type
@@ -139,6 +151,29 @@ impl SecretPath {
         self.0.len() > prefix.0.len()
             && self.0.as_bytes()[prefix.0.len()] == b'/'
             && self.0.starts_with(prefix.as_str())
+    }
+
+    /// Whether this path lies under the reserved prefix [`RESERVED_PREFIX`].
+    ///
+    /// A real secret here would shadow one of the virtual administrative paths, and
+    /// then a single rule granting `read` on `sys/audit` would authorize two
+    /// different things: the audit trail, and whatever value someone stored under
+    /// that name. Storage refuses it, so the refusal holds for every caller rather
+    /// than for those that arrive over HTTP.
+    ///
+    /// Segment-aware, like [`SecretPath::starts_with`]: `system/config` is not
+    /// reserved.
+    ///
+    /// ```
+    /// use ciphr_core::SecretPath;
+    ///
+    /// assert!(SecretPath::parse("sys/audit")?.is_reserved());
+    /// assert!(SecretPath::parse("sys/anything/deeper")?.is_reserved());
+    /// assert!(!SecretPath::parse("system/config")?.is_reserved());
+    /// # Ok::<(), ciphr_core::PathError>(())
+    /// ```
+    pub fn is_reserved(&self) -> bool {
+        self.segments().next() == Some(RESERVED_PREFIX)
     }
 
     /// Consume the path, returning the normalized string.

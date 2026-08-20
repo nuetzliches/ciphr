@@ -1,7 +1,7 @@
 # Authorization, as implemented
 
-**Status:** implemented and tested as of 2026-08-18, re-read against the code on 2026-08-20,
-scope guidance added 2026-08-21.
+**Status:** implemented and tested as of 2026-08-18, re-read against the code on 2026-08-20, scope
+guidance and the enforcement layer of the reserved prefix corrected 2026-08-21.
 Describes the code in `crates/ciphr-policy` and the pattern matcher in `crates/ciphr-core`. **Every
 authorization decision the service makes goes through this** — the sentence here used to say there
 was no HTTP server yet and that the semantics were what it *would* call, which stopped being true
@@ -43,6 +43,11 @@ by finding a gap in a policy file.
 
 Administrative reads go through the same evaluator as everything else, as the virtual paths
 `sys/audit`, `sys/identities`, and `sys/policies`. One authorization mechanism, one code path.
+
+Nothing under `sys/` can be a real secret, and **storage is what refuses it** — not the HTTP layer,
+which would leave the CLI free to plant one. That is what keeps a rule about `sys/audit` a rule
+about the audit trail: if a secret could live at that path, one grant would silently authorize two
+different things.
 
 ## The pattern language, in full
 

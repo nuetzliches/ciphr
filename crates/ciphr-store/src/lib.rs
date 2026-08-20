@@ -65,5 +65,6 @@ pub use migrations::SCHEMA_VERSION;
 pub use sqlite::SqliteStore;
 pub use store::{
     EncryptForVersion, SealState, SecretMetadata, Store, StoredVersion, VersionSummary,
+    reject_reserved,
 };
 pub use tokens::{Authenticated, TokenRecord};

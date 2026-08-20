@@ -31,6 +31,7 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use ciphr_audit::{Action, RequestContext};
+use ciphr_core::path::RESERVED_PREFIX;
 use ciphr_core::{Capability, Plaintext, SecretPath, SecretVersion};
 use ciphr_policy::IdentityKind;
 use ciphr_store::{AuditFilter, Store};
@@ -38,10 +39,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::ApiError;
 use crate::state::{AppState, Caller, DeviceHealth};
-
-/// Paths under this prefix are virtual: they authorize administrative reads and can
-/// never be secrets.
-const RESERVED_PREFIX: &str = "sys";
 
 /// The most audit entries one request will return.
 const AUDIT_LIMIT_MAX: u32 = 1000;
@@ -878,13 +875,16 @@ fn parse_path(raw: &str) -> Result<SecretPath, ApiError> {
 /// `sys/**` names the virtual paths the administrative endpoints authorize against.
 /// If a real secret could live there, a write would change what an authorization
 /// decision means.
+///
+/// **This is not where the rule is enforced.** `ciphr-store` refuses the same paths,
+/// so the CLI and any other caller are covered as well; until the review of
+/// 2026-08-21 (finding F2) this check was the only one, and `ciphr put sys/audit`
+/// walked past it. What it still buys is a `400` that names the reason before a
+/// request does any work, rather than the same refusal surfacing from storage.
 fn reject_reserved(path: &SecretPath) -> Result<(), ApiError> {
-    if path.segments().next() == Some(RESERVED_PREFIX) {
-        return Err(ApiError::BadRequest {
-            reason: format!("'{RESERVED_PREFIX}/' is reserved and cannot hold secrets"),
-        });
-    }
-    Ok(())
+    ciphr_store::reject_reserved(path).map_err(|_| ApiError::BadRequest {
+        reason: format!("'{RESERVED_PREFIX}/' is reserved and cannot hold secrets"),
+    })
 }
 
 /// One of the virtual administrative paths.

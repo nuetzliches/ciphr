@@ -139,6 +139,12 @@ impl From<ciphr_store::StoreError> for ApiError {
             | StoreError::VersionNotFound { .. }
             | StoreError::VersionDeleted { .. }
             | StoreError::VersionDestroyed { .. } => Self::NotFound,
+            // The client asked for something that cannot exist, which is a fault in
+            // the request and not in the service. Reachable only if a route forgets
+            // its own early check, and a `500` would then blame the wrong side.
+            StoreError::Reserved { .. } => Self::BadRequest {
+                reason: error.to_string(),
+            },
             other => Self::Internal {
                 detail: other.to_string(),
             },

@@ -1,6 +1,6 @@
 # The `ciphr` command
 
-**Status:** implemented and tested as of 2026-08-20. Every command below works. Deployment
+**Status:** implemented and tested as of 2026-08-21. Every command below works. Deployment
 — containers, reverse proxy, certificates — is documented in `docs/operations/` and in the
 deployment's own repository, not here.
 
@@ -112,6 +112,12 @@ ciphr rotation infra/service-a/DB_KEY breaks-data      # prints what to do inste
 A secret written without `--rotation` is `unclassified`, not `rotatable`: the default is the absence
 of an answer rather than a claim that rotating it is safe. See
 [rotating-secrets.md](rotating-secrets.md).
+
+**`sys/` is refused.** `put` and `delete` under that prefix fail, because `sys/audit`,
+`sys/identities`, and `sys/policies` are the virtual paths administrative access is authorized
+against — a real secret there would make one policy rule mean two things. Storage enforces this, so
+the CLI cannot get around it; until 2026-08-21 only the HTTP API did, and `ciphr put sys/audit`
+worked.
 
 Every one of these is audited, including the metadata ones. Setting a class writes a `classify`
 entry — its own action, because it produces no version and would otherwise be invisible among the
