@@ -185,15 +185,19 @@ fn fetch(client: &Client, cli: &Cli) -> Result<Environment, RunError> {
     Ok(client.environment_of(&paths)?)
 }
 
-/// Read the token, refusing a file anyone on the host can read.
+/// Read the token, refusing a file anyone on the host can read or replace.
 ///
-/// The permission check mirrors the one on the master key file in `ciphr-crypto`: a
-/// world-readable credential is unambiguously wrong, so it stops the process instead of
+/// The permission check mirrors the one on the master key file in `ciphr-crypto`, and now
+/// shares its rule ([`ciphr_core::WorldAccess`]) rather than restating it: a
+/// world-accessible credential is unambiguously wrong, so it stops the process instead of
 /// producing a warning nobody reads. Group bits are left alone — a root-owned file read by
 /// a service group is a legitimate arrangement, and refusing it would push deployments
 /// towards running as root.
+///
+/// Replaceable matters as much as readable here. This file is the only thing standing
+/// between the wrapper and a token of someone else's choosing.
 fn read_token(path: &Path) -> Result<String, RunError> {
-    check_not_world_readable(path)?;
+    check_not_world_accessible(path)?;
 
     std::fs::read_to_string(path).map_err(|error| RunError::TokenFile {
         path: path.display().to_string(),
@@ -202,7 +206,7 @@ fn read_token(path: &Path) -> Result<String, RunError> {
 }
 
 #[cfg(unix)]
-fn check_not_world_readable(path: &Path) -> Result<(), RunError> {
+fn check_not_world_accessible(path: &Path) -> Result<(), RunError> {
     use std::os::unix::fs::PermissionsExt;
 
     let metadata = std::fs::metadata(path).map_err(|error| RunError::TokenFile {
@@ -211,10 +215,11 @@ fn check_not_world_readable(path: &Path) -> Result<(), RunError> {
     })?;
 
     let mode = metadata.permissions().mode() & 0o777;
-    if mode & 0o004 != 0 {
-        return Err(RunError::TokenFileWorldReadable {
+    if let Some(access) = ciphr_core::WorldAccess::of(mode) {
+        return Err(RunError::TokenFileWorldAccessible {
             path: path.display().to_string(),
             mode,
+            access,
         });
     }
     Ok(())
@@ -224,7 +229,7 @@ fn check_not_world_readable(path: &Path) -> Result<(), RunError> {
 // The `Result` is unnecessary on this platform and required by the other one: both
 // variants must share a signature, exactly as in `ciphr-crypto`.
 #[allow(clippy::unnecessary_wraps)]
-fn check_not_world_readable(_path: &Path) -> Result<(), RunError> {
+fn check_not_world_accessible(_path: &Path) -> Result<(), RunError> {
     // No portable equivalent of the mode bits. Unreachable in any case: this platform
     // refuses before it gets here.
     Ok(())

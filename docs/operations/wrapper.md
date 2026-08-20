@@ -60,10 +60,13 @@ environment. A token without the `list` capability produces the same empty array
 nothing under it, so the wrapper refuses rather than starting a service that quietly has nothing.
 If a service legitimately has no secrets, it does not need the wrapper.
 
-**The token file is world-readable and the process stops.** Same rule as the master key: group bits
-are allowed, world bits are not. On a Windows host this can be a false positive — a bind-mounted
-file reports mode 0777 regardless of what it is on the host — so on that platform put the token in
-a named volume rather than relaxing anything.
+**The token file is readable, or writable, by everyone and the process stops.** Same rule as the
+master key, and since 2026-08-21 literally the same rule rather than a second copy of it: group bits
+are allowed, world bits are not. Writable counts for a reason worth stating — whoever can replace
+this file does not have to learn the token in it, they can substitute one of their own and have the
+wrapper fetch under an identity they control. On a Windows host the refusal can be a false positive
+— a bind-mounted file reports mode 0777 regardless of what it is on the host — so on that platform
+put the token in a named volume rather than relaxing anything.
 
 **The service reads the token file itself.** Not a failure — a property. `exec` replaces the
 process image, not the filesystem view, so whatever the wrapper could read, the service can read.

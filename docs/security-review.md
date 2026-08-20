@@ -219,7 +219,7 @@ which parts do *not* need their attention.
 | C6 | Replacing the seal record with one for a *different* root key is refused. | A way to store a mismatched record — it would make every secret unreadable with no error until the first read. |
 | C7 | The master key may be read from a file as well as a variable, and the source is not part of the key: a store sealed through one opens through the other. | A source that changes the key, or a path where the two disagree. |
 | C8 | Both key sources cannot be active at once, so there is no precedence rule to get wrong. | A configuration or command line that accepts both. |
-| C9 | A world-readable key file stops the process; group-readable is accepted deliberately. | A permissive file that starts, or a legitimate group arrangement that is refused. Windows has no check, by documented omission. |
+| C9 | A key file the world can read **or write** stops the process; group bits are accepted deliberately. | A permissive file that starts, or a legitimate group arrangement that is refused. Windows has no check, by documented omission. *Widened 2026-08-21 (finding F6): the check tested `0o004` only, so mode `0602` started. The rule now has one definition (`ciphr_core::WorldAccess`) shared with the token-file check in `ciphr-run`, which had the same half of it.* |
 | C10 | *What else.* | |
 
 ### D. The authorization decision — `ciphr-policy`

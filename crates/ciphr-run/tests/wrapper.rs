@@ -421,6 +421,37 @@ fn a_world_readable_token_file_is_refused() {
     assert!(!evidence.exists(), "a leaked credential was used anyway");
 }
 
+/// A token file anyone can replace stops the process too, even though nobody can read it.
+///
+/// Finding F6: the check asked only whether the world could read, so mode `0602` started
+/// the wrapper. For a token file that is the more useful bit to hold — an attacker who can
+/// write it does not need to learn this token, they can substitute one of their own and
+/// have the wrapper fetch secrets under an identity they control.
+#[test]
+fn a_world_writable_token_file_is_refused() {
+    let live = Live::start();
+
+    let directory = tempfile::tempdir().expect("temp dir");
+    let replaceable = directory.path().join("token");
+    std::fs::copy(&live.token, &replaceable).expect("copy the token");
+    std::fs::set_permissions(&replaceable, std::fs::Permissions::from_mode(0o602)).expect("loosen");
+
+    let evidence = directory.path().join("the-child-ran");
+    let status = live
+        .invoke(
+            &replaceable,
+            &["--prefix", "infra/service-a"],
+            &["/bin/sh", "-c", &format!("touch {}", evidence.display())],
+        )
+        .expect("the wrapper runs");
+
+    assert_eq!(status.code(), Some(125));
+    assert!(
+        !evidence.exists(),
+        "a replaceable credential was used anyway"
+    );
+}
+
 /// The exit codes that let a restart policy tell the two failures apart.
 #[test]
 fn a_missing_command_is_127_and_the_secrets_are_still_gone() {

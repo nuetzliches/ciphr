@@ -15,7 +15,7 @@
 use core::fmt;
 
 use ciphr_core::hex::HexError;
-use ciphr_core::{BIND_MOUNT_HINT, BIND_MOUNT_MODE};
+use ciphr_core::{BIND_MOUNT_HINT, BIND_MOUNT_MODE, WorldAccess};
 
 /// Something went wrong in the cryptographic layer.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,18 +66,21 @@ pub enum CryptoError {
         /// What went wrong, as a category rather than a message that might quote data.
         reason: String,
     },
-    /// The file holding the master key is readable by everyone.
+    /// The file holding the master key can be read or written by everyone.
     ///
-    /// Refused rather than warned about: a world-readable master key is unambiguously
+    /// Refused rather than warned about: a world-accessible master key is unambiguously
     /// wrong, and a warning in a startup log is a warning nobody reads. Group bits are
     /// deliberately not checked — a root-owned file read by a service group is a
     /// legitimate arrangement, and refusing it would push deployments towards running
     /// as root.
-    MasterKeyFileWorldReadable {
+    MasterKeyFileWorldAccessible {
         /// Which file.
         path: String,
         /// The permission bits found.
         mode: u32,
+        /// Which of the two the mode grants. Carried rather than re-derived, so the
+        /// message names the bit that is actually set.
+        access: WorldAccess,
     },
     /// A token is not a ciphr token.
     ///
@@ -109,11 +112,12 @@ impl fmt::Display for CryptoError {
             Self::MasterKeyFileUnreadable { path, reason } => {
                 write!(f, "cannot read the master key file {path}: {reason}")
             }
-            Self::MasterKeyFileWorldReadable { path, mode } => {
+            Self::MasterKeyFileWorldAccessible { path, mode, access } => {
                 write!(
                     f,
-                    "the master key file {path} is mode {mode:04o} and world-readable; \
-                     restrict it to its owner (and group, if a service needs it)"
+                    "the master key file {path} is mode {mode:04o} and {}; \
+                     restrict it to its owner (and group, if a service needs it)",
+                    access.description()
                 )?;
                 if *mode == BIND_MOUNT_MODE {
                     f.write_str(BIND_MOUNT_HINT)?;
@@ -142,7 +146,7 @@ impl From<HexError> for CryptoError {
 
 #[cfg(test)]
 mod tests {
-    use super::CryptoError;
+    use super::{CryptoError, WorldAccess};
 
     #[test]
     fn authentication_failures_are_indistinguishable() {
@@ -161,9 +165,10 @@ mod tests {
         // The check is right and stays. What was wrong is the message: on a bind
         // mount from a host without Unix permissions every file reports 0777, so the
         // reader was sent looking for a permission nobody set.
-        let message = CryptoError::MasterKeyFileWorldReadable {
+        let message = CryptoError::MasterKeyFileWorldAccessible {
             path: "/etc/ciphr/master.key".to_owned(),
             mode: 0o777,
+            access: WorldAccess::ReadWrite,
         }
         .to_string();
         assert!(message.contains("bind mount"), "{message}");
@@ -175,11 +180,27 @@ mod tests {
         // 0644 is a permission somebody set. Suggesting a bind mount here would teach
         // the reader that this refusal is usually spurious, which is the opposite of
         // true.
-        let message = CryptoError::MasterKeyFileWorldReadable {
+        let message = CryptoError::MasterKeyFileWorldAccessible {
             path: "/etc/ciphr/master.key".to_owned(),
             mode: 0o644,
+            access: WorldAccess::Read,
         }
         .to_string();
         assert!(!message.contains("bind mount"), "{message}");
+    }
+
+    #[test]
+    fn a_refusal_names_the_bit_that_is_set_and_not_the_other_one() {
+        // Finding F6: 0602 used to start the process. Now that it stops it, a message
+        // saying "world-readable" would send the reader looking at a bit nobody set --
+        // the same mistake the bind-mount hint exists to undo.
+        let message = CryptoError::MasterKeyFileWorldAccessible {
+            path: "/etc/ciphr/master.key".to_owned(),
+            mode: 0o602,
+            access: WorldAccess::Write,
+        }
+        .to_string();
+        assert!(message.contains("world-writable"), "{message}");
+        assert!(!message.contains("world-readable"), "{message}");
     }
 }

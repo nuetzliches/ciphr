@@ -23,7 +23,7 @@
 
 use core::fmt;
 
-use ciphr_core::{BIND_MOUNT_HINT, BIND_MOUNT_MODE};
+use ciphr_core::{BIND_MOUNT_HINT, BIND_MOUNT_MODE, WorldAccess};
 use ciphr_sdk::SdkError;
 
 /// `ciphr-run` failed before the child started.
@@ -47,12 +47,14 @@ pub(crate) enum RunError {
         /// Why not. An `io::ErrorKind`, never the contents.
         reason: String,
     },
-    /// The token file is readable by anyone on the host.
-    TokenFileWorldReadable {
+    /// The token file can be read, or replaced, by anyone on the host.
+    TokenFileWorldAccessible {
         /// Which file.
         path: String,
         /// The permission bits found.
         mode: u32,
+        /// Which of the two the mode grants, so the message names the bit that is set.
+        access: WorldAccess,
     },
     /// The certificate authority could not be read.
     AuthorityFile {
@@ -111,11 +113,12 @@ impl fmt::Display for RunError {
             Self::TokenFile { path, reason } => {
                 write!(formatter, "cannot read the token file {path}: {reason}")
             }
-            Self::TokenFileWorldReadable { path, mode } => {
+            Self::TokenFileWorldAccessible { path, mode, access } => {
                 write!(
                     formatter,
-                    "the token file {path} is mode {mode:04o} and world-readable; restrict it to \
-                     its owner (and group, if a service needs it)"
+                    "the token file {path} is mode {mode:04o} and {}; restrict it to \
+                     its owner (and group, if a service needs it)",
+                    access.description()
                 )?;
                 if *mode == BIND_MOUNT_MODE {
                     formatter.write_str(BIND_MOUNT_HINT)?;
@@ -174,7 +177,7 @@ impl From<SdkError> for RunError {
 
 #[cfg(test)]
 mod tests {
-    use super::RunError;
+    use super::{RunError, WorldAccess};
 
     #[test]
     fn our_own_failures_are_all_125() {
@@ -187,9 +190,10 @@ mod tests {
                 path: "/run/secrets/token".to_owned(),
                 reason: "not found".to_owned(),
             },
-            RunError::TokenFileWorldReadable {
+            RunError::TokenFileWorldAccessible {
                 path: "/run/secrets/token".to_owned(),
                 mode: 0o644,
+                access: WorldAccess::Read,
             },
             RunError::AuthorityFile {
                 path: "/etc/ciphr/ca.crt".to_owned(),
@@ -252,9 +256,10 @@ mod tests {
         // Same hint as the master key check in `ciphr-crypto`, and for the same
         // reason: this wrapper runs in containers, which is exactly where a bind
         // mount from a host without Unix permissions reports 0777 for everything.
-        let message = RunError::TokenFileWorldReadable {
+        let message = RunError::TokenFileWorldAccessible {
             path: "/run/secrets/token".to_owned(),
             mode: 0o777,
+            access: WorldAccess::ReadWrite,
         }
         .to_string();
         assert!(message.contains("bind mount"), "{message}");
@@ -263,11 +268,26 @@ mod tests {
 
     #[test]
     fn a_refusal_at_any_other_mode_does_not_offer_the_excuse() {
-        let message = RunError::TokenFileWorldReadable {
+        let message = RunError::TokenFileWorldAccessible {
             path: "/run/secrets/token".to_owned(),
             mode: 0o644,
+            access: WorldAccess::Read,
         }
         .to_string();
         assert!(!message.contains("bind mount"), "{message}");
+    }
+
+    #[test]
+    fn a_refusal_names_the_bit_that_is_set_and_not_the_other_one() {
+        // The wrapper's half of finding F6. An operator told "world-readable" about a
+        // 0602 file goes looking for a bit nobody set.
+        let message = RunError::TokenFileWorldAccessible {
+            path: "/run/secrets/token".to_owned(),
+            mode: 0o602,
+            access: WorldAccess::Write,
+        }
+        .to_string();
+        assert!(message.contains("world-writable"), "{message}");
+        assert!(!message.contains("world-readable"), "{message}");
     }
 }

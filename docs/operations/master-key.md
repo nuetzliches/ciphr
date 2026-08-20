@@ -1,6 +1,6 @@
 # The master key
 
-**Status:** current as of 2026-08-20. Every procedure here has a command that exists.
+**Status:** current as of 2026-08-21. Every procedure here has a command that exists.
 
 This is the highest-consequence thing in the system. Lose it and every secret is unrecoverable —
 there is no reset, no recovery code, and no support channel that can help. Leak it and the database is
@@ -71,8 +71,15 @@ Kubernetes secret volumes are memory-backed, so the file never touches one. Plai
 Swarm bind-mounts a real file — still better, because a file carries permission bits and a container
 configuration does not, but not "never at rest". Know which case your deployment is.
 
-A world-readable key file **stops the process**. Group-readable is accepted: root-owned and read by a
-service group is a legitimate arrangement. Windows has no equivalent bit and no check runs there.
+A key file that anyone on the host can read **or write** **stops the process**. Group bits are
+accepted: root-owned and read by a service group is a legitimate arrangement. Windows has no
+equivalent bit and no check runs there.
+
+**World-writable was added 2026-08-21** (finding F6 of the review); before that a file at mode `0602`
+started. It is worth having for a reason that is not symmetry: a local account that can *replace*
+the key plants one it knows if it gets there before `init`, and afterwards manufactures an unseal
+failure on the next restart. Group-writable stays accepted — that is the same judgement call as
+group-readable, and it belongs to a deployment rather than to this check.
 
 **Mode 0777 exactly usually means something else** (noted 2026-08-20). A file bind-mounted from a
 filesystem that has no Unix permissions — a Windows or macOS host under a Linux container engine, or
@@ -170,7 +177,7 @@ cannot simply be replaced: see [rotating-secrets.md](rotating-secrets.md).
 
 | Situation | What you will see | What to do |
 |---|---|---|
-| Key file world-readable | Startup fails naming the file and its mode | `chmod 0600`, or `0640` if a service group needs it |
+| Key file world-readable or world-writable | Startup fails naming the file, its mode, and which of the two bits is set | `chmod 0600`, or `0640` if a service group needs it |
 | Key file reports mode 0777 in a container | The same refusal, plus a sentence about bind mounts | It is almost certainly a bind mount from a host without Unix permissions; move the key into a named volume |
 | Key file missing or unreadable | Startup fails naming the path and the I/O category, never the content | Check the mount actually landed; a secret that failed to mount looks exactly like this |
 | Variable not set | Startup fails naming the variable | Set it; do not "temporarily" generate a new one — a new key cannot read the existing database |

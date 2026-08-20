@@ -49,6 +49,29 @@ enforced at the wrong layer, and the layer that was missing it is the one the cl
 - The HTTP and CLI checks stay as early, specific errors, and both now call the shared refusal. A
   refused `put` reaches the store no more than it reaches the audit trail.
 
+### Security — a credential file the world can write is refused, like one it can read
+
+Finding F6 of the same review. `check_not_world_readable` tested `mode & 0o004` and nothing else, so
+a master key at mode `0602` started the process — and the token-file check in `ciphr-run`, written as
+a mirror of it, mirrored the gap too.
+
+World-*writable* key material is arguably the worse of the two. A local unprivileged account that
+can replace the file does not need to read it: before `init` it plants a key the attacker knows, and
+afterwards it manufactures an unseal failure on the next restart. For the wrapper's token file the
+substituted credential fetches secrets under an identity the attacker controls.
+
+- **`ciphr_core::WorldAccess` is the rule**, in one place, for both callers — the same move F2 made
+  for the reserved prefix, and for the same reason: a rule written down twice is a rule enforced
+  once.
+- **The refusal names the bit that is actually set** ("world-writable" at `0602`), because a message
+  naming the other one sends the reader to look at a permission nobody granted. That is the same
+  failure mode the mode-0777 bind-mount hint exists to undo.
+- **Group bits are still accepted**, read and write alike. Root-owned and used by a service group is
+  a legitimate arrangement, and narrowing it is a deployment's decision, not this check's.
+- The check and its error are renamed to what they now do (`check_not_world_accessible`,
+  `MasterKeyFileWorldAccessible`, `TokenFileWorldAccessible`); the review's own note was that the old
+  name was honest about its scope, so widening the scope moves the name.
+
 ### Documented — the external review happened, and the decision to accept it is written down
 
 The review that plan section 18 makes a precondition took place on 2026-08-21 against `v0.3.0` and is

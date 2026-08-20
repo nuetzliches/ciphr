@@ -199,12 +199,12 @@ impl StaticSeal {
     /// # Errors
     ///
     /// Returns [`CryptoError::MasterKeyFileUnreadable`] if the file cannot be read,
-    /// [`CryptoError::MasterKeyFileWorldReadable`] on Unix if anyone but the owner and
-    /// group may read it, or [`CryptoError::Encoding`] if the content is not exactly 64
+    /// [`CryptoError::MasterKeyFileWorldAccessible`] on Unix if anyone but the owner and
+    /// group may read or write it, or [`CryptoError::Encoding`] if the content is not exactly 64
     /// hexadecimal characters. No error contains the content.
     pub fn from_file(path: impl AsRef<std::path::Path>) -> Result<Self, CryptoError> {
         let path = path.as_ref();
-        check_not_world_readable(path)?;
+        check_not_world_accessible(path)?;
 
         let value = Zeroizing::new(std::fs::read_to_string(path).map_err(|error| {
             CryptoError::MasterKeyFileUnreadable {
@@ -238,17 +238,22 @@ impl StaticSeal {
     }
 }
 
-/// Refuse a key file that anyone but its owner and group can read.
+/// Refuse a key file that anyone but its owner and group can read or write.
 ///
-/// A world-readable master key is unambiguously wrong, so it stops the process rather
-/// than producing a warning nobody reads. Group bits are left alone: a root-owned file
-/// read by a service group is a legitimate and common arrangement, and refusing it
-/// would push deployments towards running as root instead.
+/// A world-accessible master key is unambiguously wrong, so it stops the process rather
+/// than producing a warning nobody reads. **Which bits count is
+/// [`ciphr_core::WorldAccess`] and not this function:** the identical sentence guards the
+/// token file in `ciphr-run`, and while each spelled the rule out for itself, both spelled
+/// out only half of it (finding F6 — a key file at mode `0602` started the process).
+///
+/// Group bits are left alone: a root-owned file read by a service group is a legitimate
+/// and common arrangement, and refusing it would push deployments towards running as root
+/// instead. That is the judgement call; the world bits are not.
 ///
 /// Windows has no equivalent bit, and no check runs there. Saying so is better than a
 /// check that silently does nothing on one platform.
 #[cfg(unix)]
-fn check_not_world_readable(path: &std::path::Path) -> Result<(), CryptoError> {
+fn check_not_world_accessible(path: &std::path::Path) -> Result<(), CryptoError> {
     use std::os::unix::fs::PermissionsExt;
 
     let metadata =
@@ -258,10 +263,11 @@ fn check_not_world_readable(path: &std::path::Path) -> Result<(), CryptoError> {
         })?;
 
     let mode = metadata.permissions().mode() & 0o777;
-    if mode & 0o004 != 0 {
-        return Err(CryptoError::MasterKeyFileWorldReadable {
+    if let Some(access) = ciphr_core::WorldAccess::of(mode) {
+        return Err(CryptoError::MasterKeyFileWorldAccessible {
             path: path.display().to_string(),
             mode,
+            access,
         });
     }
     Ok(())
@@ -272,7 +278,7 @@ fn check_not_world_readable(path: &std::path::Path) -> Result<(), CryptoError> {
 // variants must share a signature. Collapsing it here would mean the caller changes
 // shape depending on the target, which is worse than an unused wrapper.
 #[allow(clippy::unnecessary_wraps)]
-fn check_not_world_readable(_path: &std::path::Path) -> Result<(), CryptoError> {
+fn check_not_world_accessible(_path: &std::path::Path) -> Result<(), CryptoError> {
     // No portable equivalent of the mode bits. Documented on `from_file` rather than
     // silently skipped.
     Ok(())
@@ -294,6 +300,9 @@ impl Seal for StaticSeal {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    use ciphr_core::WorldAccess;
+
     use super::{Seal, StaticSeal};
     use crate::error::CryptoError;
     use crate::key::{KEY_LEN, MasterKey, RootKey, RootKeyId};
@@ -470,12 +479,51 @@ mod tests {
         };
         assert!(matches!(
             error,
-            CryptoError::MasterKeyFileWorldReadable { mode: 0o644, .. }
+            CryptoError::MasterKeyFileWorldAccessible {
+                mode: 0o644,
+                access: WorldAccess::Read,
+                ..
+            }
         ));
 
         // A group-readable file is accepted: root-owned and read by a service group is a
         // legitimate arrangement, and refusing it would push deployments towards root.
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).expect("chmod");
+        assert!(StaticSeal::from_file(&path).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_world_writable_key_file_stops_the_process_too() {
+        use std::os::unix::fs::PermissionsExt;
+
+        // Finding F6. This file starts a process that then reads the key it was handed,
+        // and any local account can replace that key first: before `init` it plants one
+        // the attacker knows, afterwards it manufactures an unseal failure on the next
+        // restart. Nobody can read it, which is why the old check let it through.
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("replaceable.key");
+        std::fs::write(&path, "33".repeat(32)).expect("write");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o602)).expect("chmod");
+
+        let Err(error) = StaticSeal::from_file(&path) else {
+            panic!("a world-writable master key must not be accepted");
+        };
+        assert!(
+            matches!(
+                error,
+                CryptoError::MasterKeyFileWorldAccessible {
+                    mode: 0o602,
+                    access: WorldAccess::Write,
+                    ..
+                }
+            ),
+            "got {error}"
+        );
+
+        // Group-writable stays accepted. It is the same judgement as group-readable:
+        // narrowing it belongs to a deployment, not to this check.
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o660)).expect("chmod");
         assert!(StaticSeal::from_file(&path).is_ok());
     }
 
