@@ -8,6 +8,25 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — a proposed record: the leak drop box's first sender holds a token
+
+ADR-16 was deferred as a channel with no sender: nobody without a token can reach an anonymous drop
+box that only listens inside the boundary. [ADR-21](docs/adr/0021-a-scanner-is-a-sender-with-a-token.md)
+(proposed, nothing implemented) names the sender that does exist — a log scanner running where the
+logs are, holding a token — and gives it an **authenticated** `POST /v1/report`, gated by `write` on
+the virtual path `sys/report` and enabled as an ADR-20 runtime entry. The matching, the `leaked`
+mark and the visibility are plan section 23's design unchanged; the endpoint still answers `202` and
+silence even to an identity, because the scanner token is the most widely distributed credential in
+the design and an answer would be an oracle keyed to it.
+
+The question the record answers directly: no, ADR-16 is not better authenticated-only — anonymity is
+that feature's sender definition, and a drop box that demands a relationship has excluded its
+audience. ADR-16 stays deferred and anonymous; once ADR-21 is built, reopening it shrinks to an
+exposure decision over existing machinery. Question 5 of plan section 21 is answered along the way:
+the value index is written unconditionally, because a scanner makes the half-indexed corpus more
+dangerous, not less. Rejected, with reasons in the record: answering match/no-match, shipping the
+index key to scanners, local matching of honeypot values, and the server reading logs itself.
+
 ### Fixed — creating a credential is in the audit trail
 
 **No token command wrote an audit entry.** Not `issue`, not `revoke`, not `revoke-all`. The
