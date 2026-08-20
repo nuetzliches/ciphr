@@ -1,6 +1,7 @@
 # `ciphr-run`: getting the wrapper, and mounting it
 
-**Status:** implemented and tested as of 2026-08-20 (phase 7, [ADR-14](../adr/0014-ciphr-run-injects-into-a-child-process.md)).
+**Status:** implemented and tested as of 2026-08-20, scope guidance added 2026-08-21 (phase 7,
+[ADR-14](../adr/0014-ciphr-run-injects-into-a-child-process.md)).
 The wrapper works and ships; where a deployment keeps the token file and which entrypoint it pins
 are decisions this document does not make for it.
 
@@ -78,6 +79,26 @@ so drift is visible in the record instead of only in the outage.
 **The platform has no `exec`.** The wrapper refuses, before it reads the token. There is no
 spawn-and-wait fallback: a supervisor that stayed alive would hold every value for the lifetime of
 the service and swallow its signals, which is the opposite of the point.
+
+## `--path` or `--prefix`
+
+`--prefix` needs `list` as well as `read` and takes whatever exists under the prefix at that moment;
+`--path` needs only `read` and takes what the container definition names. Prefer `--path` wherever the
+set of secrets is known when the deployment is written, for two reasons that belong to the prefix form
+alone:
+
+- **A listing that shrinks does so silently.** `GET /v1/list` authorizes every path it returns, so
+  removing one path's `list` capability makes the set one shorter. This wrapper refuses an *empty*
+  result, not an incomplete one, and the service then starts with a variable missing. A named path the
+  identity may not read fails the whole fetch instead, because `POST /v1/export` refuses on a single
+  denial rather than answering partially — and the wrapper exits `125` without starting anything.
+- **Somebody else's new secret can stop this service.** The variable name is the last path segment,
+  and a set in which two paths want the same name is refused whole ([ADR-18](../adr/0018-one-rule-for-the-variable-name.md)).
+  Under `--prefix` the set is whatever the store holds, so a secret added for a neighbouring service
+  can refuse this container's next start.
+
+The scope question behind this — an exact grant against a sub-path grant — is in
+[`../authorization.md`](../authorization.md).
 
 ## What it does not solve
 

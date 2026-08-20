@@ -1,6 +1,7 @@
 # Authorization, as implemented
 
-**Status:** implemented and tested as of 2026-08-18, re-read against the code on 2026-08-20.
+**Status:** implemented and tested as of 2026-08-18, re-read against the code on 2026-08-20,
+scope guidance added 2026-08-21.
 Describes the code in `crates/ciphr-policy` and the pattern matcher in `crates/ciphr-core`. **Every
 authorization decision the service makes goes through this** — the sentence here used to say there
 was no HTTP server yet and that the semantics were what it *would* call, which stopped being true
@@ -151,6 +152,85 @@ weighing more than one at the back — would match intuition here and would have
 every other case. Any such change alters authorization outcomes rather than clarifying them, and the
 current rule has the property that matters: when it cannot tell which rule was meant, it refuses.
 Recorded as a documented sharp edge rather than smoothed over.
+
+## Choosing the scope of a machine identity
+
+Whether an identity gets a sub-path (`infra/host-a/**`) or a list of exact paths is two questions
+rather than one, and separating them is most of the answer:
+
+- **the grant** — what the policy permits;
+- **the fetch** — what the consumer asks for (`--path` against `--prefix`,
+  `Client::environment_of` against `Client::environment`).
+
+They are independent, and they are not equally worth changing.
+
+### Fetch by name wherever the set is known when the consumer is written
+
+Two failure modes belong to fetching by prefix alone, and neither of them is a policy problem.
+
+**The set can shrink silently.** `GET /v1/list` authorizes every path it would return, which is what
+stops a caller from learning a name they may not read — and it is the same property that makes a
+prefix set variable. Remove `list` from one path and the listing is one entry shorter; `environment`
+refuses only an *empty* result, so a consumer starts with one variable missing and nothing says so.
+Fetching by name has no equivalent, because `POST /v1/export` refuses the whole request on a single
+denial rather than returning a partial answer: a path the identity may not read is an error before
+startup instead of a service that came up wrong.
+
+**A change for one service can stop another.** The variable name is the last path segment
+([ADR-18](adr/0018-one-rule-for-the-variable-name.md)), and a set in which two paths want the same
+name is refused entirely. Under a prefix fetch the set is "whatever exists under this prefix", so a
+secret written for one service can refuse the fetch of another at its next start. It is loud —
+`ciphr-run` exits `125` — but it couples changes that have nothing to do with each other. A named set
+does not change when the store does.
+
+`--path` also needs only `read`, where `--prefix` needs `list` as well. The narrower grant arrives
+with the narrower fetch at no extra cost.
+
+### Exact grants buy one thing, and a narrower prefix buys most of it
+
+What a list of exact paths gives that `infra/host-a/**` does not is that **the set does not grow
+without a decision**. A secret written under that prefix next month is readable by an existing token
+the moment it exists, and nobody chose that; with exact paths it takes an edit to the policy file,
+which under [ADR-3](adr/0003-policies-from-configuration.md) is a commit and therefore a record.
+
+Most of that is already bought by making the prefix narrower. Between `infra/<host>/**` and
+`infra/<host>/<service>/**` the silently growing set shrinks from "everything on this host" to "more
+secrets for this service", and the second is usually a set that genuinely belongs to the identity
+fetching it. What exact paths add beyond that is the remainder at the full price: one policy commit
+per secret, and a second place — the consumer's list of names — that can drift from the first. That
+drift is loud, so it costs effort rather than risk.
+
+A side benefit worth naming: the rule most likely to surprise, that the most specific match wins
+entirely and inherits nothing, can only bite where patterns overlap. A set of exact rules does not
+overlap.
+
+Two things exact grants do **not** buy. They do not reduce what a compromised *service* can read — it
+already holds its own values — only what a stolen *token* reaches afterwards. And they change nothing
+about the audit trail, which records one entry per secret served either way.
+
+### The consequence for bait
+
+A honeypot secret trips only after the policy **allowed** the read
+([ADR-15](adr/0015-honeypots-and-what-a-tripwire-may-do.md), property 2), so bait has to sit where an
+identity is authorized and never fetches. Exact grants close that gap by definition: the identity may
+read exactly what it reads, bait outside that produces a denial, and a denial trips nothing.
+
+**Exact grants and honeypot secrets are alternatives rather than complements.** Honeypot tokens are
+unaffected. A deployment that scopes exactly keeps the ordinary denial in the trail as its signal —
+an identity asking for a path it never wants is nearly as unambiguous — but that is a different
+mechanism from the one ADR-15 describes, and choosing one closes the other.
+
+### The recommendation
+
+1. **Fetch by name** wherever the set of secrets is known when the consumer is written. It is cheap,
+   and it closes both failure modes above.
+2. **Grant per service rather than per host**, and reserve exact paths for the values whose blast
+   radius is worth a commit each.
+3. **Decide the bait question with it** rather than afterwards: a deployment that scopes exactly is
+   choosing honeypot tokens over honeypot secrets.
+
+Human identities sit outside this. The viewer is useful because it can see the trail and the
+inventory, and that is a broad grant by definition.
 
 ## What the tests establish
 

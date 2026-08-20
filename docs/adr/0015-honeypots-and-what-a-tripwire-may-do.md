@@ -195,6 +195,13 @@ not moved.
   gives no hint about, while a helper that filters that list against the names its consumer declares
   will not. The policy shows which prefixes are permitted and never which are visited, and it is the
   second question that decides whether bait is bait or a false positive on a schedule.
+
+  **The same two sets decide whether a honeypot secret is possible at all.** Property 2 fires after
+  the policy *allowed* the read, so bait needs a gap between what an identity may read and what it
+  does read. An identity granted exact paths has no such gap: bait outside its grants produces a
+  denial, and a denial trips nothing. Scoping exactly and planting honeypot secrets are therefore
+  alternatives rather than complements — honeypot tokens are unaffected either way, and the trade is
+  written out in [`../authorization.md`](../authorization.md).
 - **Which of the tripwire's side effects are inside the fail-closed contract is decided rather than
   discovered.** Auditing is fail-closed, so a full audit volume already refuses requests. If the
   tripwire's row, marker file, or distinct entry can fail *independently* of the ordinary audit

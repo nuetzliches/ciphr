@@ -8,6 +8,35 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Documented — which scope a machine identity should get, and what it costs the bait
+
+Two questions were being asked as one: what the **policy grants** (a sub-path against exact paths)
+and what the **consumer fetches** (`--prefix` against `--path`). They are independent, and they are
+not equally worth changing. [`docs/authorization.md`](docs/authorization.md) now says so, and
+[`docs/operations/wrapper.md`](docs/operations/wrapper.md) carries the flag-level version of it.
+
+- **Fetch by name wherever the set is known when the consumer is written.** Two failure modes belong
+  to the prefix form alone. A listing that shrinks does so silently — `GET /v1/list` authorizes every
+  path it returns, so removing one path's `list` capability makes the set one shorter, and the
+  wrapper refuses an *empty* result rather than an incomplete one. And a set in which two paths want
+  the same variable name is refused whole, so under a prefix a secret written for one service can
+  refuse another service's next start. Named fetching has neither: `POST /v1/export` refuses on a
+  single denial instead of answering partially, and a named set does not change when the store does.
+- **Grant per service rather than per host.** What exact paths buy over a sub-path is that the set
+  does not grow without a decision — and most of that is already bought by the first narrowing, from
+  "everything on this host" to "more secrets for this service". The remainder costs one policy commit
+  per secret and a second place that can drift.
+- **Exact grants and honeypot secrets are alternatives, not complements.** A trip fires only after
+  the policy *allowed* the read (ADR-15, property 2), so bait needs the gap between what an identity
+  may read and what it does read. Exact grants close that gap: bait outside them produces a denial,
+  and a denial trips nothing. Honeypot tokens are unaffected. ADR-15's placement rule now says this
+  where the rule is stated, because a deployment that scopes exactly is choosing one half of phase 8
+  over the other without being told.
+
+Neither exact grants nor named fetching reduce what a compromised *service* can read — it holds its
+own values already — and neither changes the audit trail, which records one entry per secret served
+either way. What they bound is what a stolen *token* reaches afterwards.
+
 ### Added — a proposed record: the leak drop box's first sender holds a token
 
 ADR-16 was deferred as a channel with no sender: nobody without a token can reach an anonymous drop
