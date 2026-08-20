@@ -146,16 +146,23 @@ deliberate `rotatable` and an untouched default were the same value in the same 
 the list. Values that had been marked `rotatable` deliberately are in it and have to be marked again
 — that is the cost of the old column never having recorded who said so.
 
-### Fixed — `classify` is its own action, and a reclassification is finally recorded
+### Fixed — `classify` is its own action, and every way of setting a class records one
 
 Changing a rotation class wrote **no audit entry at all**, while `docs/operations/cli.md` stated that
-every command including the metadata ones is audited. It now writes a `classify` entry naming the
-path and the operator.
+every command including the metadata ones is audited. All three ways of setting a class — `ciphr
+rotation <path> <class>`, `ciphr put --rotation`, and `ciphr import --rotation` — now write a
+`classify` entry naming the path and the operator.
 
 It is a separate action rather than a `write` because a reclassification produces no version and
 would otherwise be invisible among the value writes — and **downgrading a class to `rotatable` is
 the step that comes immediately before a rotation that destroys data.** "Who decided this was safe?"
 has to be answerable from the trail. `openapi.yaml` carries the new label.
+
+The three call sites go through one function, because they had already drifted apart once: a secret
+classified `breaks-data` could be silently made `rotatable` by `ciphr put --rotation rotatable`,
+which left a `write` in the trail and nothing else, and an `import --rotation` classified a whole
+corpus with no trace at all. Five tests hold the property, three of which fail against the code that
+had it wrong.
 
 ## [0.2.0] — 2026-08-20
 

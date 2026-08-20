@@ -428,7 +428,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
                 ciphr_crypto::encrypt(root, &path, version, &plaintext)
             })?;
             if let Some(class) = rotation {
-                session.store.set_rotation(&path, class)?;
+                classify(&mut session, &path, class)?;
             }
 
             println!("{path} version {version}");
@@ -610,10 +610,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
                 // comes immediately before a rotation that destroys data.
                 Some(class) => {
                     let class = Rotation::parse(&class)?;
-                    session.record(
-                        &Session::operator_entry(Action::Classify, true, None).with_path(&path),
-                    )?;
-                    session.store.set_rotation(&path, class)?;
+                    classify(&mut session, &path, class)?;
                     class
                 }
             };
@@ -772,6 +769,23 @@ fn export(cli: &Context, args: &ExportArgs) -> Result<(), CliError> {
     Ok(())
 }
 
+/// Set a rotation class, and record that somebody did.
+///
+/// One function because this drifted once already, in the direction that matters: the
+/// standalone `ciphr rotation` recorded the change while `put --rotation` and
+/// `import --rotation` made the same change silently, and the documentation described
+/// the audited behaviour for all three. A secret classified `breaks-data` could then be
+/// downgraded to `rotatable` by a `put`, leaving a `write` entry and nothing that says
+/// the classification moved -- immediately before the rotation that destroys the data.
+///
+/// Recorded before the change, like every other mutation here: a failure to record
+/// leaves the store as it was.
+fn classify(session: &mut Session, path: &SecretPath, class: Rotation) -> Result<(), CliError> {
+    session.record(&Session::operator_entry(Action::Classify, true, None).with_path(path))?;
+    session.store.set_rotation(path, class)?;
+    Ok(())
+}
+
 /// `ciphr import --from-dotenv`.
 fn import(cli: &Context, args: &ImportArgs) -> Result<(), CliError> {
     let prefix = SecretPath::parse(&args.prefix)?;
@@ -817,7 +831,7 @@ fn import(cli: &Context, args: &ImportArgs) -> Result<(), CliError> {
             ciphr_crypto::encrypt(root, &path, version, &plaintext)
         })?;
         if let Some(class) = rotation {
-            session.store.set_rotation(&path, class)?;
+            classify(&mut session, &path, class)?;
         }
         println!("{path}");
     }
