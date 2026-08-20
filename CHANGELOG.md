@@ -8,6 +8,39 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Changed — phase 8 is decided and narrowed, phase 9 is deferred
+
+Nothing is implemented and nothing is scheduled to be. Both planned features were read against the way
+a real deployment actually consumes this service rather than against the plan, and both records moved
+on 2026-08-20. **The external review has still not happened**, and neither decision touches that line:
+acceptance settles a design, and a condition on the code is a condition on the code.
+
+- **ADR-15 is accepted in the `alert` tier only.** `disable-identity` and `freeze` stay in the record
+  as designed and are not being built. The reason is in the record already and is now the decision:
+  the tiers inherit the granularity of the identity set, and where one machine identity serves every
+  deploy target the two severe tiers are one tier under two names. They become buildable when
+  revoking one identity stops one consumer instead of all of them — a condition, not a date.
+- **The placement rule for bait gained its second half**, which is the part that decides whether a
+  honeypot works or pages on a schedule: bait belongs outside every prefix any consumer fetches, and
+  *whether a prefix is fetched is a question about the code that fetches, not about the policy that
+  permits it*. A machine identity is normally authorized over more prefixes than anything reads —
+  which is where bait belongs, because it is also where an enumerator looks first. A helper that lists
+  a prefix and then exports everything it got back reads bait the policy file gives no hint about.
+- **An alert nobody polls is not an alert**, so phase 8 is worth building after the monitoring it
+  depends on is live. The flag, the entry and the marker file are pull-based by design; the step that
+  turns them into a page is outside this process and nothing here can check that it happened. Same
+  failure mode as an anchor file written next to the store.
+- **ADR-16 is deferred**, not rejected. Its third precondition — whether anyone holding no token can
+  reach the endpoint — is not one condition among five: it decides whether the feature has a user.
+  Where every consumer already sits inside the boundary the service listens on, a report adds nothing
+  the audit trail would not have carried, while the cost is unchanged: the first anonymous write path
+  in a design that is fail-closed on its audit trail. It reopens with question 2 in plan section 21
+  and not on its own.
+- **`docs/threat-model.md` now expects "no anonymous endpoint except `/v1/health`" to stay true**
+  rather than to expire with phase 9. `docs/operations/freeze.md` documents a tier that is no longer
+  being built and says why it is kept: the condition that would bring `freeze` back is named, and
+  whoever revisits it should read what it closes before rediscovering it.
+
 ## [0.3.0] — 2026-08-20
 
 Nothing new to build with; four corrections to things that were already there, two of which were

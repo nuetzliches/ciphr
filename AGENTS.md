@@ -51,10 +51,25 @@ outstanding, in every document that mentions it, until a review has actually tak
 deployment may decide to run without it; that decision is recorded where the deployment is
 documented, and it does not change a line here.
 
-Two phases are planned and not built: **phase 8**, honeypots and tripwires (ADR-15, plan section 22),
-and **phase 9**, the unauthenticated leak-report endpoint (ADR-16, plan section 23). Neither may
-precede the review above — one adds behaviour to the authentication path, the other a key derivation
-and the only anonymous request path that reaches the store — and the plan says why in section 18.
+Two phases are planned and not built, and as of 2026-08-20 they are in different states.
+
+**Phase 8**, honeypots and tripwires, is **decided and still not built**: ADR-15 is accepted in the
+`alert` tier only, and `disable-identity` and `freeze` are designed and deliberately absent, because
+the severe tiers are worth their cost only once one machine identity no longer serves every deploy
+target. Acceptance is not a release — the review above is a condition on the *code*, and it has not
+moved. Two things in that record are easy to lose and expensive to relearn: bait belongs outside every
+prefix any consumer fetches, and whether a prefix is fetched is a question about the code that fetches
+rather than about the policy that permits it.
+
+**Phase 9**, the unauthenticated leak-report endpoint, is **deferred** (ADR-16). The condition that
+decides its worth is whether anyone without a token can reach the endpoint at all; where every
+consumer already sits inside the boundary the service listens on, a report adds nothing the audit
+trail would not have carried, and the first anonymous write path against a fail-closed audit trail is
+paid for regardless. It reopens with that condition, not on its own.
+
+Neither may precede the review above — one adds behaviour to the authentication path, the other a key
+derivation and the only anonymous request path that reaches the store — and the plan says why in
+section 18.
 
 Three things later phases must not undo:
 

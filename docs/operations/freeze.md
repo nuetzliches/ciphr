@@ -1,8 +1,15 @@
 # Freeze: what it closes, and how it ends
 
-**Status:** written 2026-08-20, and **nothing here is implemented**. This describes what ADR-15
-decides, not a mechanism that exists; the record is still *Proposed* and phase 8 may not be built
-before the external review.
+**Status:** written 2026-08-20, revised the same day, and **nothing here is implemented**. It
+describes a tier ADR-15 designed and then deliberately left out: that record was accepted in the
+`alert` tier only, so `freeze` is not being built. Phase 8 may not be built before the external review
+in any case.
+
+**Why this document survives the decision that dropped its subject.** ADR-15 requires the runbook
+before the code, and the condition under which `freeze` returns is named rather than closed — it
+becomes worth its cost once the identity set is granular enough that revoking one identity is not the
+same event as stopping everything. Whoever revisits that should read what it closes *first*, which is
+the paragraph below, not rediscover it.
 
 **Nothing here is implemented.** ADR-15 requires this document *before* the code, because
 `docs/operations/` is for the things that are hard to undo and a service that refuses to serve is

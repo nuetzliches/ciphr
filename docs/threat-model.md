@@ -5,10 +5,12 @@ boundaries are settled. The cryptographic, storage, authorization, audit and tra
 exist. **A7 now describes a component that is built:** every countermeasure in that row is
 implemented in `ui/` and the ones that can be gated are gated — see [ui.md](ui.md). **A8 still
 describes one that is not:** the MCP server is post-v1, and its row is a design commitment rather
-than a description. **A9 likewise describes nothing that exists yet:** the leak-report endpoint is
-phase 9 (ADR-16), and until it is built there is no unauthenticated endpoint here except
-`/v1/health`. The row is listed now because it is the only anonymous request path the design will
-ever have, and what defends it was decided before it was built rather than after.
+than a description. **A9 describes nothing that exists, and as of 2026-08-20 nothing that is
+scheduled:** the leak-report endpoint is phase 9, and ADR-16 is deferred — it is worth its cost only
+where somebody holding no token can reach it. **There is no unauthenticated endpoint here except
+`/v1/health`**, and that sentence is now expected to stay true rather than to expire. The row stays
+because the record stays: it is the only anonymous request path this design would ever have, what
+defends it was decided before anyone built it, and a deferral is not a reason to lose that.
 
 Everything in the design is derived from this document, so it is stated first and stated plainly —
 including the parts where the answer is "not defended against". A security product that lists only

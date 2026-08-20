@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Proposed.** Decision required before phase 8; nothing is implemented |
+| **Status** | **Accepted 2026-08-20, in the `alert` tier only.** Nothing is implemented; the build still waits on the external review below |
 | **Date** | 2026-08-19 |
 | **Affects** | `ciphr-store`, `ciphr-server`, `ciphr-audit`, `ciphr-cli`, plan section 22, phase 8 |
 
@@ -29,9 +29,16 @@ Two kinds are in scope, because they catch different things.
 
 ## Decision
 
-**Proposed, not accepted.** Honeypot tokens and honeypot secrets, with a per-honeypot trigger tier of
-`alert`, `disable-identity`, or `freeze`, defaulting to `alert`. Plan section 22 holds the design.
-Four properties are the decision; everything else is implementation.
+**Accepted, in one tier.** Honeypot tokens and honeypot secrets, with a per-honeypot trigger tier of
+`alert`, `disable-identity`, or `freeze` — of which **`alert` is the only one that gets built**. The
+other two stay in this record as designed and are not implemented; property 3 names the condition that
+would bring them back. Plan section 22 holds the design. Four properties are the decision; everything
+else is implementation.
+
+**What acceptance settles, and what it does not.** It settles the shape: which tiers exist, where bait
+lives, what a trip may do. It does not release the code. The external review named at the end of this
+record is a condition on *building* phase 8, and accepting a narrower design did not discharge it — a
+narrower thing built in the wrong order is still built in the wrong order.
 
 **1. Bait is indistinguishable from the real thing, on every axis a caller can observe.** Same token
 format, same `401` with the same body, same response shape for a secret read, no additional field
@@ -65,6 +72,14 @@ differ only in whether already-running services can still fetch. The tiers are a
 and they inherit the granularity of the identity set: the per-service token scoping that route B makes
 worthwhile (ADR-14) is also what makes this tier mean something other than `freeze`.
 
+**So only `alert` is built.** Where one machine identity serves every deploy target — the ordinary
+starting shape, because per-service scoping is work that follows a first integration rather than
+preceding it — the two severe tiers are one tier under two names, and shipping them would hand out an
+availability lever whose trigger condition is "somebody read a path". They become buildable when the
+identity set is granular enough that `disable-identity` costs one consumer instead of all of them.
+That is the condition to cite when this is revisited; not a date, and not a judgement that the tiers
+were a bad idea.
+
 **4. No unauthenticated request reaches a tier above `alert`.** The leak-report endpoint of ADR-16
 accepts candidate values from whoever can reach it. A reported honeypot value is the strongest signal
 this system can produce, and it still only alerts. The tiers that act on an identity require a
@@ -93,6 +108,15 @@ already requires monitoring that polls `/v1/health` and watches the audit volume
 more field for a check that has to exist anyway. Same reasoning that keeps the v1 audit devices to
 `sqlite` and `file` when `syslog` and `http` were the easy additions.
 
+**An alert nobody polls is not an alert.** That choice moves the last step of the mechanism out of
+this process and into whatever watches it, which is right — and it means the field, the entry and the
+marker file are the whole of what this project can deliver. A deployment that has not yet wired
+`/v1/health` into something that pages, or that has silenced that check while the service settles in,
+gets a tripwire whose entire output is a field nobody reads. That is the anchor-file failure in
+another shape: the mechanism is real, the step that gives it effect is somewhere else, and nothing
+here can check that it happened. It is an argument about *when* to build phase 8 — after the
+monitoring it depends on is live, not before — rather than about whether.
+
 ## What was rejected
 
 **A single trigger with no tiers.** Either it alerts, in which case it is not worth the word
@@ -116,7 +140,10 @@ putting it in the policy file would make it a second thing the evaluator loads a
 can drift out of step with the store. ADR-3 keeps policies in version control because they *decide*
 things. Bait decides nothing.
 
-## What must be true before this can be accepted
+## What must be true before this can be built
+
+Acceptance did not clear this list. Every item is a condition on the code, and the first of them has
+not moved.
 
 - **The external review of `ciphr-crypto`, `ciphr-policy`, and the path and pattern code in
   `ciphr-core` has taken place.** This ADR adds behaviour to the authentication path. Building a
@@ -148,6 +175,18 @@ things. Bait decides nothing.
   it, because beside the real secrets is where an enumerator looks. The upside: once bait sits outside
   every fetched prefix, reaching its value *requires* enumerating and then reading something nothing
   needs, which is precisely the behaviour this ADR exists to catch.
+
+  **And the rule is about what consumers fetch, not about what the policy allows.** Those are two
+  different sets, and the gap between them is where bait belongs. A machine identity is typically
+  authorized over more prefixes than any consumer actually reads — the credentials the deploy
+  machinery itself uses, for instance, which no service ever pulls into its own environment. Bait
+  there is authorized for the identity that would be compromised, untouched by every ordinary fetch,
+  and next to the most attractive material in the corpus, which is where an enumerator goes first.
+  Establishing that a prefix is unfetched means reading the code that fetches, not the policy: a
+  helper that lists a prefix and then exports every path it got back will read bait the policy file
+  gives no hint about, while a helper that filters that list against the names its consumer declares
+  will not. The policy shows which prefixes are permitted and never which are visited, and it is the
+  second question that decides whether bait is bait or a false positive on a schedule.
 - **Which of the tripwire's side effects are inside the fail-closed contract is decided rather than
   discovered.** Auditing is fail-closed, so a full audit volume already refuses requests. If the
   tripwire's row, marker file, or distinct entry can fail *independently* of the ordinary audit
@@ -161,7 +200,11 @@ A design review of this record, dated 2026-08-20, is in
 [`../review-adr-15-16-2026-08-20.md`](../review-adr-15-16-2026-08-20.md). Findings F1, F3, F4, F5 and
 F6 concern this ADR and are addressed above. F2 concerned a precondition in plan section 23 and has
 since been built. That review is by the same author as the code and does not discharge the external
-review named below.
+review named above.
+
+The scoping decision — one tier, and the second half of the placement rule — was taken on 2026-08-20
+after reading this design against the consumption pattern of a real deployment rather than against the
+plan. Both changes came from that reading; nothing else in the record moved.
 
 ## Consequences
 
@@ -173,3 +216,9 @@ never above `alert` without an authenticated identity, never cleared anywhere bu
 Honeypots detect indiscriminate behaviour — enumeration, scraping, a stolen credential tried
 everywhere. That is what most real compromise looks like. An attacker who reads only what they came
 for is not caught by this, and no amount of bait changes that.
+
+**In the accepted scope the second half of that trade is not taken.** `alert` costs a page and
+nothing more, so the switch that can refuse service is designed and absent. What is given up is the
+automatic response; what is kept is the detection, which was the half that did not exist. If the
+identity set later becomes granular enough for `disable-identity` to mean what its name says, the
+design for it is here and unchanged.

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Proposed.** Decision required before phase 9; nothing is implemented |
+| **Status** | **Deferred 2026-08-20.** Not built and not scheduled — the precondition that decides its worth is unmet. Nothing is implemented |
 | **Date** | 2026-08-19 |
 | **Affects** | `ciphr-crypto`, `ciphr-store`, `ciphr-server`, `ciphr-cli`, plan section 23, phase 9 |
 
@@ -24,9 +24,10 @@ report **what the process enforces** and never **what is stored**. A match is wh
 
 ## Decision
 
-**Proposed, not accepted.** One unauthenticated endpoint, `POST /v1/report`, that accepts a candidate
+**Deferred, not accepted.** One unauthenticated endpoint, `POST /v1/report`, that accepts a candidate
 secret value and marks the version it matches as `leaked`. Plan section 23 holds the design. Four
-properties are the decision.
+properties are the decision, and they stand as written. What changed on 2026-08-20 is not one of them
+but the answer to a question that precedes all four — see *Why this is deferred*, below.
 
 **1. The endpoint never answers the question.** `202 Accepted` with an empty body for a match and a
 miss alike. `429` at a limit, because a limiter is a property of the process rather than of the
@@ -167,6 +168,33 @@ who should be rotating instead.
 - **ADR-15 is built first.** A reported honeypot value is this feature's strongest signal, and it is
   only legible if honeypots exist. The dependency runs one way: ADR-15 does not need this.
 
+## Why this is deferred
+
+The third precondition above is not one condition among five. It decides whether the feature has a
+user at all, and it is answered *no* wherever every consumer of the values already sits inside the
+boundary the service listens on. On 2026-08-20 that was the answer for the deployment this roadmap
+follows — and not as a new decision there, but as a consequence of an older and larger one about
+where the service listens.
+
+Answered that way, the drop box is a channel with no sender. Whoever can reach the endpoint already
+holds an identity, and every read they perform is already in the trail. A report from them adds
+nothing the trail would not have carried anyway, while the thing the feature exists for — hearing
+about a value from someone this system has no relationship with — cannot happen, because that person
+cannot reach the endpoint.
+
+What it would cost is unchanged. It is the first anonymous write path in a design that is fail-closed
+on its audit trail: property 4 bounds that as tightly as it can be bounded, and the bound is a
+limiter, not an absence. Where the retention cut of plan section 7 is designed but not yet running,
+the resource property 4 protects is bounded by nothing else either — the endpoint would then be
+anonymous traffic against a finite store whose exhaustion is a total outage. A bounded cost against a
+benefit with no recipient is not a close call.
+
+**Deferred rather than rejected**, because nothing in the design is wrong and nothing about it has
+aged; the reviews of 2026-08-20 sharpened it rather than undermining it. The trigger to reopen is the
+third precondition itself, and it arrives with question 2 rather than on its own: the day the endpoint
+would get a listener reachable by somebody holding no token. Until then this is a design that was not
+needed — which is a better thing to have written down than an absence nobody can explain.
+
 ## Review
 
 A design review of this record, dated 2026-08-20, is in
@@ -176,6 +204,9 @@ ADR-15 yields a page an anonymous party can produce repeatedly — is answered i
 latch belongs. F2 was the finding that the per-IP bucket and the recorded client address both depended
 on a peer address the server never obtained, and it has since been built. That review is by the same
 author as the code and does not discharge the external review named above.
+
+Neither did the deferral. Not building something is not a way of reviewing it, and if this record is
+reopened the external review is still the first condition on its list.
 
 ## Consequences
 

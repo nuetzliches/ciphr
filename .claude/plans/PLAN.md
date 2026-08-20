@@ -1447,7 +1447,10 @@ The project starts private. These points cost nothing now and would be expensive
 
 ## 22. Honeypots and Tripwires
 
-Planned, not built. ADR-15 carries the decision; this section carries the design. **Numbered after
+Decided 2026-08-20 and not built. ADR-15 carries the decision; this section carries the design.
+**The accepted scope is the `alert` tier only** — `disable-identity` and `freeze` are designed below
+and are not being implemented, and ADR-15 names the condition that would bring them back. The design
+here is left whole for that reason; read it against that record rather than as a build list. **Numbered after
 section 21 rather than inserted before it:** section numbers are cited by number from `AGENTS.md`,
 the ADRs, `openapi.yaml`, the changelog and the operations documents, and renumbering would
 invalidate every one of those references to buy an ordering nicety.
@@ -1605,7 +1608,9 @@ chain.
 
 ## 23. Leak Reports: an Anonymous Drop Box
 
-Planned, not built. ADR-16 carries the decision.
+Deferred 2026-08-20 and not built. ADR-16 carries the decision and the reason: the endpoint is worth
+its cost only where somebody without a token can reach it, and question 6 in section 21 is what
+answers that. The design below is kept intact against the day that answer changes.
 
 ### The requirement
 
