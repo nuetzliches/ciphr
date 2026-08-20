@@ -12,7 +12,7 @@ project does not have.
 
 Remote access is `curl` (see `openapi.yaml`) or, from phase 7, the SDK.
 
-## Two rules that shape every command
+## Three rules that shape every command
 
 **A value is never an argument.** There is no `--value` flag, and adding one would be a regression.
 An argument lands in shell history and in `/proc/<pid>/cmdline`, where every other process on the
@@ -39,6 +39,30 @@ ciphr get infra/service-a/DB_PASSWORD --force > /tmp/x # deliberate
 
 `export --format actions-env` is exempt: writing into the runner's environment file *is* its
 purpose.
+
+**One process writes to a store at a time, and the running server is that process.** Every command
+that writes takes an exclusive lock on the store, and the server holds that lock for its whole
+lifetime. So while the service is up, a writing command does not run — it fails, and the message
+says what to do:
+
+```
+the store is in use by process 4711; stop it, run this, start it again.
+Two writers collide on the audit sequence and leave the first one refusing every request.
+```
+
+That includes `token issue`, which is the one that surprises people: **issuing a credential
+requires stopping the service.** Plan for it as a scheduled operation with a short outage, not as
+something done while someone waits on the phone.
+
+The exceptions are `audit anchor`, `audit verify` and `audit cut`, which need neither the lock nor
+the master key and are documented as such below — they exist to run against a live service.
+
+The rule is not bureaucracy, and the alternative is worse than an outage. The audit chain's head
+lives in the writing process's memory: a second writer moves the head, the first does not notice,
+and its next record carries a sequence number that is already taken. Fail-closed then does what it
+promises and refuses the request — **every** request, permanently, until the server is restarted.
+That was measured once, with one `ciphr put` beside a running server. The lock does not add a
+constraint; it makes an existing one visible before the damage instead of as a `503` afterwards.
 
 ## Global options
 
