@@ -8,6 +8,17 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — `classify` is its own action, and a reclassification is finally recorded
+
+Changing a rotation class wrote **no audit entry at all**, while `docs/operations/cli.md` stated that
+every command including the metadata ones is audited. It now writes a `classify` entry naming the
+path and the operator.
+
+It is a separate action rather than a `write` because a reclassification produces no version and
+would otherwise be invisible among the value writes — and **downgrading a class to `rotatable` is
+the step that comes immediately before a rotation that destroys data.** "Who decided this was safe?"
+has to be answerable from the trail. `openapi.yaml` carries the new label.
+
 ## [0.2.0] — 2026-08-20
 
 Everything phase 7 needed, plus the bound the audit trail never had. Four blocks landed after

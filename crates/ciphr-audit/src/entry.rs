@@ -41,6 +41,15 @@ pub enum Action {
     RotateMasterKey,
     /// Crypto-shred a version, irreversibly.
     Destroy,
+    /// Change how safe a secret is recorded to be to rotate.
+    ///
+    /// Its own action rather than a [`Action::Write`], because the question it
+    /// answers is different: a write produces a new version and is visible as
+    /// one, while a reclassification changes no value and leaves no version
+    /// behind. Folding it into `write` would make "who decided this was safe to
+    /// rotate?" unanswerable from the trail — and downgrading a classification is
+    /// the step that comes immediately before a rotation that destroys data.
+    Classify,
     /// An audit device refused a record that another device accepted.
     ///
     /// Not an operation anybody requested — an event in the trail's own life. It exists
@@ -64,6 +73,7 @@ impl Action {
             Self::Init => "init",
             Self::RotateMasterKey => "rotate-master-key",
             Self::Destroy => "destroy",
+            Self::Classify => "classify",
             Self::AuditDeviceFailed => "audit-device-failed",
         }
     }

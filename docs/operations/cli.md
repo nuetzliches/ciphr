@@ -82,7 +82,9 @@ ciphr versions infra/service-a/DB_PASSWORD
 ciphr rotation infra/service-a/DB_KEY breaks-data      # prints what to do instead
 ```
 
-Every one of these is audited, including the metadata ones. The trail says the same thing whether an
+Every one of these is audited, including the metadata ones. Setting a rotation class writes a
+`classify` entry — its own action, because it produces no version and would otherwise be invisible
+among the value writes. The trail says the same thing whether an
 access came through the API or from the host — a channel that records less is a channel someone will
 use for that reason.
 

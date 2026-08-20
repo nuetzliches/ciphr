@@ -573,6 +573,13 @@ fn run(cli: Cli) -> Result<(), CliError> {
             let path = SecretPath::parse(&path)?;
             let class = Rotation::parse(&class)?;
             let mut session = open(&cli)?;
+
+            // Its own action, not a write: a reclassification produces no version,
+            // so folding it into `write` would hide it among the value writes --
+            // and a downgrade to `rotatable` is the step that comes immediately
+            // before a rotation that destroys data.
+            session
+                .record(&Session::operator_entry(Action::Classify, true, None).with_path(&path))?;
             session.store.set_rotation(&path, class)?;
 
             println!("{path} is {class}");
