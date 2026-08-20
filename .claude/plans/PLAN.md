@@ -724,18 +724,32 @@ violate the argument rule below.
 **Two corrections from the first real migration, 2026-08-19.** Both were found downstream, and
 both are stated here because this paragraph is what a reader plans against.
 
-`--rotation-map` **does not exist.** `ImportArgs` has `--rotation`, which sets one class for the
-whole import, and section 8 exists precisely because one corpus mixes classes -- a single `.env`
-was observed carrying both `volume-bound` and `rotatable`. Until the flag exists the safe order
-is to import with the most dangerous class and then downgrade per path, never the reverse: a
-wrong `rotatable` reads as "safe to rotate" and invites the one action that destroys data.
-Deciding whether to build the flag belongs before a migration, not during one.
+`--rotation-map` **does not exist**, and the decision on 2026-08-20 was to leave it that way for
+now. `ImportArgs` has `--rotation`, which sets one class for the whole import, and section 8 exists
+precisely because one corpus mixes classes -- a single `.env` was observed carrying both
+`volume-bound` and `rotatable`. The safe order remains: import with the most dangerous class present
+and then downgrade per path with `ciphr rotation`, never the reverse.
 
-And `--from-dotenv` presumes there is a file. A service whose container definition reads
-variables straight from the deploying process's environment has no `.env` at all, so this route
-has no source for it and every value goes in through `put`. That is not a defect in the flag;
-it is a gap in the migration story, and it is the majority case for anything deployed by CI
-rather than by hand. Whatever closes it is the same question ADR-14 asks about route B.
+What changed instead is the thing underneath it. The problem the map was meant to solve is that one
+import cannot express several classes; the *larger* problem was that an import expressing **no**
+class silently claimed the safest one. Fixing the default (section 8) removes the damage; the map
+only removes typing. So it is deliberately deferred: with `unclassified` as the default and
+`ciphr list --rotation unclassified` to enumerate what is left, the map is ergonomics, and its shape
+is better decided against a real corpus than in advance. If it is built, a TOML file mapping name to
+class is the form to prefer over a repeatable flag -- it is reviewable and can live in the
+deployment's own repository, and ADR-2 already rules out inventing a syntax for it.
+
+`--from-dotenv` presumed there is a file; **`--stdin` was added on 2026-08-20** and reads the same
+format with the same parser, so a corpus that has no `.env` on disk does not have to acquire one to
+be migrated. That closes the mechanical half of the gap.
+
+The other half is not a gap in the tool and cannot be closed by one: **a forge does not give a
+secret back.** An import's only possible sources are a rendered file, a process that can produce the
+values, or the operator. For a value whose only copy lives in a forge, the documented answer is to
+generate a new one, `put` it, and switch the consumer -- a deliberate rotation rather than a copy,
+which also retires a value that has been in every job log's blast radius for years. The exception is
+a value that cannot be regenerated (`breaks-data`, `volume-bound`), which has to be recovered from
+the system holding it. `docs/operations/cli.md` carries this as a procedure.
 
 Two rules. Values are **never** accepted as arguments — they would end up in shell history and
 in `/proc` — but via stdin or an interactive prompt. And output containing secrets checks

@@ -141,18 +141,53 @@ With `--github-env` the assignments go to the file named by `$GITHUB_ENV` and on
 standard output. Verifying that `::add-mask::` is honoured by a Forgejo runner and by act_runner is
 a phase 4 task — both are act derivatives, but that is to be proven rather than assumed.
 
-## Migrating a `.env` file in
+## Migrating an existing corpus in
 
 ```sh
 ciphr import --from-dotenv ./.env --prefix infra/service-a --dry-run
 ciphr import --from-dotenv ./.env --prefix infra/service-a --rotation rotatable
+
+render-config | ciphr import --stdin --prefix infra/service-a --dry-run
 ```
 
 `--dry-run` prints target paths and value *lengths*, never values: it is something people run to
 check their work, often with someone else looking at the screen. A line the parser cannot read stops
-the import rather than being skipped â€” a partially moved corpus surfaces as a broken deploy much
+the import rather than being skipped — a partially moved corpus surfaces as a broken deploy much
 later. Comments, blank lines, `export` prefixes, and quoted values are handled; `$VAR` references
 are **not** expanded, because storing the expansion would store something the file does not say.
+
+`--stdin` reads the same format from standard input, with the same parser, for a corpus that has no
+`.env` on disk and should not acquire one in order to be migrated. The two are mutually exclusive
+and one of them is required.
+
+`--rotation` sets one class for the whole import, and a real `.env` mixes classes. The safe order is
+to import with the most dangerous class present and then downgrade per path with `ciphr rotation`,
+never the reverse: a wrong `rotatable` reads as "safe to rotate" and invites the one action that
+destroys data. Importing without `--rotation` leaves everything `unclassified`, which is also safe —
+it warns rather than reassuring — and `ciphr list --rotation unclassified` then says what is left to
+do.
+
+### What no import can do, and what to do instead
+
+**A forge does not give a secret back.** Once a value is stored as a CI secret it can be overwritten
+and used, not read out. So there is no import path from a forge, and there never will be one: the
+only sources an import can have are a rendered file on a host, a process that can produce the values,
+or the operator's own hands.
+
+That bounds the migration rather than the tool. For a value whose only copy lives in a forge, the
+honest move is **not** to hunt for a way to extract it:
+
+1. Generate a new value, or take it from the system that is authoritative for it — a database
+   password lives in the database, an API key in the provider's console.
+2. `ciphr put` it, with the right `--rotation`.
+3. Point the consumer at ciphr, through `ciphr-run`, the SDK, or a rendered file.
+4. Remove the forge secret once nothing reads it.
+
+That is a rotation performed deliberately, which is better than a copy: the value that was pasted
+into a forge years ago and has been in every job log's blast radius since is retired rather than
+carried forward. The exception is a value that **cannot** be regenerated — `breaks-data` and
+`volume-bound` classes — where the value must be recovered from the system that holds it, or from
+the operator, and entered with `put`.
 
 ## Tokens
 

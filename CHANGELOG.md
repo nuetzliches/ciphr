@@ -8,6 +8,34 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — `import --stdin`, and the boundary an import cannot cross
+
+`import --from-dotenv` presumed a file exists. A service whose container definition reads its
+variables straight from the deploying process's environment has no `.env`, so the migration route
+had no source for it and every value went in through `put` individually — the majority case for
+anything deployed by CI rather than by hand.
+
+`--stdin` reads the same format with the same parser. One parser, deliberately: a second set of
+quoting rules is a second set to get wrong, and the two would drift exactly where a stray quote
+character ends up inside a stored secret. The two flags are mutually exclusive and one is required.
+Nothing has to be written to disk in order to be imported any more.
+
+**The other half of that gap is not a defect and is now written down instead of left open.** A forge
+does not give a secret back: once a value is stored as a CI secret it can be overwritten and used,
+not read out. No import can have a forge as its source, and none ever will. For a value whose only
+copy lives in one, the documented answer is to generate a new value, `put` it, switch the consumer,
+and remove the forge secret — a deliberate rotation instead of a copy, which also retires a value
+that has been inside every job log's blast radius for years. Values that cannot be regenerated
+(`breaks-data`, `volume-bound`) have to be recovered from the system that holds them.
+`docs/operations/cli.md` carries it as a procedure.
+
+**`--rotation-map` is deliberately not built**, and plan section 11 now says so rather than
+promising it. It was meant to let one import express several classes. The larger problem was that an
+import expressing *no* class silently claimed the safest one, and that is what the default change
+fixes; with `unclassified` and `ciphr list --rotation unclassified` the map is ergonomics rather
+than damage control. If it is ever built, a TOML file mapping name to class is the form to prefer
+over a repeatable flag — reviewable, and able to live in the deployment's own repository.
+
 ### Changed — a secret nobody classified no longer claims to be safe to rotate
 
 `secrets.rotation` defaulted to `rotatable` from migration 001. A default is what a value gets when

@@ -205,8 +205,15 @@ struct ExportArgs {
 #[derive(Debug, Args)]
 struct ImportArgs {
     /// The `.env` file to read.
+    #[arg(long, required_unless_present = "stdin", conflicts_with = "stdin")]
+    from_dotenv: Option<PathBuf>,
+    /// Read the same format from standard input instead of a file.
+    ///
+    /// For a corpus that has no `.env` on disk and should not acquire one: the
+    /// values can be piped in from wherever they actually live. It parses
+    /// exactly what `--from-dotenv` parses.
     #[arg(long)]
-    from_dotenv: PathBuf,
+    stdin: bool,
     /// Prefix each variable with this path.
     #[arg(long)]
     prefix: String,
@@ -769,7 +776,16 @@ fn export(cli: &Context, args: &ExportArgs) -> Result<(), CliError> {
 fn import(cli: &Context, args: &ImportArgs) -> Result<(), CliError> {
     let prefix = SecretPath::parse(&args.prefix)?;
     let rotation = args.rotation.as_deref().map(Rotation::parse).transpose()?;
-    let text = std::fs::read_to_string(&args.from_dotenv)?;
+    // One parser for both sources: a second one is a second set of quoting rules
+    // to get wrong, and the two would drift in exactly the way that puts a stray
+    // quote character inside a stored secret.
+    let text = if let Some(path) = &args.from_dotenv {
+        std::fs::read_to_string(path)?
+    } else {
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut std::io::stdin(), &mut text)?;
+        text
+    };
     let entries =
         parse_dotenv(&text).map_err(|(line, reason)| CliError::DotEnv { line, reason })?;
 
