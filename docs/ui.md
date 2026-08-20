@@ -1,8 +1,9 @@
 # The viewer
 
-**Status:** current as of 2026-08-19, phase 5. Built and running: the five views below, the strict
+**Status:** current as of 2026-08-20, phase 5. Built and running: the five views below, the strict
 Content-Security-Policy, and the container that serves them. Sign-in is a pasted token; SSO is
-post-v1 (ADR-12).
+post-v1 (ADR-12). **This viewer requires a service at `0.3.0` or newer** — it reads the rotation
+class from `GET /v1/versions/{path}`, which returned a bare array before that.
 
 A read-only browser view of a ciphr deployment: the audit trail, secret metadata with a per-value
 reveal, identities, policies, and health. It is what makes the audit trail usable without the CLI,

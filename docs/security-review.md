@@ -1,6 +1,8 @@
 # External review: scope, claims, and what would falsify them
 
-**Status:** prepared 2026-08-18, phase 3 complete. The review has **not** taken place.
+**Status:** prepared 2026-08-18, last revised 2026-08-20 against `v0.3.0`. The review has **not**
+taken place. The design review of ADR-15 and ADR-16 on 2026-08-20 is a different document and says
+of itself that it is not this one.
 
 ## What this document is, and is not
 

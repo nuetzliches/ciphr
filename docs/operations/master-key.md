@@ -1,6 +1,6 @@
 # The master key
 
-**Status:** current as of 2026-08-19, phase 3. Every procedure here has a command that exists.
+**Status:** current as of 2026-08-20. Every procedure here has a command that exists.
 
 This is the highest-consequence thing in the system. Lose it and every secret is unrecoverable —
 there is no reset, no recovery code, and no support channel that can help. Leak it and the database is

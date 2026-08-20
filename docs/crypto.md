@@ -1,7 +1,9 @@
 # Cryptographic design, as implemented
 
-**Status:** implemented and tested as of 2026-08-18 (phase 1). Describes the code in
-`crates/ciphr-crypto`, not an intention.
+**Status:** implemented and tested as of 2026-08-18, re-read against the code on 2026-08-20 and
+unchanged. Describes the code in `crates/ciphr-crypto`, not an intention. The wire format and the
+key hierarchy have not moved since phase 1; what changed since is the wording of one refusal, which
+this document does not quote.
 
 The ground rule is that there are no custom constructions here. Established AEAD primitives,
 composed in the standard envelope pattern, with every deviation from the obvious approach explained.

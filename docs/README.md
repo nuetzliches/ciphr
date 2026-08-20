@@ -1,7 +1,8 @@
 # Documentation
 
-**Status:** current as of 2026-08-19, phases 0-3 released and phase 5 built. Describes what is
-built, and says so where something is not.
+**Status:** current as of 2026-08-20, `v0.3.0` released. Phases 0-3 and 7 are in it; the viewer
+(phase 5) ships as its own image on its own cadence. Describes what is built, and says so where
+something is not.
 
 ## The rules this documentation is held to
 

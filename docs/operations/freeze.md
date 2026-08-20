@@ -1,5 +1,9 @@
 # Freeze: what it closes, and how it ends
 
+**Status:** written 2026-08-20, and **nothing here is implemented**. This describes what ADR-15
+decides, not a mechanism that exists; the record is still *Proposed* and phase 8 may not be built
+before the external review.
+
 **Nothing here is implemented.** ADR-15 requires this document *before* the code, because
 `docs/operations/` is for the things that are hard to undo and a service that refuses to serve is
 exactly that. Written 2026-08-20, alongside the design review of ADR-15 and ADR-16.

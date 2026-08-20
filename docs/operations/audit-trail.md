@@ -1,6 +1,6 @@
 # The audit trail
 
-**Status:** implemented and tested as of 2026-08-19. The chain, the fail-closed sink, the file
+**Status:** implemented and tested as of 2026-08-20. The chain, the fail-closed sink, the file
 device, and the SQLite device work and are tested, and so do `ciphr audit tail`, `verify`, `anchor`,
 and `cut` — the last of these is what bounds the queryable trail, and it arrived after the rest.
 

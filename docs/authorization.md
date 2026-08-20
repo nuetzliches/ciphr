@@ -1,8 +1,10 @@
 # Authorization, as implemented
 
-**Status:** implemented and tested as of 2026-08-18 (phase 2). Describes the code in
-`crates/ciphr-policy` and the pattern matcher in `crates/ciphr-core`. There is no HTTP server yet,
-so nothing calls this in production; the semantics below are what it will call.
+**Status:** implemented and tested as of 2026-08-18, re-read against the code on 2026-08-20.
+Describes the code in `crates/ciphr-policy` and the pattern matcher in `crates/ciphr-core`. **Every
+authorization decision the service makes goes through this** — the sentence here used to say there
+was no HTTP server yet and that the semantics were what it *would* call, which stopped being true
+with phase 3 and stayed on the page until 2026-08-20.
 
 ## The policy file
 

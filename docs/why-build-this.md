@@ -1,5 +1,9 @@
 # Why build this, and when to stop
 
+**Status:** the evaluation of the alternatives was made on 2026-08-18 and is unchanged as of
+2026-08-20. Every version number below is from that date and versions age; re-check before deciding
+anything that depends on one. The exit condition at the end does not age.
+
 Writing a secret manager is a bad idea by default. This document records why it was chosen anyway,
 what it is measured against, and — most importantly — the condition under which abandoning it is the
 correct decision rather than a failure.
