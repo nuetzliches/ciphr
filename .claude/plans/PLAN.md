@@ -1365,7 +1365,25 @@ The project starts private. These points cost nothing now and would be expensive
   changelog.
 - **No deployment specifics in the core.** No organization-specific domains, no forge
   assumptions, no host paths in `crates/`. Integration lives in the deployment layer, not in
-  the product.
+  the product. **`AGENTS.md` states this more widely** — nothing organization-specific anywhere
+  in the repository — and the two sentences disagree about exactly one place, which is the
+  next point.
+- **`.forgejo/workflows/` is the one place that names this deployment, and it is a bounded
+  exception rather than an oversight.** A workflow that pushes to a private registry has to
+  name it: the registry host, the image namespace, and a runner label are in those files. The
+  files themselves say to delete them once the repository is public, because they exist only
+  while a private GHCR package is unreachable for the deployment host. **Deleting them is
+  therefore a publication step and belongs on this list**, not only in a comment at the top of
+  a file nobody re-reads on the day it matters.
+- **Deleting them does not remove them from the history**, and the history is published with
+  the repository. So the decision to take before publication is not whether to delete the
+  files but whether those three names — a forge hostname, a namespace, a runner label —
+  matter once they are searchable. If the answer is that they do not, that sentence belongs
+  here with a date on it; if it is that they do, the options are rewriting the history or
+  moving the values into forge variables long enough before publication that the tail of the
+  history is clean. **Either way it is a decision, and today it is an omission.** Note the
+  consistency check ADR-17 invites: that record declines public certificates partly because
+  Certificate Transparency makes internal names and, over time, a host inventory searchable.
 - **`SECURITY.md` and a disclosure process must exist before publication**, not after. A
   public secret manager without a reporting channel is irresponsible.
 - **Write `docs/threat-model.md` publication-ready from the start.** For a security product

@@ -8,6 +8,26 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Documented — what publication has to decide about the one file that names this deployment
+
+`.forgejo/workflows/` carries a registry hostname, an image namespace and a runner label, because a
+workflow that pushes to a private registry has to name it. Those files already say to delete
+themselves once the repository is public. Two things were missing around that, and plan section 20 —
+the publication checklist — now carries both.
+
+- **The deletion was a comment at the top of a CI file** and nowhere else. The day it matters is the
+  day nobody re-reads CI plumbing, so it belongs on the list that gets read then.
+- **Deleting a file does not remove it from the history**, and the history is published with the
+  repository. So the open decision is not whether to delete but whether a forge hostname, a
+  namespace and a runner label matter once they are searchable — recorded as a decision to take,
+  with the two ways out if the answer is that they do. ADR-17 declines public certificates partly
+  because Certificate Transparency makes internal names searchable over time, which is the same
+  question asked about a different channel.
+
+Nothing else in the repository carries deployment specifics: a sweep of every tracked file found the
+three names above and nothing more. The handoff notes that do carry them are `.gitignore`d and have
+stayed out of the record.
+
 ### Documented — which scope a machine identity should get, and what it costs the bait
 
 Two questions were being asked as one: what the **policy grants** (a sub-path against exact paths)
