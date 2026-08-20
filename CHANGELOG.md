@@ -8,6 +8,32 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-08-20
+
+Everything phase 7 needed, plus the bound the audit trail never had. Four blocks landed after
+`v0.1.0`: the audit cut and its anchor, one rule for turning a path into a variable name (ADR-18),
+`ciphr-sdk` as route C, and `ciphr-run` as route B. **What it is not** is unchanged from `0.1.0`:
+the external review of `ciphr-crypto`, `ciphr-policy`, and the reviewed parts of `ciphr-core` still
+has not happened, and holding real secrets before it does is a risk a deployment accepts rather than
+a condition it has met (plan section 18, `docs/security-review.md`).
+
+**Three things to read before upgrading.**
+
+1. **`ciphr export --format dotenv` and `--format actions-env` can now refuse where they used to
+   succeed.** Two paths under one prefix that share a last segment used to export as the same
+   variable name, and the second one won — a service received a valid secret that was the wrong one,
+   silently, with both reads recorded in the audit trail as successful. That is now a refusal naming
+   both paths, and a path segment that cannot be a variable name is a refusal too. Nothing is written
+   when either fires. `--format json` is keyed by full path and is unaffected. This is the one change
+   here that breaks working behaviour, and it is deliberate: the alternative was the wrong secret.
+2. **Schema 4 is a one-way door.** The server migrates on start, and an older binary then refuses the
+   database with `SchemaTooNew`. Back up before the upgrade, and do not plan an image rollback after
+   the first start. `ciphr audit cut` refuses on a database that has not been migrated yet — and,
+   since `bf28d41`, refuses before writing anything, including to the anchor file.
+3. **`import --from-dotenv` now rejects a key with a leading digit** (`1FOO=x`), which it used to
+   accept. No shell could ever source such a line, and accepting it produced a path the export can
+   never render.
+
 ### Added — the wrapper reaches a deployment through a registry, not only a release
 
 `ciphr-run` is bind-mounted into images this project does not own, so what a deployment needs is the
@@ -1148,5 +1174,6 @@ first production use.
   decision.
 - `AGENTS.md` with the working rules, and `SECURITY.md` with the disclosure process and scope.
 
-[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.1.0...main
+[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.2.0...main
+[0.2.0]: https://github.com/nuetzliches/ciphr/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/nuetzliches/ciphr/releases/tag/v0.1.0

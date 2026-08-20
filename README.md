@@ -4,14 +4,17 @@ A small secret manager for machine identities: key/value secrets, gap-free acces
 and path-based authorization. The name contains *CI* — the primary consumer is a build and
 deploy pipeline, not a human.
 
-> **Status: v0.1.0 released, phase 5 built and unreleased.** Usable end to end: envelope encryption
-> with master key rotation, SQLite with migrations, the policy evaluator, the fail-closed
-> hash-chained audit trail, the HTTPS API with token authentication, and the `ciphr` CLI. Since
-> v0.1.0: the audit anchor (`ciphr audit anchor`) and the read-only browser viewer in
-> [`ui/`](ui/), which ships as its own image and is released on its own cadence. **v0.1.0 is the artifact the external
-> review is performed against, not a production release — and that review has not happened.** Until
-> it does, the three crates that decide every access are verified by nobody but their author, and a
-> deployment holding real secrets before then has accepted that risk rather than met a condition
+> **Status: v0.2.0 released.** Usable end to end: envelope encryption with master key rotation,
+> SQLite with migrations, the policy evaluator, the fail-closed hash-chained audit trail, the HTTPS
+> API with token authentication, and the `ciphr` CLI. Since v0.1.0: the audit anchor and the
+> retention cut that bounds the trail (`ciphr audit anchor`, `ciphr audit cut`), one rule for
+> turning a path into an environment variable name, `ciphr-sdk` for a service that fetches its own
+> secrets, and `ciphr-run` for an image that only understands environment variables. The read-only
+> browser viewer in [`ui/`](ui/) ships as its own image and is released on its own cadence.
+> **This is the artifact the external review is performed against, not a production release — and
+> that review has not happened.** Until it does, the three crates that decide every access are
+> verified by nobody but their author, and a deployment holding real secrets before then has
+> accepted that risk rather than met a condition
 > ([`docs/security-review.md`](docs/security-review.md)). The full design lives in
 > [`.claude/plans/PLAN.md`](.claude/plans/PLAN.md).
 
