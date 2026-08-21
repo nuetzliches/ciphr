@@ -8,6 +8,26 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-08-21
+
+**The release that makes optionality a mechanism, and pays for it once.** Two things run through
+everything below. Optional behaviour now lives in a named set of *surface entries* (ADR-20), each off
+until a deployment records that it wants it and why — and the first feature built on that mechanism is
+phase 8, the `alert` tier of honeypots and tripwires (ADR-15).
+
+**Read [`docs/operations/upgrade.md`](docs/operations/upgrade.md) before deploying.** Three things there
+matter and none of them is optional reading: four routes stop existing unless the configuration names
+them, schema 6 is a one-way door, and the service gains two ways to refuse its own configuration.
+`ciphr-server --check-config` exercises the last of those without stopping anything.
+
+**Why a release that ships unreviewed surface is nevertheless safe to make.** The honeypot code is a
+Cargo feature absent from the default build, so the default artefact contains none of it. The accepted
+external review read the authentication path before bait existed and says in its own words that new
+surface there does not inherit it; the three claims describing it are marked as uncovered in
+[`docs/security-review.md`](docs/security-review.md). Turning the entry on is therefore a deliberate
+decision about running code nobody outside this project has read — which is exactly the shape ADR-20's
+build entries exist to make visible.
+
 ### Changed — **breaking:** the viewer routes and the bulk export are surface entries now
 
 `GET /v1/audit`, `/v1/identities`, `/v1/policies` and `POST /v1/export` were unconditional. They are
@@ -2288,7 +2308,8 @@ first production use.
   decision.
 - `AGENTS.md` with the working rules, and `SECURITY.md` with the disclosure process and scope.
 
-[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.4.0...main
+[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.5.0...main
+[0.5.0]: https://github.com/nuetzliches/ciphr/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/nuetzliches/ciphr/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/nuetzliches/ciphr/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/nuetzliches/ciphr/compare/v0.1.0...v0.2.0

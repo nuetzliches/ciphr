@@ -1,6 +1,6 @@
 # Upgrading
 
-**Status:** current as of 2026-08-21, covering every released version up to `0.4.0`.
+**Status:** current as of 2026-08-21, covering every released version up to `0.5.0`.
 
 The changelog says what changed. This says what to *do* about it, and it exists because the two are
 not the same document: a changelog entry sinks under the next release, while the person upgrading two
@@ -37,6 +37,96 @@ Step 5 is last on purpose, and from `0.3.0` it is load-bearing rather than tidy 
 
 From `0.4.0` there is a step 0: **check the file modes below before stopping anything.** A refusal
 there happens at start, which is the worst moment to discover it.
+
+From `0.5.0` step 0 has a second half: **run `ciphr-server --check-config <file>` against the new
+binary and the configuration you mean to run it with.** That release adds two refusals about surface
+entries, and it is also the one that makes four existing routes conditional on the configuration — so
+the file that started the previous version can be a file this one declines, and a `404` on the viewer
+is a quieter way to find out than a process that will not start.
+
+## 0.5.0
+
+**This release has a breaking change, a one-way schema migration, and a new refusal to
+start.** Read all three before scheduling it.
+
+### Four routes stop existing unless you name them
+
+`GET /v1/audit`, `/v1/identities`, `/v1/policies` and `POST /v1/export` are now surface
+entries (ADR-20). Without a stanza for each, they answer `404` — the viewer stops working
+and `ciphr-run` refuses with exit code `125` rather than starting a service without its
+secrets. **Add this to the server configuration before deploying**, or accept the loss
+deliberately:
+
+```toml
+[[surface]]
+entry    = "viewer_api"
+accepted = "2026-08-21"
+reason   = "the audit viewer runs beside the service"
+
+[[surface]]
+entry    = "bulk_export"
+accepted = "2026-08-21"
+reason   = "ciphr-run fetches whole prefixes on service start"
+```
+
+All three fields are required. `ciphr surface show <config>` prints what each entry costs
+next to your reason, and `GET /v1/health` lists the entries the running service has.
+
+**Take the loss where you can.** A deployment with no viewer was serving those three routes
+to nobody, while putting the policy structure and the identity inventory on the network for
+anyone holding any token. And turning `bulk_export` off is what removes fetched prefixes,
+which is the thing that makes a honeypot secret hard to place — see
+[honeypots.md](honeypots.md).
+
+### Schema 6 is a one-way door
+
+Back up the database, its `-wal` and `-shm` siblings, and the anchor file first. A `0.4.0`
+binary refuses a schema-6 database with `SchemaTooNew`, so a rollback needs the restore.
+The migration is additive — two columns and a table for bait — and touches no existing row.
+
+### The service can refuse to start on its own configuration
+
+Two new refusals, both about surface entries and both deliberate:
+
+- A `[[surface]]` stanza with no `accepted` date or no `reason`. A flag with no reason
+  beside it reads as an accident six months later, and the safest-looking fix for an
+  accident is the default.
+- A stanza naming `honeypot_alert` in a binary built without that feature, or a binary
+  built *with* it and no stanza. The second direction is the one that matters: without it a
+  deployment could believe it had bait detection, have written down when and why, and have
+  none — and nothing would ever say so, because bait that cannot fire looks exactly like
+  bait nobody took.
+
+`ciphr-server --check-config <file>` exercises both without starting the listener. Run it
+before you stop anything.
+
+### A strict consumer of `GET /v1/audit` needs a look, again
+
+Records gain a `detail` field — `null` on everything except `surface-active` and
+`honeypot-triggered` — and there are four new `action` values: `surface-active`,
+`honeypot-triggered`, `honeypot-marked`, `honeypot-cleared`. `deny_reason` gains
+`latch-failed`. A consumer that rejects unknown fields or unknown actions needs updating;
+the CLI, the SDK and the viewer all tolerate both by design.
+
+`GET /v1/health` gains `surface` (always) and `tripped`/`open_tripwires` (only in a build
+with `honeypot_alert`). **Absent rather than `false`** where the build lacks it: "this build
+cannot detect bait" and "nothing has been taken" are different facts, and a monitor that
+conflates them reports a working tripwire on a service that has none.
+
+### Honeypots are off unless you build for them
+
+The `alert` tier of ADR-15 is a **Cargo feature**, absent from the default binary, so the
+default artefact of this release contains none of it. That is also what makes it safe to
+release: the surface it adds is newer than the accepted external review, and
+[../security-review.md](../security-review.md) marks the three claims that describe it as
+uncovered. Turning it on is a decision about accepting unreviewed code on the
+authentication path. [honeypots.md](honeypots.md) is the runbook, and it leads with the
+condition this software cannot check: something has to poll `/v1/health` and page a human.
+
+### Nothing to do about the rest
+
+`PUT /v1/secrets/{path}` accepts an optional `rotation` so an import over the API does not
+leave every path `unclassified`. `GET /v1/surface` is new. No interface moves.
 
 ## 0.4.0
 

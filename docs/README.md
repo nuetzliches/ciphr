@@ -1,12 +1,13 @@
 # Documentation
 
-**Status:** current as of 2026-08-21, `v0.4.0` released; the external review was against `v0.3.0`. Phases 0-3 and 7 are
+**Status:** current as of 2026-08-21, `v0.5.0` released; the external review was against `v0.3.0`. Phases 0-3, 7 and 8 are
 in it; the viewer (phase 5) ships as its own image on its own cadence. Describes what is built, and
 says so where something is not.
 
-**Phase 8 is built and unreleased.** The `alert` tier of ADR-15, behind the `honeypot_alert` surface
-entry (ADR-20) and therefore absent from a default build. The surface added by it is *newer than the
-accepted review* — [security-review.md](security-review.md) marks the three claims that describe it.
+**Phase 8 shipped in `v0.5.0`.** The `alert` tier of ADR-15, behind the `honeypot_alert` surface entry
+(ADR-20) and therefore absent from a default build. The surface added by it is *newer than the accepted
+review* — [security-review.md](security-review.md) marks the three claims that describe it, and that is
+why the entry is off unless a deployment asks for it.
 
 ## The rules this documentation is held to
 
