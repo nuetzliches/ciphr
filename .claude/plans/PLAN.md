@@ -5,10 +5,17 @@
 | **Written** | 2026-08-18 |
 | **Background** | Evaluated OpenBao, Vault Community, Infisical CE, Conjur OSS. Result: OpenBao meets the requirement completely. Building this is a product decision, not a workaround. |
 
-**Status:** current as of 2026-08-21, with `v0.4.0` released. This is the specification and it is
-**amended as decisions land**, not frozen at the date above — which is why the row says *written*
-rather than *date*. The external review that section 18 makes a precondition took place on
-2026-08-21; that section records what it covers and what it does not.
+**Status:** current as of 2026-08-21, with `v0.4.0` released.
+
+This paragraph deliberately carries **one** date and no other. `ci/check-doc-dates.sh` takes the
+latest date in the status paragraph as the claim, so a second date here — a release, a decision, a
+review — would quietly become the thing enforced, and the currency date could then move backwards
+unnoticed. The first draft of this line named the review date and walked straight into that.
+
+This is the specification and it is **amended as decisions land**, not frozen at the date in the
+table — which is why the row says *written* rather than *date*. The external review that section 18
+makes a precondition has taken place; that section carries the date, what it covers, and what it
+does not.
 
 **Where the project stands is in [`AGENTS.md`](../../AGENTS.md), not here.** Two phase-status lists
 drift apart, and the one a contributor reads first should be the one that wins; section 18 holds the

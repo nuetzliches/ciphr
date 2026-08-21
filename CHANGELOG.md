@@ -30,6 +30,16 @@ silently unchecked.
 The new line also stops duplicating something: *where the project stands* is in `AGENTS.md`, and the
 plan now points there instead of keeping a second phase-status list to drift against it.
 
+**One date per status paragraph, and the first draft of this line got it wrong.** `check-doc-dates.sh`
+takes the *latest* date in the status paragraph as the claim — deliberately, because a careful author
+writes two ("implemented as of X, re-read against the code on Y") and the later one is the claim about
+currency. The consequence for anyone writing such a line is the inverse: a second date that is *not* a
+currency claim silently becomes the thing enforced, and the currency date can then move backwards
+unnoticed. The first version of this status line mentioned the review date, which pinned the enforced
+claim to it and made the gate unable to fire on the file it had just been widened to cover. Verified by
+building a commit that should fail the gate and watching it pass. The paragraph now carries one date and
+says why.
+
 ### Fixed — the viewer image never contained the favicon its own document asks for
 
 `ui/public/favicon.svg` has been committed, linked from `index.html`, and listed in `ui/README.md`'s
