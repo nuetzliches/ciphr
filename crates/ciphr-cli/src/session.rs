@@ -73,9 +73,11 @@ impl Session {
     /// The CLI audits its own actions for the same reason the server does: an
     /// operator reading a secret from the host is an access, and the trail that omits
     /// it is a trail that answers "who read this" incorrectly. The boundary of that
-    /// rule is ADR-22: an entry is written where the action consumed an authority --
-    /// `get` spends the master key -- and not for the plaintext-metadata listings,
-    /// whose entry anyone affected could route around with `sqlite3` on the same file.
+    /// rule is ADR-22: an entry is written where its price is already paid -- `get`
+    /// spends the master key and a value read is worth a session -- and not for the
+    /// plaintext-metadata listings, where the entry would cost the one property they
+    /// need, answering while the service runs. Every host entry is cooperative either
+    /// way; whoever holds the key and the file reads without one.
     ///
     /// # Errors
     ///

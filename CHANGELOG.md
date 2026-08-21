@@ -497,6 +497,27 @@ credential to revoke is established before the outage begins, not during it. Whe
 should ever work against a running service is issue #14's remaining question and is deliberately not
 answered here — it waits on the capability split in issue #5.
 
+### Documentation — ADR-22's rationale is sharpened, and the API's strictness is defended rather than assumed
+
+Review asked two fair questions. First: was auditing `ciphr list` ever deliberate? It was — first
+CLI commit, rationale stated in place — so the record now quotes the decision it revises instead of
+treating it as an accident. Second: if the CLI's listing entries measured politeness, is the API
+over-auditing too — should `list` entries and the `sys/audit` read entry go? The record now answers
+no, and says why the asymmetry is the principle: at the API boundary the entry is unbypassable by
+its subject *and* costs no outage, and the two entries in question carry weight the host ones never
+did — the `list` entry is the only trace of enumeration in a design where enumeration deliberately
+does not trip (`honeypots.md`: bait appears in listings unmarked, and listing is not taking it),
+and the `sys/audit` entry watches the read issue #5 already calls an oracle on the detection layer.
+
+The sharpening also corrects the record's own overclaim: `get`'s entry is not unbypassable —
+whoever holds the master key and the file decrypts offline and writes nothing (A5) — so every host
+entry is cooperative, and what actually decides is the price. An entry advances the chain, the
+chain needs the lock, the lock is the outage; `get` pays that price anyway, the listings paid it
+with the answer itself. Bypassability breaks the tie, it does not carry the decision. The
+2026-08-21 field report moved from supporting evidence to the load-bearing kind: the second
+`sqlite3` connection an operator opened beside the running server is the "channel that records
+less" the original comment warned about — manufactured by the rule that warned about it.
+
 **The release that corrects `0.5.0` rather than adding to it**, and the first patch release here.
 Nothing breaks, nothing migrates, the schema stays at 6 and no interface moves — a rollback to `0.5.0`
 needs neither a restore nor a configuration edit.
