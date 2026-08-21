@@ -137,7 +137,7 @@ impl Server {
         // an audit entry describing an access that the client never received, which is
         // a confusing trail to read later.
         tokio::spawn(async move {
-            if tokio::signal::ctrl_c().await.is_ok() {
+            if stop_requested().await {
                 shutdown.graceful_shutdown(Some(std::time::Duration::from_secs(10)));
             }
         });
@@ -152,6 +152,59 @@ impl Server {
             .serve(router.into_make_service_with_connect_info::<SocketAddr>())
             .await
             .map_err(StartupError::Io)
+    }
+}
+
+/// Completes when something has asked this process to stop.
+///
+/// **SIGTERM is the one that matters, and it was the one missing.** A container runtime
+/// stops a service with SIGTERM; `tokio::signal::ctrl_c` is SIGINT on Unix and nothing
+/// else. So the graceful shutdown above — the one `docker-entrypoint.sh` `exec`s in
+/// order to reach — never ran on an ordinary stop: SIGTERM had no handler, the default
+/// action terminated the process, and any request already audited and not yet answered
+/// was dropped. The trail then records an access the client never received, which is
+/// exactly the confusion the graceful shutdown exists to prevent.
+///
+/// No data is at risk either way — `synchronous = FULL` and WAL mean an abrupt stop
+/// costs no committed write — so this is about the trail telling the truth, and about
+/// the write-ahead log being checkpointed away on a clean close rather than left for a
+/// backup job to remember (`docs/operations/backup.md`).
+///
+/// Returns `false` if no signal can be waited on at all, in which case the process
+/// keeps serving and is stopped the way it would have been before.
+///
+/// Public so that `tests/shutdown.rs` can exercise it in a **process of its own**. That
+/// is not tidiness: a test for this has to raise a real signal, and if the registration
+/// below ever breaks again, the signal has no handler and kills whatever process it was
+/// raised in. Its own test binary is the difference between one failing test and a test
+/// run that reports nothing.
+pub async fn stop_requested() -> bool {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+
+        // Registering both before awaiting either is the part that matters: a signal
+        // stream replaces the default action from the moment it exists, so a SIGTERM
+        // arriving during startup is queued rather than fatal.
+        let mut terminate = match signal(SignalKind::terminate()) {
+            Ok(stream) => stream,
+            // Nothing here can recover from this, and pretending otherwise would leave
+            // the process believing it has a graceful shutdown it does not have. Fall
+            // back to SIGINT alone, which is what the previous behaviour was.
+            Err(_) => return tokio::signal::ctrl_c().await.is_ok(),
+        };
+
+        tokio::select! {
+            outcome = tokio::signal::ctrl_c() => outcome.is_ok(),
+            received = terminate.recv() => received.is_some(),
+        }
+    }
+
+    // Windows has no SIGTERM. `ctrl_c` covers Ctrl-C and, through tokio, the console
+    // close and shutdown events that stand in for it.
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c().await.is_ok()
     }
 }
 

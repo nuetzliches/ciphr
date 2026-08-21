@@ -69,7 +69,9 @@ does not exist.
 
 Two operational consequences, both intended:
 
-- **A full audit volume is an outage, not a logging gap.** Monitor free space on the audit volume,
+- **A full audit volume is an outage, not a logging gap.** It is also the one check `/v1/health`
+  cannot answer, so it needs something that can see the filesystem — see
+  [monitoring.md](monitoring.md). Monitor free space on the audit volume,
   not just whether the service answers. This is the failure mode the design chooses on purpose.
 - **The server refuses to start with no audit device configured.** A secret store without an audit
   trail is a configuration error in this project, not an operating mode.

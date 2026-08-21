@@ -24,6 +24,13 @@ is an operational problem and never an access-control one.
 | `volume-bound` | Must match the value a persistent volume was initialized with. |
 | `invalidates-sessions` | Rotation works, but discards all sessions and derived tokens. |
 
+**The same column answers a second question, on a different axis.** These classes were added to
+decide *may I rotate this*. Read as *what does losing this cost*, `breaks-data`, `volume-bound` and
+`seed-only` are the values that cannot be regenerated from nothing — for those, ciphr is not a copy of
+something but the only holder, and the criticality of the whole database is the criticality of the
+least replaceable value in it. [backup.md](backup.md) works that out, and the two axes do not sort the
+classes identically, so it carries its own table rather than reusing `needs_care`.
+
 The advice for each class also lives in the code, on `Rotation::advice`, so that the CLI and the UI can
 show it at the moment of the decision rather than in a document nobody opens under pressure. The
 viewer does not keep its own copy of it: `GET /v1/versions/{path}` carries the class, the

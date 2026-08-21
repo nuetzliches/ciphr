@@ -26,6 +26,19 @@ use crate::store::{
     VersionSummary, reject_reserved,
 };
 
+/// What a backup produced, so a caller can say something more useful than "done".
+///
+/// Both fields are read back out of the *destination* rather than reported from the
+/// source, which is the difference between "the statement returned" and "there is a
+/// database at that path".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BackupReport {
+    /// Size of the written file, in bytes.
+    pub bytes: u64,
+    /// Schema version of the copy. Equal to the source's, and checked to be.
+    pub schema_version: u32,
+}
+
 /// Meta keys holding the seal record. All four are written together or not at all.
 const META_SEAL_ID: &str = "seal_id";
 const META_ROOT_KEY_ID: &str = "root_key_id";
@@ -88,6 +101,102 @@ impl SqliteStore {
         }
 
         Ok(Self { connection })
+    }
+
+    /// Copy this database to `destination` as one consistent file.
+    ///
+    /// `VACUUM INTO`, and not a file copy. The difference is the whole reason this
+    /// exists: `cp` reads a file that is moving underneath it, so its result can be a
+    /// snapshot of two different moments, while this runs in a read transaction and
+    /// writes a single file that is committed state as of one instant.
+    ///
+    /// Four properties matter to a caller, and each is a reason this is here rather
+    /// than in a shell script:
+    ///
+    /// - **It writes nothing to the source.** `VACUUM INTO` is read-only with respect
+    ///   to the database it copies (SQLite 3.27 and later), so this is callable on a
+    ///   store opened with [`Self::open_read_only`] — which is how the CLI calls it, so
+    ///   that taking a backup can never be the thing that migrates the database it was
+    ///   taken to protect.
+    /// - **It needs no store lock and no master key.** The lock exists to stop a second
+    ///   *writer* (see [`crate::lock`]); a reader is not one, and WAL mode lets this run
+    ///   while the service serves. Nothing here decrypts, so no key is involved.
+    /// - **The output is a single file in rollback-journal mode**, whatever the source
+    ///   used. There is no `-wal` beside it to remember to carry, which is the mistake a
+    ///   file-level copy of a live WAL database invites.
+    /// - **It refuses to overwrite.** SQLite fails with *"output file already exists"*
+    ///   rather than truncating, so a mistyped destination cannot destroy a previous
+    ///   backup.
+    ///
+    /// The copy is then opened and checked: `PRAGMA integrity_check` must say `ok`, and
+    /// its schema version must equal the source's. Both are cheap at this data volume,
+    /// and they are the difference between "the statement returned" and "there is a
+    /// readable database at that path" — which is the claim a backup is actually making.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Io`] if `destination` is not valid UTF-8, if the written
+    /// file cannot be measured, or if the copy fails its integrity check or disagrees
+    /// with the source about the schema version. Returns [`StoreError::Sqlite`] if the
+    /// destination exists, cannot be written, or cannot be read back.
+    pub fn backup_into(&self, destination: impl AsRef<Path>) -> Result<BackupReport, StoreError> {
+        let destination = destination.as_ref();
+        // Bound as a parameter rather than interpolated: the filename in `VACUUM INTO`
+        // is an ordinary SQL expression, and a path with a quote in it would otherwise
+        // be a quoting bug in the one command whose output has to be trustworthy.
+        // Lossy conversion is refused for the same reason -- it would silently write
+        // the backup somewhere other than where it was asked to.
+        let target = destination.to_str().ok_or_else(|| StoreError::Io {
+            detail: format!(
+                "the backup destination '{}' is not valid UTF-8",
+                destination.display()
+            ),
+        })?;
+
+        let source_schema: u32 = self
+            .connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))?;
+
+        self.connection.execute("VACUUM INTO ?1", params![target])?;
+
+        let written = std::fs::metadata(destination)
+            .map_err(|error| StoreError::Io {
+                detail: format!("cannot measure {}: {error}", destination.display()),
+            })?
+            .len();
+
+        // Read back through its own connection, read-only. A `VACUUM INTO` product is
+        // not write-ahead-logged, so this needs no sidecar file and no writable
+        // directory -- unlike a file-level copy of the source, which does.
+        let copy = Connection::open_with_flags(
+            destination,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+
+        let integrity: String = copy.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
+        if integrity != "ok" {
+            return Err(StoreError::Io {
+                detail: format!(
+                    "the backup at {} failed its integrity check: {integrity}",
+                    destination.display()
+                ),
+            });
+        }
+
+        let schema_version: u32 = copy.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        if schema_version != source_schema {
+            return Err(StoreError::Io {
+                detail: format!(
+                    "the backup at {} has schema version {schema_version}, the source has {source_schema}",
+                    destination.display()
+                ),
+            });
+        }
+
+        Ok(BackupReport {
+            bytes: written,
+            schema_version,
+        })
     }
 
     /// Open a database that exists only for the lifetime of this value.

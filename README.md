@@ -127,11 +127,13 @@ deliberately out of scope, is in [`docs/threat-model.md`](docs/threat-model.md).
 | [`docs/authorization.md`](docs/authorization.md) | The policy file, the pattern language, and the four rules of the decision |
 | [`docs/security-review.md`](docs/security-review.md) | What an external reviewer should attack, and what would falsify each claim |
 | [`docs/operations/cli.md`](docs/operations/cli.md) | Every `ciphr` command, and the two rules that shape all of them |
+| [`docs/operations/backup.md`](docs/operations/backup.md) | What a backup has to contain, how to take one that is not torn, and what a restore quietly undoes |
+| [`docs/operations/monitoring.md`](docs/operations/monitoring.md) | What to poll, what each `/v1/health` field means, and the check the endpoint cannot answer |
 | [`docs/operations/upgrade.md`](docs/operations/upgrade.md) | What each version's breaking changes require, and the backup rule that holds for all of them |
 | [`docs/operations/wrapper.md`](docs/operations/wrapper.md) | `ciphr-run`: where to get it, what its exit codes mean, and what it does not solve |
 | [`docs/ui.md`](docs/ui.md) | The viewer: what it shows, what it refuses to do, and how it is deployed |
 | [`openapi.yaml`](openapi.yaml) | The HTTP API |
-| [`docs/operations/`](docs/operations/) | Procedures for what is hard to undo: the master key, and rotating secrets that break things |
+| [`docs/operations/`](docs/operations/) | Procedures for what is hard to undo: the master key, backups and restores, and rotating secrets that break things |
 | [`docs/threat-model.md`](docs/threat-model.md) | Adversaries, defended and undefended boundaries, the availability trade |
 | [`docs/why-build-this.md`](docs/why-build-this.md) | The evaluation of existing tools, and the condition under which this project should be abandoned in favour of OpenBao |
 | [`AGENTS.md`](AGENTS.md) | Working rules for contributors, and the gates that enforce them |

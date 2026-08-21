@@ -64,7 +64,7 @@ pub use error::StoreError;
 pub use honeypots::{BaitKind, Honeypot, HoneypotTier, Trip};
 pub use lock::StoreLock;
 pub use migrations::SCHEMA_VERSION;
-pub use sqlite::SqliteStore;
+pub use sqlite::{BackupReport, SqliteStore};
 pub use store::{
     EncryptForVersion, ListedSecret, SealState, SecretMetadata, Store, StoredVersion,
     VersionSummary, reject_reserved,

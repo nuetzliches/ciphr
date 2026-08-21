@@ -127,6 +127,17 @@ restored is a hypothesis. Restoring a ciphr database means recovering the file *
 break-glass key, and the second half is exactly the step that turns out to be undocumented or
 inaccessible at the worst moment. Fold it into whatever backup audit cycle already exists.
 
+**Keep every key that any retained backup was sealed under, for as long as that backup is kept.** The
+seal record lives inside the database, so a backup taken before a rotation carries the *older*
+wrapping and the current key will not open it. That is a longer obligation than the one in
+[Rotating it](#rotating-it) below, which is about the window around a single restart. What the rest of
+a backup has to contain, and what a restore undoes, is in [backup.md](backup.md).
+
+Two copies of the key, above, is advice for a store of replaceable values. For a store holding
+anything classified `breaks-data`, `volume-bound` or `seed-only` it stops being advice: the rule here
+protects against the key being *stolen* with the database, and does nothing about it being *lost*
+without one. [backup.md](backup.md) reads the classification on that axis.
+
 ## Rotating it
 
 Rotation re-wraps the root key. It does not re-encrypt any secret, does not change any ciphertext,
@@ -182,6 +193,7 @@ cannot simply be replaced: see [rotating-secrets.md](rotating-secrets.md).
 | Key file missing or unreadable | Startup fails naming the path and the I/O category, never the content | Check the mount actually landed; a secret that failed to mount looks exactly like this |
 | Variable not set | Startup fails naming the variable | Set it; do not "temporarily" generate a new one — a new key cannot read the existing database |
 | Wrong key, valid format | Unsealing fails as an authentication failure, indistinguishable from a corrupted record | Check you are pointing at the intended environment file before concluding the database is damaged |
+| Current key against a database restored from before a rotation | Exactly the row above — the seal record in that file is the older one | Use the key that was current when the backup was taken. This is why the old keys are retained as long as the backups are ([backup.md](backup.md)) |
 | Key not 64 hex characters | Startup fails with a length or encoding error, never echoing the value | Regenerate as above; watch for a trailing newline or quotes |
 | Key lost entirely | The database is ciphertext and stays that way | Restore the break-glass copy. If there is none, the data is gone; recreate the secrets from their sources |
 | Seal record partially written | Startup refuses with "the seal record is incomplete" | Restore the database from backup rather than repairing it by hand — guessing which half is authoritative can mean unsealing with the wrong record |

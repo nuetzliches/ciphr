@@ -13,6 +13,131 @@ This file is updated in the same commit as the change it describes.
 answered and the corrected `bulk_export` sentence accurate against the code it describes — read end
 to end, not taken from the changelog. Three things it asked for, and four smaller ones.
 
+### Added — `ciphr backup`, so the backup this project has always asked for has a command
+
+ADR-7 chose SQLite in part because *"backup is `VACUUM INTO` plus an existing file-backup job"*. That
+sentence was written in the first week and described something nobody could run: no subcommand did it,
+and the runtime image has no `sqlite3`. What a deployment had instead was `cp` — and `cp` on a live
+write-ahead-logged database reads a file that is moving underneath it, so its result can be a snapshot
+of two different moments. **It is the one backup mistake with no error attached to it**, which is why
+this is an `Added` entry and not a convenience.
+
+```sh
+ciphr --database /var/lib/ciphr/store.db backup /path/to/backup/store-2026-08-21.db
+```
+
+**It needs neither the store lock nor the master key**, which puts it in the same short list as
+`audit anchor`, `verify` and `cut`. That is the property that decides whether it gets used: a copy
+obtainable only inside a maintenance window is a copy that stops being taken, and a backup job does
+not need the highest-value secret in the deployment in its environment to run.
+
+**The source is opened read-only, and that is load-bearing rather than cautious.** `SqliteStore::open`
+migrates on open, so a pre-upgrade backup taken with the *new* binary any other way would migrate the
+database first — destroying the rollback the backup exists for. `open_read_only` checks the schema and
+does not apply it, so the one moment this command matters most is the one it cannot get wrong.
+`docs/operations/upgrade.md` now says "with the old binary" in step 1 anyway, because that ordering is
+free and this reasoning is not obvious from the outside.
+
+**It verifies what it wrote.** `PRAGMA integrity_check` on the copy, and the copy's schema version
+against the source's, both through a separate read-only connection. A backup command whose exit code
+means "the statement returned" rather than "there is a readable database there" is a command that
+reports success on a full disk. Both checks are free at this data volume, and the report on stdout is
+the path, the size and that version.
+
+**Three refusals, each of them a mistake that has happened to somebody.** An existing destination is
+refused rather than truncated, so a mistyped path cannot destroy the previous backup — SQLite's own
+*"output file already exists"*, surfaced rather than worked around. A destination that is not valid
+UTF-8 is refused rather than lossily converted, because a lossy path writes the backup somewhere other
+than where it was asked to. And the filename is a bound parameter rather than interpolated into the
+statement: the filename in `VACUUM INTO` is an ordinary SQL expression, and a quote in a path would
+otherwise be a quoting bug in the one command whose output has to be trustworthy.
+
+**It writes no audit entry**, and that is a decision with two reasons. An entry would need the lock,
+which costs exactly the property above. And whoever can run this can already read the database file,
+so `cp` was available to them regardless — the command adds convenience, not access. `audit anchor` is
+treated the same way, for the related reason that recording itself would move the head it just wrote
+down. A third reason is structural: an entry written after the copy could not be in the copy it
+describes.
+
+The output is one self-contained file in rollback-journal mode whatever the source uses, so there is
+no `-wal` beside a backup to remember — and a `ciphr backup` copy, unlike a file-level copy, reads
+fine from a read-only mount. Nine tests: five in `crates/ciphr-store/tests/backup.rs` on the store
+method, including that the source is byte-identical afterwards and that the copy still decrypts under
+the same key, and four in `crates/ciphr-cli/tests/backup.rs` through the binary — that it runs while
+another process holds the lock, that it runs with no master key in the environment while `list` in the
+same environment fails, and that a refused second backup leaves the first one untouched.
+
+### Added — a restore is now a checked property, not a documented one
+
+`docs/operations/backup.md` was written with a section admitting that nothing proved a backup comes
+back. `crates/ciphr-server/tests/restore.rs` closes that: it performs the procedure the document
+describes — remove the live database and its sidecars, move a backup into their place — and then
+serves a secret out of the result **over the real router**, with a token issued before the backup was
+taken.
+
+**One assertion, four claims underneath it, each of which turns a restore into an outage on its own.**
+The restored seal record opens with the same master key. The wrapped data key survived the copy. The
+token authenticates against a verifier peppered from the root key that came out of the *restored*
+record. And the audit chain resumes from the restored head, so fail-closed accepts the record instead
+of refusing it. None of the four is visible from the file's size, and the store-level tests added
+alongside `ciphr backup` cover none of them — proving a copy is a readable database is a different
+claim from proving it works as the deployment's store.
+
+**Two of the four tests pin consequences rather than features**, because a documented consequence with
+no test is how this project ended up with a runbook whose procedure was wrong. A secret written after
+the backup is absent from the restore (`404`), and a token revoked after the backup **authenticates
+again** (`200`) — the second is documented behaviour with a "re-revoke before the service is
+reachable" instruction attached, and it now fails CI if it silently changes.
+
+**Writing it found two defects in itself, both worth recording because they are the failure modes the
+test exists to catch.** The fixture first built its store through the raw store API, which writes no
+audit entries — so the backup carried an empty trail and the chain-continuity claim was being checked
+against nothing. It now serves a request before the backup is taken. And the harness built its sink
+with `Chain::new()` rather than `store.audit_chain()`, the way `Server::prepare` does; every request
+against the restored store then reused a sequence number the restored trail already held, no device
+accepted the record, and all four tests turned into `503`. That is precisely the stale-head collision
+the store lock exists to prevent between two live processes, reproduced accidentally — which is the
+best argument available that the test drives the real startup path rather than a convenient
+approximation.
+
+**What it proves and what it does not, measured rather than assumed.** The suite was re-run with the
+restore step replaced by a no-op. Two tests still passed: they establish that the store at that path
+works, and cannot tell a restored file from the original. The other two failed, and they are what
+makes the suite about the *backup* — each asserts something true of the copy and false of the live
+database it replaced. The file header records the split, so neither half is mistaken for the whole.
+
+A rehearsal is still not covered and cannot be: no test fetches this deployment's break-glass key from
+wherever it actually lives, and that is the half that fails in practice.
+
+### Fixed — SIGTERM did not reach the graceful shutdown, so a container stop never ran it
+
+`docker-entrypoint.sh` `exec`s the server specifically so the process is PID 1 and *"receives SIGTERM
+directly. Without it a shell would sit in between, the signal would not reach the server, and the
+graceful shutdown that exists to answer already-audited requests would never run."* The comment was
+right about the mechanism and the code listened for the wrong signal: `tokio::signal::ctrl_c` is
+SIGINT on Unix and nothing else, so SIGTERM had no handler at all, the default action terminated the
+process, and the graceful shutdown never ran on an ordinary stop.
+
+**What that cost is the trail rather than the data.** `synchronous = FULL` and WAL mean an abrupt stop
+loses no committed write. What it loses is a request that had been audited and not yet answered — so
+the trail records an access the client never received, which is precisely the confusion the graceful
+shutdown was added to prevent. Its second cost is quieter: a database that is never closed cleanly
+always leaves a `-wal` behind, and a file-level backup that omits it is silently short of the newest
+writes.
+
+`stop_requested` now waits on the first of SIGINT or SIGTERM, with both streams registered before
+either is awaited — a signal arriving during startup is then queued rather than fatal. Windows keeps
+`ctrl_c`, which is all it has.
+
+**The test is in a binary of its own, deliberately.** Checking this means raising a real signal, and a
+signal with no handler kills the process it is raised in — which is the defect itself. Alone in
+`crates/ciphr-server/tests/shutdown.rs`, a regression costs two tests; sharing a binary, it would cost
+every result in it. Two tests rather than one, because the fix must not become "SIGTERM instead of
+SIGINT": Ctrl-C on a foreground process has to keep working. Both were run against a Linux container
+and then re-run with the fix reverted, to confirm the SIGTERM test fails and the SIGINT one still
+passes — a test that cannot fail is worse than no test, and `#[cfg(unix)]` means this one is invisible
+on the machine most of this was written on.
+
 ### Fixed — `Kind::as_str` was the second spelling rather than the only one
 
 Added in `0.5.1` with the comment *"so a report on the host and a response on the wire cannot end up
@@ -153,6 +278,100 @@ this also ends a disagreement between the two workflows.
 second target cannot inherit the first one's name. The size budget in `build-wrapper.sh` now records
 that it is per target: an aarch64 static binary differs in size for reasons unrelated to
 dependencies, so a second target gets its own number rather than this one being raised to fit both.
+
+### Documentation — `/v1/health` gets a runbook, and the plan's three checks are corrected
+
+Eighteen documents mentioned `/v1/health` and none of them was a runbook, so what an operator needs
+from that endpoint existed as a side remark in whichever document happened to touch it. That is the
+same shape that left the store without a backup procedure, and
+[`docs/operations/monitoring.md`](docs/operations/monitoring.md) is the owner plan section 17 never
+had. `audit-trail.md` and `honeypots.md` now point at it rather than each carrying a fragment.
+
+**One field on that endpoint carries live state.** `status` is the literal `"ok"` and `sealed` is the
+literal `false`; `seal`, `key_source`, `surface` and `api_version` are facts about how the process was
+started. Only `audit_devices[].accepting` changes while it runs. A rule written against `status` is a
+rule against a constant, and that is worth knowing before writing one rather than after.
+
+**Section 17's list needed correcting in both directions.** Its second check — a sealed service that
+answers but cannot serve — is not a check today: v1 unseals at startup or refuses to start, so an
+answering process is an unsealed one, and the field exists for a seal mechanism that does not exist
+yet. Its third check said in the plan's own words that it *"is not buildable against the current
+`/v1/health`"*; the device half became buildable and is now the check that matters most. The volume
+half is still not answerable there, and that is the half fail-closed turns into a total outage — it
+needs something that can see a filesystem, and ADR-15's marker-file reasoning applies unchanged: a
+channel meant to survive a full volume must not live on the volume that fills.
+
+**Three ways to read the endpoint wrong are written down**, because each looks like the healthy answer:
+`accepting: null` means nothing has been recorded since startup rather than "fine"; an empty
+`audit_devices` array cannot mean what it appears to, since the server refuses to start without a
+device; and a `200` is produced without the store being consulted beyond the tripwire query, so a
+service that cannot record an audit entry answers `200` here and `503` to everything that matters.
+
+**A backup-freshness field was considered and rejected**, and the reasoning is on the page so the gap
+is a decision rather than an omission somebody discovers while writing an alert rule. ciphr could know
+that `ciphr backup` was invoked; it cannot know that the file exists, left the host, is readable, or
+that the master key is retrievable — and a green field meaning "a command ran three days ago" answers
+the question an operator is asking with something else. Every other field there is a fact about the
+process's own state. Knowing a backup happened would also cost the property that makes the command
+useful, since the server could only learn it if the backup wrote to the store, which needs the lock.
+And the endpoint is unauthenticated: "last backup 41 days ago" is a targeting signal with no
+deterrent half.
+
+What to check instead needs nothing new: `ciphr --database <newest-backup> audit verify` needs neither
+the master key nor the lock, and its head sequence compared against the live store's says *the newest
+backup is a readable, chain-intact store, N records behind* — a stronger statement than a freshness
+field could make, with the threshold in the system that also knows whether the file arrived.
+
+**One defect found while reading rather than while writing.** `AppState::audit_devices` returns an
+empty vector when the mutex holding device state is poisoned; its doc comment says the names are
+reported with `accepting` unknown instead, on the reasoning that health *"answers as much as it can
+rather than failing"*. The comment and the code disagree. The state needs a panic while that lock is
+held and the code holding it has no path to one, so this is a documentation defect rather than a live
+hazard — recorded here and on the page, and not silently fixed in either direction, because which way
+it should be fixed is a decision about behaviour.
+
+### Documentation — backups and restores have a runbook, and one procedure in `upgrade.md` was wrong
+
+No code changed. The backup rule that matters most was written down early and never grew the
+procedure around it: *"the master key must not be in the same backup as the database"* was in
+`master-key.md`, ADR-5 and ADR-7 from the start, while how to take a copy that is not torn, what else
+has to be in it, and what a restore undoes existed nowhere. What was written down instead was
+scattered across four documents as consequences of other topics.
+[`docs/operations/backup.md`](docs/operations/backup.md) is that procedure, and the index gained two
+risk rows for it.
+
+**One correction, and it is a procedure people follow.** `upgrade.md` said to back up the database and
+*then* stop the service, and listed the `-shm` file as part of the backup. A `cp` of a running SQLite
+database can produce a snapshot of two different moments, and an upgrade backup is the one copy that
+has to be good; the order is now stop-then-copy, with `VACUUM INTO` named for the case where a copy
+genuinely must be taken while the service is up. The `-shm` file is recreated by SQLite and is not
+part of the database — the `-wal` file is, and a `store.db` copied without it is silently missing the
+newest writes, which is the failure shape the list should have been guarding against.
+
+**Three things a restore rolls back that no document said out loud.** Each is a security decision, and
+none of them announces itself: a `destroy` (an earlier backup still holds the wrapped data key, so
+restoring across a shred ends it), a token revocation (`revoked_at` is a column, so the token is valid
+again and its holder is whoever the revocation was about), and a master-key rotation (the seal record
+is four rows in `meta`, so an older backup needs the *older* key — and a wrong key is
+indistinguishable from a corrupted record by design, which makes the wrong conclusion the easy one).
+`cli.md` and `master-key.md` now carry the halves that belong to them, including the retention rule
+that follows: every key any retained backup was sealed under is kept as long as that backup is.
+
+**What the backup is worth is derived rather than asserted.** There is no honest single answer to how
+critical the store is — it is the criticality of the least replaceable value in it, and the
+classification added for rotation already records that. Read on the axis of loss rather than of
+rotation, `breaks-data`, `volume-bound` and `seed-only` are the values ciphr holds rather than copies,
+so a `put` of one is an event after which a backup is due, `?rotation=` answers *how critical is this
+backup*, and `unclassified` is the state in which the store cannot answer that question at all. The
+two axes do not sort the six classes identically, so the new document carries its own table instead of
+reusing `needs_care`.
+
+**ADR-7's backup sentence is amended rather than left standing.** Its rationale reads *"backup is
+`VACUUM INTO` plus an existing file-backup job"*, which for three releases described a SQLite
+capability and not a command this project shipped — and the runtime image contains `ca-certificates`,
+`curl` and `gosu` and no `sqlite3`, so it could not even be run with `docker exec`. `ciphr backup`,
+above, closes that; the record now says what was missing and what the command adds over the raw
+statement. The decision itself is unchanged.
 
 ## [0.5.1] — 2026-08-21
 

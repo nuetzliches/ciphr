@@ -44,12 +44,15 @@ The parts where a mistake is expensive, and where to read before making one.
 | Risk | What can go wrong | Read |
 |---|---|---|
 | **Master key handling** | Lose it and every secret is unrecoverable. Leak it and the database is plaintext. Put it in the same backup as the database and the backup *is* the secret store. | [operations/master-key.md](operations/master-key.md) |
+| **A backup that is not one** | A `cp` of a running database is a snapshot of two moments, and a `store.db` copied without its `-wal` is silently missing the newest writes. Neither produces an error. `ciphr backup` has neither failure mode. | [operations/backup.md](operations/backup.md) |
+| **Restoring one** | A restore rolls the store back, and three of the things it rolls back are security decisions: a crypto-shred, a token revocation, and a master-key rotation. None of them announces itself. | [operations/backup.md](operations/backup.md) |
 | **Rotating a secret that cannot be rotated** | A new value can destroy data at rest, or change nothing at all while looking successful. | [operations/rotating-secrets.md](operations/rotating-secrets.md) |
 | **Cryptographic format changes** | A changed wire format makes every stored secret undecryptable, with no error until the first read. | [crypto.md](crypto.md) |
 | **Authorization drift** | Two path normalizations that disagree by one edge case is an authorization bypass nobody notices. | [authorization.md](authorization.md), [fuzzing.md](fuzzing.md) |
 | **Writing a policy that grants more than intended** | The most specific rule wins entirely and does not inherit from broader rules — the behaviour most likely to surprise. | [authorization.md](authorization.md) |
 | **Trusting the audit trail too far** | A hash chain detects partial tampering, not a forward rewrite by someone who can write to the store. | [operations/audit-trail.md](operations/audit-trail.md) |
-| **A full audit volume** | Fail-closed means it is a total outage, not a logging gap. That is intended and needs monitoring. | [operations/audit-trail.md](operations/audit-trail.md) |
+| **A full audit volume** | Fail-closed means it is a total outage, not a logging gap. That is intended and needs monitoring — and it is the one check `/v1/health` cannot answer. | [operations/audit-trail.md](operations/audit-trail.md), [operations/monitoring.md](operations/monitoring.md) |
+| **Alerting on a constant** | `status` and `sealed` on `/v1/health` are hardcoded. One field on that endpoint carries live state, and a rule written against the others watches nothing. | [operations/monitoring.md](operations/monitoring.md) |
 | **A secret in a CI job log** | No forge masks a value fetched at runtime. Only the `actions-env` export does, and only if the masks are emitted first. | [operations/cli.md](operations/cli.md) |
 | **A secret in shell history** | A value passed as an argument is readable by every process on the host while the command runs. | [operations/cli.md](operations/cli.md) |
 | **A tripwire nobody polls** | The alert is a field on `/v1/health` and an entry in the trail. Nothing here can page a human, and bait whose output nobody reads is decoration. | [operations/honeypots.md](operations/honeypots.md) |
@@ -74,6 +77,8 @@ The parts where a mistake is expensive, and where to read before making one.
 | [why-build-this.md](why-build-this.md) | The evaluation of existing tools and the exit condition |
 | [ui.md](ui.md) | The read-only viewer: the five views, the security properties and where each is enforced, and how it is deployed |
 | [operations/cli.md](operations/cli.md) | Every command, and the two rules that shape all of them |
+| [operations/backup.md](operations/backup.md) | What has to be in a backup, how to take one that is not torn, what a restore undoes, and how the store's own rotation classes decide what the backup is worth |
+| [operations/monitoring.md](operations/monitoring.md) | Every field on `/v1/health`, which of them change, the three ways to read it wrong, and why backup freshness is deliberately not there |
 | [operations/upgrade.md](operations/upgrade.md) | What to do about each version's breaking changes, and the rules that hold for every upgrade |
 | [operations/wrapper.md](operations/wrapper.md) | `ciphr-run`: where the file comes from, what its exit codes mean, and what route B does not solve |
 | [operations/honeypots.md](operations/honeypots.md) | Planting bait, where it must not go, and what to do when it fires |

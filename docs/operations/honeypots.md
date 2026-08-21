@@ -79,6 +79,9 @@ identity and is enumerating rather than fetching what they need.
    nobody). **A tripwire whose entire output is a field nobody reads is not a tripwire** —
    it is the anchor-file failure in another shape. Wire the monitoring first.
 
+   What to poll, and the two ways this particular field is read wrong — `tripped` is *absent*
+   rather than `false` in a build without the entry — is in [monitoring.md](monitoring.md).
+
 ## Where bait goes, which is the part that decides whether it works
 
 **Bait must sit outside every prefix any consumer fetches.** This is not decoration and it

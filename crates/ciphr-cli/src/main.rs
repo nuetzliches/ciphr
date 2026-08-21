@@ -180,6 +180,29 @@ enum Command {
         new_key_file: Option<PathBuf>,
     },
 
+    /// Copy the store to one consistent file, with the service running or stopped.
+    ///
+    /// `VACUUM INTO` and not a file copy: `cp` on a live database reads a file that is
+    /// moving underneath it, and the result can be a snapshot of two moments. This runs
+    /// in a read transaction, writes a single file with no `-wal` beside it, and touches
+    /// nothing in the source.
+    ///
+    /// Like `audit verify`, it needs **neither the store lock nor the master key**, which
+    /// is what lets it run against a live service — the moment a backup is most likely to
+    /// be wanted. It writes no audit entry, for the same reason `audit anchor` does not
+    /// and one more of its own: whoever can run this can already read the database file,
+    /// so `cp` was available to them regardless, and an entry written afterwards could
+    /// not be in the copy it describes.
+    ///
+    /// The copy is ciphertext. It is worthless without the master key, which is exactly
+    /// why the key must not travel in the same backup as the database — see
+    /// `docs/operations/backup.md`, which also lists what else has to be in a backup for
+    /// a restore to be possible at all.
+    Backup {
+        /// Where to write the copy. Refused if it already exists.
+        destination: PathBuf,
+    },
+
     /// Write every secret out in plaintext, for migrating away from ciphr.
     Dump {
         /// Only `portable` exists, and it is the format another system can read.
@@ -718,8 +741,31 @@ fn run(cli: Cli) -> Result<(), CliError> {
             new_key_env,
             new_key_file,
         } => rotate_master_key(&cli, new_key_env.as_deref(), new_key_file.as_deref()),
+        Command::Backup { destination } => backup(&cli, &destination),
         Command::Dump { format, force } => dump(&cli, &format, force),
     }
+}
+
+/// `ciphr backup DESTINATION`.
+fn backup(cli: &Context, destination: &std::path::Path) -> Result<(), CliError> {
+    // Read-only, and that is the load-bearing part rather than a precaution.
+    // `SqliteStore::open` migrates on open, so backing up with a newer binary would
+    // migrate the database first -- destroying the rollback the backup was being taken
+    // for. It also means no lock is taken and no key is read, so this runs while the
+    // service is up.
+    let store = SqliteStore::open_read_only(&cli.database)?;
+    let report = store.backup_into(destination)?;
+
+    println!(
+        "{} ({} bytes, schema {})",
+        destination.display(),
+        report.bytes,
+        report.schema_version
+    );
+    println!();
+    println!("This file is ciphertext and inert without the master key. Keep the key");
+    println!("somewhere this backup is not: together they are a complete secret store.");
+    Ok(())
 }
 
 /// Open the store, unseal it, and attach the audit devices.

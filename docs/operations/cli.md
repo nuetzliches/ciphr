@@ -1,6 +1,7 @@
 # The `ciphr` command
 
-**Status:** implemented and tested as of 2026-08-21. Every command below works. Deployment
+**Status:** implemented and tested as of 2026-08-21. Every command below works, `backup` included —
+it is implemented and tested but not yet in a release. Deployment
 — containers, reverse proxy, certificates — is documented in `docs/operations/` and in the
 deployment's own repository, not here.
 
@@ -65,8 +66,10 @@ the phone — and note what the second one means for an incident: the question "
 valid" has no answer from a live service today. The credential's state is not on `/v1/health`, and
 `/v1/identities` carries names, kinds and policies but no expiry, no revocation and no last use.
 
-The exceptions are `audit anchor`, `audit verify` and `audit cut`, which need neither the lock nor
-the master key and are documented as such below — they exist to run against a live service.
+The exceptions are `backup`, `audit anchor`, `audit verify` and `audit cut`, which need neither the
+lock nor the master key and are documented as such below — they exist to run against a live service.
+For `backup` that is the whole point: a copy of the store that could only be taken during a
+maintenance window is a copy that stops being taken.
 
 The rule is not bureaucracy, and the alternative is worse than an outage. The audit chain's head
 lives in the writing process's memory: a second writer moves the head, the first does not notice,
@@ -151,6 +154,11 @@ ciphr destroy infra/service-a/OLD_TOKEN --version 3 --yes
 `destroy` deletes the version's wrapped data key. The value cannot be recovered afterwards by
 anyone — including from a backup taken after the shred, which is the point. `--yes` is required, and
 there is no HTTP equivalent.
+
+**A backup taken *before* the shred is the other half of that sentence**, and it is the half that
+surprises people: it still holds the wrapped key, so restoring across a `destroy` brings the value
+back readable and ends the shred. Re-run `destroy` after any such restore — see
+[backup.md](backup.md), which lists the three other decisions a restore rolls back with it.
 
 Before destroying a version of a `breaks-data` secret, read
 [rotating-secrets.md](rotating-secrets.md): a restore from a backup that predates a rotation needs
@@ -301,6 +309,43 @@ consequence is worth planning around rather than discovering: the state of a cre
 revocation, last use) is readable only with the service down, which is the opposite of when the
 question gets asked. Nothing on the API answers it either — a refused request is `401` with no
 reason, deliberately, so that probing learns nothing.
+
+## Backing up
+
+```sh
+ciphr --database /var/lib/ciphr/store.db backup /path/to/backup/store-2026-08-21.db
+```
+
+**`VACUUM INTO`, not `cp`.** A file copy of a running database reads a file that is moving underneath
+it, so the result can be a snapshot of two different moments — and nothing reports it. This runs in a
+read transaction and writes one file that is committed state as of one instant.
+
+**It needs neither the lock nor the master key**, which is why it is in the short list of commands
+that run against a live service. Nothing in it decrypts, so a scheduled backup job does not need the
+highest-value secret in the deployment in its environment.
+
+Four things it does that a shell script would have to remember:
+
+- **Refuses an existing destination** rather than truncating it, so a mistyped path cannot destroy the
+  previous backup.
+- **Writes no `-wal` beside the copy.** The output is a single self-contained file whatever the source
+  uses, which removes the mistake a file-level copy invites — a `store.db` taken without its `-wal` is
+  silently missing the newest writes.
+- **Opens the copy read-only afterwards** and checks it: `integrity_check` must pass and the schema
+  version must match the source. The report on stdout is the file, its size and that version.
+- **Opens the source read-only**, so backing up with a *newer* binary cannot migrate the database
+  first. That would destroy the rollback the backup was being taken for, which is the one thing an
+  upgrade backup exists to preserve.
+
+**It writes no audit entry.** Two reasons, and both are worth stating rather than leaving as an
+omission: an entry would need the lock, which would cost the property that makes the command useful;
+and whoever can run this can already read the database file, so `cp` was available to them regardless
+— the command adds convenience, not access. `audit anchor` is treated the same way, for the related
+reason that recording itself would move the head it just wrote down.
+
+What the copy is, and what it is not: it is ciphertext, worthless without the master key, and
+therefore **not** a backup on its own. What else has to exist for a restore to be possible, and what
+a restore undoes, is in [backup.md](backup.md).
 
 ## The audit trail
 

@@ -1,7 +1,7 @@
 # Upgrading
 
 **Status:** current as of 2026-08-21, covering every released version up to `0.5.1` plus the
-unreleased change below.
+unreleased changes below.
 
 The changelog says what changed. This says what to *do* about it, and it exists because the two are
 not the same document: a changelog entry sinks under the next release, while the person upgrading two
@@ -23,16 +23,35 @@ alone leaves the old binary in front of a newer database, and it will not start.
 reports `AnchorUnreachable`, which means "older than the evidence" and not "tampered with" — see
 [audit-trail.md](audit-trail.md).
 
+**A backup taken the wrong way is the one failure this document cannot warn you about later.** How to
+take one that is not torn, what else has to be in it, and what a restore undoes are in
+[backup.md](backup.md). Two short versions, because these are the steps nobody reads twice: use
+`ciphr backup` rather than `cp`, and if the binary is not available, the `-wal` file is part of the
+database and a `store.db` copied without it is silently missing the newest writes.
+
 **Read the changelog entry for every version you are skipping**, not only the one you are landing
 on. The breaking notes below are per version and they accumulate.
 
 ## The order of operations
 
-1. Back up the database, its `-wal` and `-shm` siblings, and the anchor file.
+1. Take the backup with the **old** binary: `ciphr backup /path/to/backup/store-<date>.db`, plus the
+   configuration, the policy file, and the anchor file. See [backup.md](backup.md).
 2. Stop the service.
 3. Start the new image. It migrates on start; watch the log for the migration lines.
 4. Run `ciphr audit verify` — with `--anchor` if a file is kept.
 5. Only then update anything that consumes the API: the viewer, the SDK, `ciphr-run`.
+
+**Step 1 says "the old binary" for a reason that only bites here.** `ciphr` and `ciphr-server` both
+migrate the schema on an ordinary open, so a pre-upgrade backup taken with the *new* binary any other
+way would have migrated the database first — destroying the rollback the backup exists for. `ciphr
+backup` opens the source read-only and cannot do that, which is why it is safe either way; a `cp`
+after the new binary has already been run once is not.
+
+**This step used to read "back up, then stop", and copying a running database with `cp` is the one
+backup mistake that produces no error.** `ciphr backup` runs against a live service, so the ordering
+question is gone. Without it — a deployment on `0.5.1` or earlier — stop first, and copy the database
+**and its `-wal` sibling if one is there**, never the `.lock` file. The `-shm` file was in this list
+and is not part of the database: SQLite recreates it, and carrying a stale one gains nothing.
 
 Step 5 is last on purpose, and from `0.3.0` it is load-bearing rather than tidy — see below.
 
@@ -53,6 +72,35 @@ question is answered — an entry that is off is absent from the router, so its 
 to a typo'd path.
 
 ## Unreleased
+
+### Use `ciphr backup` for the backup this document asks for
+
+The pre-upgrade backup now has a command. `ciphr backup <destination>` needs neither the store lock
+nor the master key, so it runs with the service up; it writes one file with no `-wal` beside it;
+it refuses an existing destination rather than truncating it; and it checks the copy it wrote. The
+order of operations above changed to use it, and it changed the ordering too — "back up, then stop"
+was only ever safe because it was assumed to mean `cp` on a *stopped* service.
+
+**What to do:** nothing, if the previous procedure was followed with the service stopped. If a
+backup job ran `cp` against the live volume, replace it — that is the one backup mistake that
+produces no error, and it has been producing possibly-torn copies for as long as it has been running.
+Verifying an existing backup is `ciphr --database <copy> audit verify`, which needs no key.
+
+**Not affected:** the restore side. A backup taken either way restores the same way, and
+[backup.md](backup.md) has the procedure.
+
+### A container stop now runs the graceful shutdown
+
+`docker stop` sends SIGTERM. The graceful shutdown awaited `tokio::signal::ctrl_c`, which on Unix is
+SIGINT and nothing else, so on an ordinary stop the process was terminated instead: a request that
+had been audited and not yet answered was dropped, leaving a trail entry for an access the client
+never received. Both signals are handled now.
+
+**What to do:** nothing. No configuration changes and nothing is at risk in the database either way —
+`synchronous = FULL` and WAL mean an abrupt stop costs no committed write. Two consequences worth
+knowing: the audit trail stops recording accesses that did not happen, and a clean stop now
+checkpoints the write-ahead log away, so a file-level backup after a *graceful* stop no longer finds
+a `-wal` to copy. A killed container still leaves one, so [backup.md](backup.md) still says to check.
 
 ### Nothing to do about the rotation class in listings
 
