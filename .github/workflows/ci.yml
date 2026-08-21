@@ -72,6 +72,14 @@ jobs:
       - name: No raw HTML injection in the UI
         run: sh ci/check-no-v-html.sh
 
+      # ADR-20 property 1, and the gate that record says arrives with the first
+      # surface entry rather than before it. `honeypot_alert` is that entry. What
+      # it protects is the meaning of the external review: three crates read end
+      # to end is a claim about the code every build runs, and a `cfg(feature)`
+      # in one of them turns it into a claim about one configuration.
+      - name: The reviewed core declares no features and reaches no surface
+        run: sh ci/check-core-no-features.sh
+
       # Static, and in this job rather than the viewer's, because it needs
       # neither Node nor a build -- it compares the package against the image's
       # COPY list. The bug it exists for shipped for three viewer releases: the
