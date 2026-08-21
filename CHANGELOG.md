@@ -8,6 +8,28 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — the specification said "Draft. No code written yet." through four releases
+
+`.claude/plans/PLAN.md` is the full specification and has been amended twenty-two times, most
+recently by the commit that recorded the external review. Its own status line never moved from the day
+it was written. Everything below the line was current; the line was four releases behind.
+
+**The mechanism is the finding, not the line.** Both documentation gates scanned `docs/`, and a
+specification does not live there — so the one document that describes the whole system was the one
+document neither gate could see. `ci/check-docs.sh` and `ci/check-doc-dates.sh` now cover
+`.claude/plans/` as well, by two named roots rather than a repository-wide sweep, because everything
+else under `.claude/` is not documentation.
+
+**Widening the scope was two steps, and the second is easy to miss.** `PLAN.md` carried its status
+inside the metadata table (`| **Status** | … |`), which `check-doc-dates.sh` deliberately does not
+read — that is the ADR form, and ADRs are exempt because their date records a decision rather than a
+claim about currency. Adding the file to the scope would therefore have changed nothing. It has a real
+`**Status:**` line now, and the gate says out loud that a file added to its scope without one is
+silently unchecked.
+
+The new line also stops duplicating something: *where the project stands* is in `AGENTS.md`, and the
+plan now points there instead of keeping a second phase-status list to drift against it.
+
 ### Fixed — the viewer image never contained the favicon its own document asks for
 
 `ui/public/favicon.svg` has been committed, linked from `index.html`, and listed in `ui/README.md`'s

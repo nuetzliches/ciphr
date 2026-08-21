@@ -2,9 +2,22 @@
 
 | | |
 |---|---|
-| **Date** | 2026-08-18 |
-| **Status** | Draft. No code written yet. |
+| **Written** | 2026-08-18 |
 | **Background** | Evaluated OpenBao, Vault Community, Infisical CE, Conjur OSS. Result: OpenBao meets the requirement completely. Building this is a product decision, not a workaround. |
+
+**Status:** current as of 2026-08-21, with `v0.4.0` released. This is the specification and it is
+**amended as decisions land**, not frozen at the date above — which is why the row says *written*
+rather than *date*. The external review that section 18 makes a precondition took place on
+2026-08-21; that section records what it covers and what it does not.
+
+**Where the project stands is in [`AGENTS.md`](../../AGENTS.md), not here.** Two phase-status lists
+drift apart, and the one a contributor reads first should be the one that wins; section 18 holds the
+phases and their exit criteria, which is a different claim from what is finished today.
+
+**Why this line exists at all.** It said *"Draft. No code written yet."* until 2026-08-21 — across
+four releases and twenty-two amendments to this file. It survived because this file sits outside
+`docs/`, and both documentation gates scanned `docs/` alone. They now cover `.claude/plans/` too, so
+the next such claim fails a build instead of aging quietly.
 
 `ciphr` is an internal secret manager for machine identities: key/value secrets, gap-free
 access auditing, and path-based authorization. The name contains *CI* — the primary consumer

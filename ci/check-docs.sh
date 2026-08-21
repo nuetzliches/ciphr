@@ -1,5 +1,14 @@
 #!/bin/sh
-# Gate: every document under docs/ carries a date, and no date is in the future.
+# Gate: every document under `docs/` and `.claude/plans/` carries a date, and no
+# date is in the future.
+#
+# `.claude/plans/` is here because leaving it out cost something measurable.
+# `PLAN.md` is the full specification, amended twenty-two times across four
+# releases, and its status line read "Draft. No code written yet." throughout --
+# for three days after the release that made it four. Nothing caught it, because
+# the two documentation gates scanned `docs/` and a specification does not live
+# there. A gate whose scope is the directory rather than the claim tells the
+# reader that the claim is only checked in some places.
 #
 # Documentation decays quietly, and a secret manager whose manual is wrong
 # produces confident mistakes. This cannot check whether a document is accurate.
@@ -15,7 +24,10 @@ cd "$(dirname "$0")/.."
 today=$(date -u +%Y-%m-%d)
 status=0
 
-for doc in $(find docs -name '*.md' | sort); do
+# Two roots rather than a wider pattern: everything under `.claude/` is not
+# documentation -- only the plans are -- and a repository-wide sweep would pull
+# in whatever tooling puts there next.
+for doc in $(find docs .claude/plans -name '*.md' | sort); do
     dates=$(grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' "$doc" || true)
 
     if [ -z "$dates" ]; then

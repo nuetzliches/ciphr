@@ -21,6 +21,21 @@
 # move the decision. A gate that demanded otherwise would be asking authors to
 # falsify history.
 #
+# **`.claude/plans/` is in scope, and that is not a technicality.** `PLAN.md` is
+# the full specification and is amended as decisions land, so its status line
+# ages exactly the way `docs/README.md` does. It said "Draft. No code written
+# yet." through four releases and twenty-two amendments to itself, and the reason
+# it survived is the only reason worth recording: the gate's scope was a
+# directory, and a specification does not live in `docs/`.
+#
+# Note that inclusion alone would not have caught it. ADRs and `PLAN.md` both
+# carried their status inside the metadata table (`| **Status** | ... |`), which
+# this gate does not read -- deliberately, since that is the ADR form and ADRs
+# are exempt. `PLAN.md` therefore had to gain a real `**Status:**` line to be
+# checkable at all, which it did in the same commit as this change. A file added
+# to the scope without one is silently unchecked, so widening the scope is two
+# steps and not one.
+#
 # **Only changes of more than SMALL lines.** Adding a row to an index does not
 # invalidate a status date, and the four times this rule would have fired on such
 # a change are the four smallest in the measurement above -- the separation
@@ -108,8 +123,10 @@ for commit in $commits; do
 
     committed=$(git show -s --format=%ad --date=short "$commit")
 
+    # The leading dot is escaped: unescaped it matches any character, so the
+    # pattern would also accept a top-level `Xclaude/plans/` that nobody has.
     for file in $(git show --name-only --format='' "$commit" |
-                      grep '^docs/.*\.md$' |
+                      grep -E '^(docs|\.claude/plans)/.*\.md$' |
                       grep -v '^docs/adr/' || true); do
         # Deleted in this commit, or not a document with a status line.
         # The newest date in the status *paragraph* -- from the `**Status:**` line
