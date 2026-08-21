@@ -8,6 +8,39 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — the store side of bait: a tier, a latch, and a history
+
+`set_honeypot`, `honeypot_tier`, `honeypots`, `latch_trip`, `open_trips` and `clear_trips`. General
+functions on the store, in every build: `honeypot_alert` is a build entry, but nothing here *behaves*
+differently depending on whether a deployment planted anything, so gating it would only mean the code
+was compiled in fewer configurations than it is tested in.
+
+**A tier can only be set on a path that exists.** Bait is a real secret holding a real-looking value,
+and a tier on an empty path is a honeypot that answers `404` to whoever takes it. Reading the tier,
+though, treats an unknown path as simply not-bait: that question is asked on the value path *after* the
+policy allowed the read, and a second opinion about existence in front of the real one is how two
+answers to "does this exist" start disagreeing.
+
+**`latch_trip` reports whether it latched**, and the answer comes from the database rather than from a
+check the caller remembered. The uniqueness is the partial index from schema 6, so two concurrent reads
+of the same bait cannot both open a trip. The constraint violation is therefore *translated* rather
+than avoided — and translated carefully: every other constraint on that table describes the row's
+shape, which this function builds itself, so a violation of one of those is a defect here and must not
+be swallowed as "already tripped". It is told apart by asking whether a trip is open, not by parsing
+SQLite's message, because the extended codes do not separate a unique index from a `CHECK` and matching
+on English stops working at the next upgrade.
+
+**Clearing sets `cleared_at` rather than deleting.** A tripwire that resets quietly has, in effect, not
+fired, and what an investigation wants is exactly the part a delete would remove. The same bait can
+trip again afterwards, and both trips stay on record.
+
+An unknown stored tier is refused rather than guessed, `freeze` and `disable-identity` included: a
+database holding one of those was written by something that is not this build.
+
+Eight tests, on the properties rather than on the calls — each piece of bait latches independently, a
+clear frees the latch and keeps the history, and the administrative view shows both kinds of bait with
+whether each is currently tripped.
+
 ### Added — a value written over the API can carry its rotation class
 
 `SecretInput` grows an optional `rotation`, `PUT /v1/secrets/{path}` applies it, and
