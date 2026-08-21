@@ -21,13 +21,28 @@
 //! do. It is also what makes a change of seal mechanism (ADR-5) a single-row
 //! migration rather than a data format change.
 //!
-//! **One data key per secret version makes nonce reuse structurally
-//! impossible.** Each data key encrypts exactly one payload, so exactly one nonce
+//! **One data key per secret version makes nonce reuse structurally impossible
+//! for a value.** Each data key encrypts exactly one payload, so exactly one nonce
 //! ever exists under it. The best-known way to destroy AES-GCM — encrypting two
-//! messages with the same key and nonce — cannot occur here, rather than being
+//! messages with the same key and nonce — cannot occur there, rather than being
 //! avoided by careful counter management. It also bounds the blast radius of a
 //! leaked data key to one version, and makes crypto-shredding a version a matter
 //! of deleting its wrapped key.
+//!
+//! **One level up the guarantee is a bound, not a structure**, and saying otherwise
+//! was finding F3 of the review of 2026-08-21. `dek_nonce` is a *random* 96-bit
+//! nonce, and the root key performs one such wrap per version write, unbounded over
+//! its life — there is no counter and no uniqueness argument, only the birthday
+//! bound. NIST SP 800-38D §8.3 puts the limit for random IVs at 2^32 invocations of
+//! one key: 4.3 billion version writes, at which point a collision stands at about
+//! 2^-33. The master key does one wrap per rotation.
+//!
+//! Two consequences a reader should not have to derive. The count **does not
+//! reset** in v1: `rotate-master-key` re-wraps the same root key under the same
+//! identifier, by design, and there is no command that issues a new one. And a
+//! collision would expose the XOR of two wrapped data keys plus the GCM
+//! authentication key — to somebody holding the database already. At the scale this
+//! is built for, that is a sentence to state and not a design to change.
 //!
 //! **Path and version are authenticated, not just stored.** An adversary with
 //! write access to the database cannot move the ciphertext of
@@ -505,10 +520,14 @@ mod tests {
         .unwrap();
 
         // The property that makes nonce reuse impossible rather than merely
-        // avoided: no key is ever used twice, so no nonce is ever reused.
+        // avoided: no *data* key is ever used twice, so no value nonce is ever
+        // reused. The root key is used twice here, under two random nonces -- that
+        // is the level where the guarantee is the birthday bound in the module
+        // documentation, and no test can pin it.
         assert_ne!(first.dek_id, second.dek_id);
         assert_ne!(first.wrapped_dek, second.wrapped_dek);
         assert_ne!(first.value_nonce, second.value_nonce);
+        assert_ne!(first.dek_nonce, second.dek_nonce);
         assert_ne!(first.ciphertext, second.ciphertext);
     }
 

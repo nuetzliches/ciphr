@@ -41,8 +41,10 @@ policies. No PKI, no SSH CA, no dynamic secrets. If those are ever needed,
 
 - **Envelope encryption.** A master key from the environment wraps a root key; the root key
   wraps one data encryption key per secret *version*. One key encrypts exactly one payload, so
-  nonce reuse — the best-known AES-GCM footgun — cannot occur. Path and version are bound as
-  additional authenticated data, so a ciphertext cannot be moved from one path to another.
+  nonce reuse — the best-known AES-GCM footgun — cannot occur **on a value**. The root key's own
+  per-wrap nonces are random, where the guarantee is a bound rather than a structure:
+  [`docs/crypto.md`](docs/crypto.md) states it. Path and version are bound as additional
+  authenticated data, so a ciphertext cannot be moved from one path to another.
 - **Fail-closed auditing.** If no audit device accepts the record, the request is refused and
   no secret is served. Entries form a hash chain, so tampering is detectable rather than
   merely unlikely. The server refuses to start without an audit device.

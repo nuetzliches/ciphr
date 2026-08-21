@@ -49,6 +49,28 @@ enforced at the wrong layer, and the layer that was missing it is the one the cl
 - The HTTP and CLI checks stay as early, specific errors, and both now call the shared refusal. A
   refused `put` reaches the store no more than it reaches the audit trail.
 
+### Documented — "nonce reuse is structurally impossible" now says at which level
+
+Finding F3 of the review of 2026-08-21. The claim is exactly true for a value: one data key, one
+payload, one nonce. One level up it is a different argument — the root key wraps each data key under
+a *random* 96-bit nonce, one per version write, with no counter and no uniqueness structure, so the
+guarantee there is the birthday bound and not impossibility. `docs/crypto.md`, the README, and both
+crate module docs stated it absolutely.
+
+The bound is NIST SP 800-38D §8.3: at most 2^32 invocations of one key with random IVs — 4.3 billion
+secret-version writes under one root key, at which point a collision stands at about 2^-33. No code
+changed, at this or any plausible scale.
+
+- **Two facts a reader should not have to derive** are now written down: the count does **not** reset
+  in v1, because `rotate-master-key` re-wraps the *same* root key by design and nothing issues a new
+  one; and a collision would expose the XOR of two wrapped data keys and the GCM authentication key
+  to somebody who already holds the database, not the plaintext of a secret.
+- The XChaCha20 comparison in `crypto.md` said its large nonce buys nothing here. It does apply at
+  the root-key level, and the answer is still no — that is now the stated reasoning rather than an
+  argument that quietly skipped the case.
+- Claim B2 in `docs/security-review.md` carries the level, and the property test says which half of
+  the guarantee it can pin.
+
 ### Fixed — the audit trail no longer claims a delete or an export that did not happen
 
 Finding F4 of the review of 2026-08-21. The decision is recorded before the work, which is the

@@ -4,11 +4,13 @@
 //! Envelope encryption and the seal abstraction.
 //!
 //! Master key wraps root key, root key wraps one data encryption key per secret
-//! *version*, and that key encrypts exactly one payload — so nonce reuse cannot
-//! occur by construction. Path and version are bound as additional authenticated
-//! data, so a ciphertext cannot be moved from one path to another. The details,
-//! including the exact wire format of the authenticated data, are in
-//! [`envelope`].
+//! *version*, and that key encrypts exactly one payload — so for a value, nonce
+//! reuse cannot occur by construction. The root key's own wraps use random nonces
+//! and are bounded rather than structurally unique; [`envelope`] states the bound,
+//! because the unqualified version of this sentence was a review finding. Path and
+//! version are bound as additional authenticated data, so a ciphertext cannot be
+//! moved from one path to another. The details, including the exact wire format of
+//! the authenticated data, are in [`envelope`].
 //!
 //! Together with `ciphr-policy` this crate *is* the project; everything else is
 //! packaging. It therefore carries a hard dependency budget, stays small enough

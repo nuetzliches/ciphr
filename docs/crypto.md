@@ -4,7 +4,8 @@
 where that review found the text stronger than the code. Describes the code in
 `crates/ciphr-crypto`, not an intention. The wire format and the key hierarchy have not moved since
 phase 1; what has changed since is the wording of one refusal, which this document does not quote,
-and the zeroization of the token codec (finding F1).
+the zeroization of the token codec (finding F1), and the level at which the nonce-reuse claim is
+stated (finding F3 — prose, not code).
 
 The ground rule is that there are no custom constructions here. Established AEAD primitives,
 composed in the standard envelope pattern, with every deviation from the obvious approach explained.
@@ -42,17 +43,36 @@ Three effects, in ascending order of importance:
 1. A compromised data key exposes one version of one secret.
 2. Crypto-shredding a version is deleting its wrapped data key — no ciphertext has to be found and
    overwritten, and the shred takes effect in every backup made afterwards.
-3. **Nonce reuse becomes structurally impossible.** Each data key encrypts exactly one payload, so
-   exactly one nonce ever exists under it. The best-known way to destroy AES-GCM — two messages under
-   the same key and nonce — cannot occur here, as opposed to being avoided by careful counter
-   management that has to stay correct forever.
+3. **Nonce reuse becomes structurally impossible at the data-key level.** Each data key encrypts
+   exactly one payload, so exactly one nonce ever exists under it. The best-known way to destroy
+   AES-GCM — two messages under the same key and nonce — cannot occur there, as opposed to being
+   avoided by careful counter management that has to stay correct forever.
+
+   **The level matters, and this document used to state the claim without it** (corrected 2026-08-21,
+   finding F3 of the review). One level up the argument is a different one: the root key wraps each
+   data key under a *random* 96-bit nonce, one per version write, and that count is not structurally
+   bounded. There collision is negligibly probable rather than impossible, and the applicable bound is
+   NIST SP 800-38D §8.3: at most 2^32 invocations of one key with random IVs, which is 4.3 billion
+   secret-version writes under one root key and puts the collision probability at about 2^-33. A
+   store doing a thousand writes a day reaches 2^-63 after a decade. The master key does one such
+   wrap per rotation, so its count stays in the single digits.
+
+   Two things worth knowing rather than inferring. **The count is monotonic in v1:** it resets with a
+   *new root key*, and `rotate-master-key` deliberately re-wraps the *same* root key (same
+   identifier), so nothing in v1 resets it — a root key rotation, which would mean re-encrypting
+   every secret, has no command. And a collision there is not a break of a secret's value: it would
+   expose the XOR of two wrapped data keys and the GCM authentication key to somebody who already
+   holds the database. At the scale above there is no code change worth making; what was wrong was
+   the prose.
 
 ### Why AES-256-GCM and not XChaCha20-Poly1305
 
 Hardware acceleration is available on the target platform, and AES-256-GCM is FIPS-approved, which
 keeps the option of an `aws-lc-rs` FIPS build open. XChaCha20's main advantage is a nonce large
-enough that random collisions are irrelevant — which the one-key-per-payload design already
-achieves, so the advantage does not apply.
+enough that random collisions are irrelevant — which the one-key-per-payload design already achieves
+where a value is concerned. It would apply to the root key's random per-wrap nonces (see finding F3
+above), and it does not change the answer: at 2^32 wraps the margin is 2^-33, and a second AEAD in
+the same envelope would cost more than that margin is worth.
 
 ### Why path and version are authenticated
 
