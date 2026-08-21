@@ -187,6 +187,16 @@ an incident.
   compile-time check in the CLI to claim "in this build", which is meaningless: the CLI never contains
   the server's optional code at all.
 
+  **And one thing that was missing until 2026-08-21, from a field report on the `0.5.0` rollout.** All
+  three interfaces printed only the entries a deployment had turned *on*. Since an entry off is absent
+  from the router — property 2, and the thing this record most wants on the wire — an operator holding
+  a `404` had no way to tell a route this build never had from one this deployment never named, and an
+  empty `surface` array meant both. `ciphr surface show` and `ciphr-server --check-config` now print
+  the entries a configuration did *not* name, each with its cost sentence, which is the sentence
+  somebody deciding about an entry actually needs and was the one printed only for entries already
+  decided in favour of. `ci/check-surface-entries.sh` keeps the CLI's copy of the list from silently
+  losing a row.
+
 ## Consequences
 
 The three shapes collapse into one, and the two records that were shaped by this question get a

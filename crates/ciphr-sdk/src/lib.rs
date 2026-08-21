@@ -15,8 +15,7 @@
 //! # The shortest useful program
 //!
 //! ```no_run
-//! use ciphr_core::SecretPath;
-//! use ciphr_sdk::Client;
+//! use ciphr_sdk::{Client, SecretPath};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // All three are required, and the certificate authority is required by design:
@@ -50,7 +49,7 @@
 //!   `webpki-roots` and the trust anchor is a required constructor argument (ADR-19).
 //!   Pointing this client at a `WebPKI` certificate is not a mistake it is possible to
 //!   make.
-//! - **It cannot log a secret.** Values live in [`ciphr_core::Plaintext`], which
+//! - **It cannot log a secret.** Values live in [`Plaintext`], which
 //!   implements neither `Debug`, `Display` nor `Serialize`, and no type here that holds
 //!   one derives `Debug` either (ADR-1).
 //! - **It cannot set an environment variable.** Doing so is `unsafe` in this edition, and
@@ -81,3 +80,23 @@ pub use client::{Client, ClientBuilder};
 pub use environment::Environment;
 pub use error::SdkError;
 pub use types::{Classification, DeviceHealth, Health, History, Secret, VersionSummary, Written};
+
+/// The `ciphr-core` types that appear in this crate's own signatures.
+///
+/// **A consumer of this crate must not have to name `ciphr-core` in its manifest.** Every
+/// type below is unavoidable in ordinary use — [`SecretPath`] is an argument to every
+/// call, [`Plaintext`] is what a value *is*, [`EnvVarName`] is what [`Environment`] hands
+/// back, and [`PathError`] and [`EnvNameError`] sit inside [`SdkError`] variants. Without
+/// these re-exports the shortest useful program needs a second dependency, and that
+/// dependency then has to be kept at the same version as this one by hand, which is a
+/// versioning trap rather than an inconvenience.
+///
+/// They are re-exported rather than wrapped: a newtype around [`SecretPath`] would be a
+/// second definition of path normalization's public face, and ADR-9's rule that there is
+/// exactly one normalization is worth more than a tidier dependency graph.
+///
+/// `ci/check-sdk-reexports.sh` fails if a core type enters this crate's API without
+/// landing here.
+pub use ciphr_core::{
+    EnvNameError, EnvVarName, PathError, Plaintext, Rotation, SecretPath, SecretVersion,
+};

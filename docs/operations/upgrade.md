@@ -44,6 +44,13 @@ entries, and it is also the one that makes four existing routes conditional on t
 the file that started the previous version can be a file this one declines, and a `404` on the viewer
 is a quieter way to find out than a process that will not start.
 
+**Read its surface report and not only its exit code.** The mistake this release makes possible is a
+*forgotten* stanza, and that file is legal: the command exits zero on it, because off is a legitimate
+deployment and most deployments should have `viewer_api` off. What it prints is the list of entries
+the binary knows and the mark against the ones this file did not name, which is the only place that
+question is answered — an entry that is off is absent from the router, so its `404` is byte-identical
+to a typo'd path.
+
 ## 0.5.0
 
 **This release has a breaking change, a one-way schema migration, and a new refusal to
@@ -70,19 +77,48 @@ reason   = "ciphr-run fetches whole prefixes on service start"
 ```
 
 All three fields are required. `ciphr surface show <config>` prints what each entry costs
-next to your reason, and `GET /v1/health` lists the entries the running service has.
+next to your reason **and lists the entries the file did not name**, which is the check
+worth running against the file you are about to deploy; `GET /v1/health` lists the entries
+the running service has.
 
-**Take the loss where you can.** A deployment with no viewer was serving those three routes
-to nobody, while putting the policy structure and the identity inventory on the network for
-anyone holding any token. And turning `bulk_export` off is what removes fetched prefixes,
-which is the thing that makes a honeypot secret hard to place — see
-[honeypots.md](honeypots.md).
+**Take the loss where you can — for `viewer_api`.** A deployment with no viewer was serving
+those three routes to nobody, while putting the policy structure and the identity inventory
+on the network for anyone holding any token. Turning that entry off costs such a deployment
+nothing.
 
-### Schema 6 is a one-way door
+**`bulk_export` is a different decision, and an earlier version of this note argued it
+badly.** It said that turning the entry off removes fetched prefixes, and therefore makes a
+honeypot secret easier to place. It does not. `POST /v1/export` reads the paths a caller
+*names* — there is no prefix in the request — so whether a prefix is covered is a property
+of the fetching code, and `GET /v1/list/{prefix}` is not an entry: a caller that lists a
+prefix and then reads each path covers the same prefix with the entry off. What turning it
+off actually costs is `ciphr-run` entirely, because both `--prefix` and `--path` fetch
+through this route, and one request per path for an SDK consumer. Decide it on that, and
+place bait by reading the consumer — [honeypots.md](honeypots.md) says how.
+
+### Schema 6 is a one-way door, and a rollback is two-part
 
 Back up the database, its `-wal` and `-shm` siblings, and the anchor file first. A `0.4.0`
 binary refuses a schema-6 database with `SchemaTooNew`, so a rollback needs the restore.
 The migration is additive — two columns and a table for bait — and touches no existing row.
+
+**A rollback also needs the `[[surface]]` stanzas taken back out**, and this is the half
+that surprises. `Config` rejects unknown top-level keys, so the configuration `0.5.0`
+requires is one `0.4.0` cannot parse — the older binary stops with a TOML error naming
+`surface`, the stanza this note told you to add, in a moment you believe is about the
+database:
+
+```
+ciphr-server: invalid configuration in …: TOML parse error at line 82, column 3
+   |
+82 | [[surface]]
+   |   ^^^^^^^
+unknown field `surface`, expected one of `server`, `storage`, `seal`, `policies`, `audit`
+```
+
+It fires before the store is touched, so nothing is half-rolled-back. Keep the previous
+configuration file beside the database backup and the rollback is two restores rather than
+an edit under pressure.
 
 ### The service can refuse to start on its own configuration
 
@@ -99,6 +135,28 @@ Two new refusals, both about surface entries and both deliberate:
 
 `ciphr-server --check-config <file>` exercises both without starting the listener. Run it
 before you stop anything.
+
+**It also prints the resolved surface**, which is what makes the recommendation above worth
+following for this release rather than only the next one. A *missing* runtime stanza is
+legal, so this command cannot refuse the file that started `0.4.0` — but it now names every
+entry the binary knows, marks the ones this file did not name as off, and prints what each
+absence costs. That is the difference between "the configuration is usable" and "the
+configuration is the one you meant":
+
+```
+configuration and policies are usable
+
+surface: 0 of 3 entries on (ADR-20)
+  off  viewer_api      runtime  not named by this configuration
+       The viewer stops working. The CLI does not: …
+  off  bulk_export     runtime  not named by this configuration
+       `ciphr-run` cannot fetch at all: …
+  off  honeypot_alert  build    not named by this configuration, and not in this binary
+       No detection of bait. …
+```
+
+`ciphr surface show <config>` prints the same off list from the host, without needing the
+store or the master key.
 
 ### A strict consumer of `GET /v1/audit` needs a look, again
 

@@ -1971,23 +1971,41 @@ given deployment exposes.
 things, and the endpoint is designed not to be able to say which. What is optional is the route, not
 the column.
 
-**`bulk_export` is where the honeypot placement problem is decided**, and the two entries are worth
-reading together. The scope question underneath it — an exact grant against a sub-path, and a named
-fetch against a prefix fetch — is answered in
-[authorization.md](../../docs/authorization.md#choosing-the-scope-of-a-machine-identity). A consumer that fetches a prefix reads the value of every path under it, which is
-why ADR-15 sends bait outside every fetched prefix. A deployment that turns `bulk_export` off, and
-whose consumers therefore name their paths, has no fetched prefixes to stay out of. Whether that trade
-is available depends on the consumer, which is exactly the shape of question the surface list exists
-to make explicit.
+**`bulk_export` does not decide the honeypot placement problem, and an earlier version of this
+paragraph said it did.** The correction is worth keeping, because the wrong version reached a cost
+sentence that ships compiled in. The scope question underneath it — an exact grant against a sub-path,
+and a named fetch against a prefix fetch — is answered in
+[authorization.md](../../docs/authorization.md#choosing-the-scope-of-a-machine-identity). A consumer
+that fetches a prefix reads the value of every path under it, which is why ADR-15 sends bait outside
+every fetched prefix. But `POST /v1/export` reads the paths a caller *names* — `ExportRequest` has no
+prefix — and `GET /v1/list/{prefix}` is not an entry, so a caller that lists a prefix and then reads
+each path covers the same prefix with `bulk_export` off, at one request and one audit entry per
+secret. Turning the entry off removes the *supported one-request* prefix fetch (`ciphr-run`,
+`Client::environment`), not the property; and a consumer that already names its paths has ADR-15's
+property while the entry is on. Whether a prefix is fetched stays a question about the fetching code,
+which is what `honeypots.md` says and what the surface list cannot answer for a deployment. The two
+entries are still worth reading together — the point is the reading, not a lever.
 
 ### What the service says about itself
 
 ```
 GET /v1/health          →  which entries are active                (unauthenticated)
 GET /v1/surface         →  entries, dates, reasons, cost sentences (read on sys/surface)
-ciphr surface show      →  the same, from the host
-ciphr surface enable    →  on the host only; there is no route that flips an entry
+ciphr surface show      →  the same from a file, plus the entries it did not name
+--check-config          →  the same from the binary: resolved surface, and what is off
 ```
+
+**There is no `ciphr surface enable`, and an earlier version of this table listed one.** Enabling a
+build entry means choosing a binary compiled with the feature; enabling either kind means writing a
+stanza into a file a deployment may well mount read-only and keep under version control. The switch is
+a deployment change, so the commands report and never write.
+
+**Every one of those reports the entries that are *off* as well as the ones that are on.** That is not
+symmetry for its own sake: an entry off is absent from the router, so its `404` is byte-identical to a
+path that never existed (which is what this section wants on the wire), and the closed `ENTRIES` list
+is then the only answer to "was this route never built, or merely never named?". An interface that
+prints only the active entries leaves an empty surface meaning both "this deployment turned nothing on"
+and "this build has no entries".
 
 `sys/surface` is a virtual path, as in sections 22 and 23. No new capability.
 

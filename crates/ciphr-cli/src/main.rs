@@ -242,7 +242,8 @@ struct ImportArgs {
 /// control. The switch is a deployment change, and this shows what the choice costs.
 #[derive(Debug, Subcommand)]
 enum SurfaceCommand {
-    /// Show what a server configuration turned on, and what each entry costs.
+    /// Show what a server configuration turned on, what it left off, and what each
+    /// entry costs.
     Show {
         /// Path to the server's configuration file, the one with the `[[surface]]`
         /// stanzas in it.
@@ -1034,17 +1035,16 @@ fn surface(command: &SurfaceCommand) -> Result<(), CliError> {
     // the endpoint that says what it got.
     if stanzas.is_empty() {
         eprintln!("{config} turns nothing on. That is the ordinary configuration.");
-        return Ok(());
     }
 
     for (entry, accepted, reason) in &stanzas {
-        println!("{entry}");
+        println!("on   {entry}");
         println!("    accepted  {accepted}");
         println!("    reason    {reason}");
-        match cost_of(entry) {
-            Some(cost) => {
+        match known(entry) {
+            Some(entry) => {
                 println!("    without it:");
-                for line in wrap_cost(cost) {
+                for line in wrap_cost(entry.cost) {
                     println!("        {line}");
                 }
             }
@@ -1056,9 +1056,37 @@ fn surface(command: &SurfaceCommand) -> Result<(), CliError> {
         println!();
     }
 
+    // **The entries this file did not name, and the reason this half exists.** An entry
+    // that is off is absent from the router, so on the wire it is byte-identical to a
+    // path that never existed -- which is what ADR-20 wants there, and nothing this
+    // command does should change it. What was missing was the answer on the other side:
+    // an operator looking at that `404`, or at an empty `surface` array, could not tell
+    // "this deployment turned nothing on" from "this build has no entries". The list of
+    // names is the one thing no interface printed.
+    //
+    // The cost sentence is printed here for the same reason. It is what an operator
+    // deciding *about* an entry wants to read, and before this it was only ever printed
+    // for entries already decided in favour of.
+    for entry in KNOWN {
+        if stanzas.iter().any(|(named, _, _)| named == entry.name) {
+            continue;
+        }
+        println!(
+            "off  {} ({}, not named by this file)",
+            entry.name, entry.kind
+        );
+        println!("    without it:");
+        for line in wrap_cost(entry.cost) {
+            println!("        {line}");
+        }
+        println!();
+    }
+
     eprintln!("A build entry needs the feature compiled in as well as a stanza, and the");
     eprintln!("service refuses to start when the two disagree. Ask that service's");
-    eprintln!("/v1/health for the entries it actually contains.");
+    eprintln!("/v1/health for the entries it actually contains, and a newer service may");
+    eprintln!("know entries this CLI does not -- `ciphr-server --check-config` reports the");
+    eprintln!("closed list its own binary was built with.");
     Ok(())
 }
 
@@ -1099,26 +1127,59 @@ fn parse_surface_stanzas(
         .collect())
 }
 
-/// What an entry's absence costs, from the record that owns it.
+/// One entry this CLI knows about: the name, how it is switched on, and what its
+/// absence costs.
+struct Known {
+    name: &'static str,
+    kind: &'static str,
+    cost: &'static str,
+}
+
+/// Every entry this CLI knows about, in the order the server lists them.
 ///
 /// Duplicated from `ciphr-server`'s entry list rather than imported: the CLI does not
 /// depend on the server crate and should not start, because that crate pulls in axum,
-/// rustls and a tokio runtime and none of those belong in a host tool. The duplication
-/// can drift, and what bounds it is that the list is one row long -- if it grows, that is
-/// the moment to move the list into `ciphr-core` as data rather than to copy it twice.
-fn cost_of(entry: &str) -> Option<&'static str> {
-    match entry {
-        "viewer_api" => Some(
-            "The viewer stops working. The CLI does not: it reads the audit trail, the              identities and the policies straight from the store with no network hop. A              deployment without the viewer has been serving these three routes to nobody              -- and serving the policy structure and the identity inventory to anyone              holding any token.",
-        ),
-        "bulk_export" => Some(
-            "Route B and route C fetch by named path instead of by prefix, one request              each, and `ciphr-run` refuses with exit code 125 rather than starting a              service without its secrets. The upside is the one ADR-15 cares about: a              deployment whose consumers name their paths has no fetched prefixes for bait              to stay out of.",
-        ),
-        "honeypot_alert" => Some(
-            "No detection of bait. A deployment that plants none pays nothing for the              absence, and gets the strongest form of ADR-15's indistinguishability claim:              code that is not compiled in has no timing to get wrong.",
-        ),
-        _ => None,
-    }
+/// rustls and a tokio runtime and none of those belong in a host tool.
+///
+/// **The duplication can drift, and `ci/check-surface-entries.sh` is what bounds it.**
+/// An earlier note here said the bound was that the list was one row long; it is three
+/// now, and a missing row is not cosmetic -- it is an entry `show` would silently leave
+/// out of the off list below, which is the whole point of that list. The gate compares
+/// the names in both files. Cost *text* can still drift, and the artefact that cannot is
+/// `GET /v1/surface`, which serves the sentence the server was built with.
+const KNOWN: &[Known] = &[
+    Known {
+        name: "viewer_api",
+        kind: "runtime",
+        cost: "The viewer stops working. The CLI does not: it reads the audit trail, the \
+               identities and the policies straight from the store with no network hop. A \
+               deployment without the viewer has been serving these three routes to nobody \
+               -- and serving the policy structure and the identity inventory to anyone \
+               holding any token.",
+    },
+    Known {
+        name: "bulk_export",
+        kind: "runtime",
+        cost: "`ciphr-run` cannot fetch at all: both `--prefix` and `--path` read through \
+               this route, so route B refuses with exit code 125 rather than starting a \
+               service without its secrets. Route C reads one path per request instead -- \
+               the same coverage, the same one audit entry per secret, more round trips. \
+               It does not decide whether this deployment has fetched prefixes for bait \
+               to stay out of (ADR-15): covering a prefix is a property of the code that \
+               fetches, and `GET /v1/list/{prefix}` is not an entry.",
+    },
+    Known {
+        name: "honeypot_alert",
+        kind: "build",
+        cost: "No detection of bait. A deployment that plants none pays nothing for the \
+               absence, and gets the strongest form of ADR-15's indistinguishability \
+               claim: code that is not compiled in has no timing to get wrong.",
+    },
+];
+
+/// The entry a name refers to, if this CLI build knows it.
+fn known(name: &str) -> Option<&'static Known> {
+    KNOWN.iter().find(|entry| entry.name == name)
 }
 
 /// Break a cost sentence into terminal-width lines.

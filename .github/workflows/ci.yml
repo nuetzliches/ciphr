@@ -98,6 +98,24 @@ jobs:
       - name: The reviewed core declares no features and reaches no surface
         run: sh ci/check-core-no-features.sh
 
+      # The other half of the entry list. `ciphr surface show` prints the entries a
+      # configuration named *and* the ones it did not, and that second list is the
+      # only place an operator can read what a deployment chose not to turn on --
+      # an entry off is absent from the router and so indistinguishable on the wire
+      # from a path that never existed. The CLI's copy of the list is what prints
+      # it, so a name missing there is a silent behaviour bug.
+      - name: The CLI knows every surface entry the server does
+        run: sh ci/check-surface-entries.sh
+
+      # Invisible from inside the workspace: every crate here can already reach
+      # `ciphr-core`, so a `ciphr-sdk` signature naming a core type that the crate
+      # does not re-export compiles fine and only breaks for a consumer -- who
+      # then needs a second dependency and has to keep the two versions in step by
+      # hand. Route C is the reason this crate exists; a client that is awkward to
+      # depend on is one an application does not use.
+      - name: A consumer of ciphr-sdk needs no second dependency
+        run: sh ci/check-sdk-reexports.sh
+
       # Static, and in this job rather than the viewer's, because it needs
       # neither Node nor a build -- it compares the package against the image's
       # COPY list. The bug it exists for shipped for three viewer releases: the

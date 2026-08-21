@@ -263,11 +263,17 @@ paths:
       description: |
         **Optional route**, belonging to the `bulk_export` surface entry (ADR-20). It
         answers `404` from the router's fallback where a deployment did not name that
-        entry; `ciphr-run` then refuses with exit code 125 rather than starting a service
-        without its secrets, and route B and route C fetch by named path instead.
+        entry. `ciphr-run` then cannot fetch at all — both `--prefix` and `--path` read
+        through here — so route B refuses with exit code 125 rather than starting a
+        service without its secrets, and route C reads one path per request instead.
 
-        Turning it off is also what removes fetched prefixes, which is the placement
-        problem a honeypot secret has to stay out of (ADR-15).
+        Turning it off does **not** remove fetched prefixes, and an earlier version of
+        this description said it did. This route reads the paths a caller *names* —
+        `ExportRequest` has no prefix — so whether a prefix is covered is a property of
+        the fetching code: a caller that lists `GET /v1/list/{prefix}`, which is not an
+        entry, and then reads each path covers the same prefix with this route off. Where
+        a honeypot secret has to sit is therefore settled by reading the consumer
+        (ADR-15, and `docs/operations/honeypots.md`), not by this switch.
 
         Requires `read` on **every** path requested, and produces **one audit entry per
         secret served** — never one per call. A collective entry for a bulk read is

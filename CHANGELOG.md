@@ -8,6 +8,101 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+**A field report on the `0.5.0` rollout, and four things it found.** Recorded in
+[`docs/field-report-2026-08-21-b.md`](docs/field-report-2026-08-21-b.md), written from the operating
+side of a private deployment after upgrading it. Two of the four are claims this project made about
+itself that the code does not support, and one of those shipped compiled into the binary.
+
+### Fixed — a claim about `bulk_export` that the handler does not support
+
+`bulk_export`'s cost sentence said that turning the entry off *removes fetched prefixes*, and
+therefore makes a honeypot secret easier to place (ADR-15). It does not, and the sentence pointed a
+deployment at the one lever that cannot move what it claimed to move.
+
+`POST /v1/export` reads the paths a caller **names** — `ExportRequest` has one required property,
+`paths`, and no prefix — so whether a prefix is covered is a property of the fetching code rather
+than of this route. `GET /v1/list/{prefix}` is not an entry, so a caller that lists a prefix and then
+reads each path covers the same prefix with `bulk_export` off, at one audit entry per secret and more
+round trips. And a consumer that already names its paths has ADR-15's property while the entry is
+*on*, so turning it off buys that one nothing either.
+
+What turning it off actually costs is now what the sentence says: `ciphr-run` entirely, because both
+`--prefix` and `--path` fetch through this route and it refuses with exit code `125`; and one request
+per path for an SDK consumer. Corrected in five places that repeated it — `surface.rs`, the CLI's copy
+of the entry list, the router comment in `api.rs`, the route description in `openapi.yaml`, and
+`docs/operations/upgrade.md`, whose "take the loss where you can" advice rested on it. The `0.5.0`
+section below is left as it was written; it is where the claim was made.
+
+**Why this one is worth the length.** The cost sentence is the artefact ADR-20 designed to be the
+input to a deployment's decision, `GET /v1/surface` exists to put it in front of an operator, and it
+is the one thing a deployment cannot correct locally, because it ships in the binary.
+
+### Added — every surface interface now names the entries a deployment left *off*
+
+`ciphr-server --check-config <file>` prints the resolved surface, and `ciphr surface show <config>`
+prints the entries the file did not name, each with its cost sentence. Both listed only the active
+entries before.
+
+**The gap that closes.** An entry that is off is absent from the router, so its `404` is
+byte-identical to a path that never existed — which is what ADR-20 wants on the wire, and nothing
+here changes it. But nothing answered the operator's question on the other side: *is this route
+missing because this build never had it, or because this deployment did not name it?* `/v1/health`
+carried the active names, `/v1/surface` the active records, and `surface show` the stanzas in the
+file; the closed `ENTRIES` list — which exists precisely so that "what can a deployment turn on" has
+an answer rather than needing a search — was the one thing no interface printed. An empty `surface`
+array meant both "this deployment turned nothing on" and "this build has no entries".
+
+**`--check-config` is the sharp case**, because `upgrade.md` recommends it for this release
+specifically, and a *missing* runtime stanza is legal: the `0.5.0` binary accepted the previous
+version's file without a word about surface at all. The command a careful operator is told to run
+before stopping anything could not report the mistake this release made possible. It exits zero on
+that file still — off is a legitimate deployment, and most deployments should have `viewer_api` off —
+but it now says what was left off and what each absence costs.
+
+The cost sentence moves with the off entries for the same reason: it is what somebody deciding *about*
+an entry needs, and it was printed only for entries already decided in favour of.
+
+`ci/check-surface-entries.sh` is new and blocking, because the CLI keeps its own copy of the entry
+list — it does not depend on the server crate, which would pull axum, rustls and a tokio runtime into
+a host tool. An entry missing from that copy is silently missing from the off list, which is the whole
+point of the list. The gate compares the names in both files.
+
+### Added — `ciphr-sdk` re-exports the `ciphr-core` types in its own signatures
+
+`SecretPath`, `Plaintext`, `SecretVersion`, `EnvVarName`, `Rotation`, `PathError` and `EnvNameError`
+are now reachable as `ciphr_sdk::…`. They were unavoidable in ordinary use and reachable only through
+a second dependency: `SecretPath` is an argument to every call, `Plaintext` is what a value *is*,
+`EnvVarName` is what `Environment` hands back, and the two error types sit inside `SdkError` variants.
+The crate's own shortest-useful-program example opened with `use ciphr_core::SecretPath;`, which is
+the tell.
+
+**Why it mattered beyond tidiness.** A consumer had to name `ciphr-core` in its manifest and keep the
+two versions in step by hand — a versioning trap for a client crate whose reason to exist is that an
+application depends on it. Re-exported rather than wrapped: a newtype around `SecretPath` would be a
+second public face for path normalization, and ADR-9's one-normalization rule is worth more than a
+tidier dependency graph.
+
+Invisible from inside the workspace, which is why `ci/check-sdk-reexports.sh` is new and blocking:
+every crate here can already reach `ciphr-core`, so the omission compiled fine and broke only for
+somebody outside.
+
+### Changed — two documents that stopped one step short
+
+- **`docs/operations/upgrade.md`: the `0.5.0` rollback is two-part.** `Config` has
+  `deny_unknown_fields`, so the configuration `0.5.0` requires is one `0.4.0` cannot parse — a
+  rollback needs the `[[surface]]` stanzas removed as well as the database restored. The note had the
+  database half only, so an operator following it got a TOML error naming the stanza the note told
+  them to add, in a moment they believed was about the schema. The refusal fires before the store is
+  touched, which is the helpful order; the sentence was what was missing.
+- **`docs/operations/honeypots.md`: precondition 1 names the build.** The runbook led with "the
+  service has to be built with the entry" and a `curl` for checking, and said nothing about how to get
+  such a build. `Dockerfile` and both release workflows build without `--features`, so every published
+  image and every release binary answers that check with `no` — a dead end for anyone not building
+  from source. Step 1 now carries `cargo build --release --locked --features honeypot_alert`, says
+  plainly that published artefacts are default builds, and states the decision that has to precede a
+  second artefact: `docs/security-review.md` marks C11, C12 and D10 as newer than the accepted review.
+
+
 ## [0.5.0] — 2026-08-21
 
 **The release that makes optionality a mechanism, and pays for it once.** Two things run through

@@ -61,6 +61,19 @@ pub enum Kind {
     Runtime,
 }
 
+impl Kind {
+    /// The word an operator reads, and the same one `GET /v1/surface` serializes.
+    ///
+    /// Here rather than in whatever prints it, so a report on the host and a response on
+    /// the wire cannot end up calling the same thing by two names.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Build => "build",
+            Self::Runtime => "runtime",
+        }
+    }
+}
+
 /// One thing a deployment may turn on.
 #[derive(Debug, Clone, Copy)]
 pub struct Entry {
@@ -98,11 +111,14 @@ pub const ENTRIES: &[Entry] = &[
     Entry {
         name: "bulk_export",
         kind: Kind::Runtime,
-        cost: "Route B and route C fetch by named path instead of by prefix, one request \
-               each, and `ciphr-run` refuses with exit code 125 rather than starting a \
-               service without its secrets. The upside is the one ADR-15 cares about: a \
-               deployment whose consumers name their paths has no fetched prefixes for \
-               bait to stay out of.",
+        cost: "`ciphr-run` cannot fetch at all: both `--prefix` and `--path` read \
+               through this route, so route B refuses with exit code 125 rather than \
+               starting a service without its secrets. Route C reads one path per \
+               request instead -- the same coverage, the same one audit entry per \
+               secret, more round trips. It does not decide whether this deployment \
+               has fetched prefixes for bait to stay out of (ADR-15): covering a \
+               prefix is a property of the code that fetches, and \
+               `GET /v1/list/{prefix}` is not an entry.",
         compiled_in: true,
     },
     Entry {

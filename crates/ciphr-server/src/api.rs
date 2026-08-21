@@ -77,10 +77,17 @@ pub fn router(state: AppState) -> Router {
             .route("/v1/policies", get(read_policies));
     }
 
-    // `bulk_export` -- the route that reads the value of every path under a prefix, and
-    // therefore the one that decides whether a deployment has fetched prefixes for bait
-    // to stay out of (ADR-15's placement rule, and plan section 24 reads the two
-    // entries together for exactly that reason).
+    // `bulk_export` -- several named paths in one call, one audit entry each. Turning it
+    // off costs `ciphr-run` entirely (both `--prefix` and `--path` fetch through here, so
+    // it refuses with 125) and costs an SDK consumer one request per path.
+    //
+    // It does *not* decide whether this deployment has fetched prefixes for bait to stay
+    // out of, and an earlier version of this comment said it did. `POST /v1/export` reads
+    // the paths a caller names -- `ExportRequest` has no prefix -- so covering a prefix is
+    // a property of the fetching code: a caller that lists `GET /v1/list/{prefix}`, which
+    // is not an entry, and then reads each path covers the same prefix with this route off.
+    // ADR-15's placement rule is therefore settled by reading the consumer, which is what
+    // `docs/operations/honeypots.md` says.
     if state.surface().has("bulk_export") {
         router = router.route("/v1/export", post(export));
     }

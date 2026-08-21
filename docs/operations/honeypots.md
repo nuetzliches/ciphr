@@ -31,6 +31,32 @@ identity and is enumerating rather than fetching what they need.
    nobody. Nothing warns you about this at planting time except the CLI's own output,
    because the CLI cannot see the service's build.
 
+   **Every published artefact answers that check with `no`, and the build has to come from
+   here.** `Dockerfile` and both release workflows build without `--features`, so no
+   released image and no released binary contains this entry — and that will stay true
+   unless this paragraph says otherwise, because a feature-enabled image is a *second*
+   artefact and the decision in the next paragraph has to be made before there is one:
+
+   ```sh
+   cargo build --release --locked --features honeypot_alert --bin ciphr-server
+   ```
+
+   For a container, the same in a derived image — copy `Dockerfile`, add the flag to its
+   `cargo build` line, and publish it under a tag of your own. `ciphr-server --check-config
+   <file>` on the result reports `honeypot_alert  build` as on rather than "not in this
+   binary", which is the check that the build and the configuration agree before anything
+   is planted.
+
+   **Making that build is a decision about running unreviewed code, and it is the reason
+   the default artefact stays the default.** The accepted external review read the
+   authentication path before bait existed;
+   [../security-review.md](../security-review.md) marks C11, C12 and D10 — the three
+   claims that describe this entry — as newer than the acceptance. A deployment whose risk
+   acceptance was written about the reviewed core is extending it when it builds this, and
+   that is a deliberate act rather than a step in a runbook. Deciding *not* to costs
+   nothing: bait nobody can detect is the only thing lost, and a deployment that plants
+   none loses nothing at all.
+
 2. **The configuration has to name it**, with the date you accepted the cost and the reason:
 
    ```toml

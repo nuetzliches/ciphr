@@ -155,6 +155,8 @@ sh ci/check-forbid-unsafe.sh     # #![forbid(unsafe_code)] in every crate root
 sh ci/check-no-v-html.sh         # no v-html / innerHTML in ui/
 sh ci/check-ui-budget.sh         # one runtime dependency, no install scripts, integrity hashes
 sh ci/check-ui-image-files.sh    # every tracked path in ui/ reaches a stage of the viewer image
+sh ci/check-surface-entries.sh   # the CLI knows every surface entry the server does
+sh ci/check-sdk-reexports.sh     # a ciphr-sdk consumer needs no dependency on ciphr-core
 sh ci/check-docs.sh              # every doc under docs/ carries a date
 sh ci/check-changelog.sh         # a commit touching crates/ also touches CHANGELOG.md
 sh ci/build-wrapper.sh           # ciphr-run: static musl, verified linkage, size budget
