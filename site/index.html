@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Kein externer Request, keine Inline-Ausführung. Dieselbe Haltung wie die CSP
+     des Viewers (docs/ui.md), auch wenn diese Seite nichts Geheimes hält:
+     eine Doku-Seite, die eine strikte Policy nicht einhalten kann, ist ein
+     schlechtes Beispiel für ein Projekt, dessen Argument sie darstellt.
+     Wegen 'self' lokal über einen Server öffnen, nicht per file://. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+<title>ciphr — die Sicherheitsschichten</title>
+<link rel="stylesheet" href="layers.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="masthead-title">
+    <h1>ciphr — die Sicherheitsschichten</h1>
+    <p class="status"><strong>Stand:</strong> 2026-08-21, <code>v0.5.1</code>. Zeigt, was gebaut ist, und markiert, was nicht gebaut oder zurückgestellt ist. Abgeleitet aus <span class="src">docs/threat-model.md</span>, <span class="src">ADR-20</span>, <span class="src">docs/security-review.md</span>, <span class="src">docs/ui.md</span>.</p>
+  </div>
+  <nav class="masthead-links">
+    <a id="repo-link" href="#">Repository</a>
+    <a id="tm-link" href="#">Threat Model</a>
+  </nav>
+</header>
+
+<main class="frame">
+
+  <aside class="controls" aria-label="Steuerung">
+    <section class="control-block">
+      <h2>Build</h2>
+      <p class="build-readout" id="build-readout"></p>
+      <p class="hint">Der Ausgangszustand ist der <strong>Default-Build</strong> — das Artefakt, das ein Deployment tatsächlich bekommt. Nicht „alles an".</p>
+    </section>
+
+    <section class="control-block">
+      <h2>Surface Entries <span class="tag tag-switch">schaltbar</span></h2>
+      <p class="hint">ADR-20. Jeder Eintrag ist aus, bis ein Deployment ihn benennt — mit Datum und Grund, sonst startet der Server nicht.</p>
+      <ul class="switch-list" id="surface-switches"></ul>
+    </section>
+
+    <section class="control-block">
+      <h2>Ebenen</h2>
+      <ul class="switch-list">
+        <li><label><input type="checkbox" id="lens-p4"> <span>Was nie schaltbar werden darf</span></label><span class="switch-note">ADR-20 Property 4 — die geschlossene Liste</span></li>
+        <li><label><input type="checkbox" id="lens-review"> <span>Deckung des Reviews von 2026-08-21</span></label><span class="switch-note">blendet aus, was das Review nicht gelesen hat</span></li>
+        <li><label><input type="checkbox" id="lens-cuts" checked> <span>Schnitte anzeigen</span></label><span class="switch-note">was die Zwiebel nicht darstellen kann</span></li>
+      </ul>
+    </section>
+
+    <section class="control-block">
+      <h2>Lesart</h2>
+      <ul class="legend">
+        <li><span class="key key-solid"></span> gebaut, nicht schaltbar</li>
+        <li><span class="key key-dashed"></span> Eigenschaft des Deployments, kein Code</li>
+        <li><span class="key key-switch"></span> schaltbar (Surface Entry)</li>
+        <li><span class="key key-absent"></span> nicht gebaut oder zurückgestellt</li>
+        <li><span class="key key-band"></span> reviewed core — ein Band, kein Ring</li>
+        <li><span class="key key-cut"></span> Schnitt: ignoriert jeden Ring</li>
+      </ul>
+      <p class="hint">Ringe sind keine Qualitätsstufen. Jeder Ring ist eine Grenze mit einem Gate; das Label sagt, was geprüft wird. Nach außen nimmt nicht die Qualität ab, sondern die Zahl der Parteien zu.</p>
+    </section>
+
+    <section class="control-block">
+      <h2>Navigation</h2>
+      <div class="zoom-row">
+        <button type="button" id="zoom-out" aria-label="Herauszoomen">−</button>
+        <button type="button" id="zoom-in" aria-label="Hineinzoomen">+</button>
+        <button type="button" id="zoom-reset">Ansicht zurücksetzen</button>
+      </div>
+      <p class="hint">Ziehen verschiebt, Mausrad zoomt. Tab springt zwischen den Elementen, Enter öffnet eines, Esc schließt.</p>
+    </section>
+  </aside>
+
+  <div class="stage">
+    <noscript><p class="noscript">Die Grafik wird im Browser aus einer Tabelle von Elementen aufgebaut und braucht dafür JavaScript. Die Inhalte selbst stehen unverkürzt in <code>docs/</code> — die Grafik ordnet sie, sie ist nicht ihre Quelle.</p></noscript>
+    <svg id="canvas" role="application" aria-label="Die Sicherheitsschichten von ciphr als Ringe, Sektoren und Schnitte"></svg>
+  </div>
+
+  <aside class="panel" id="panel" aria-live="polite">
+    <div class="panel-empty" id="panel-empty">
+      <h2>Ein Element anklicken</h2>
+      <p>Jedes Ring-, Sektor- und Schnitt-Element trägt hier seinen Text: was das Gate prüft, was es nicht prüft, und welcher Record das entschieden hat.</p>
+      <p class="hint">Was die Zwiebel <em>nicht</em> kann, steht unten links: <strong>root auf dem Host</strong> und die <strong>Build-Pipeline</strong> kreuzen keine Ringe, sie ignorieren sie. Eine Zwiebel ohne diese beiden Schnitte wäre Werbung.</p>
+    </div>
+    <article class="panel-body" id="panel-body" hidden></article>
+  </aside>
+
+</main>
+
+<script src="layers.js"></script>
+</body>
+</html>
