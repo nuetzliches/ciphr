@@ -159,9 +159,14 @@ who should be rotating instead.
 
 ## What must be true before this can be accepted
 
-- **The external review has taken place.** This ADR adds a key derivation and the only unauthenticated
-  request path that reaches the store. Both belong to the surface the review exists for, and the
-  derivation lands in `ciphr-crypto`, which is in the mandatory scope.
+- ~~**The external review has taken place.**~~ **Met 2026-08-21** — as a gate, and not as coverage.
+  This ADR adds a key derivation and the only unauthenticated request path that reaches the store. Both
+  belong to the surface the review exists for, and the derivation lands in `ciphr-crypto`, which is in
+  the mandatory scope. That is precisely the surface the acceptance in `docs/security-review.md` says
+  it does not stretch to: a review of `v0.3.0` read a `ciphr-crypto` without this derivation and an API
+  with no anonymous path but `/v1/health`. **So if this record is reopened, the condition to write down
+  is its own pass, not a wait** — the reason it was first on the list has not weakened, it has only
+  stopped being satisfiable by waiting.
 - **Question 5 in plan section 21 is answered before the migration**: whether the value index is
   written unconditionally or only where reporting is enabled. A half-indexed corpus is the dangerous
   state, because a miss then means nothing and the endpoint is designed not to say so.
@@ -212,10 +217,12 @@ F8 concern this ADR. F3, F7 and F8 are addressed above; F5 — that composing th
 ADR-15 yields a page an anonymous party can produce repeatedly — is answered in ADR-15, where the
 latch belongs. F2 was the finding that the per-IP bucket and the recorded client address both depended
 on a peer address the server never obtained, and it has since been built. That review is by the same
-author as the code and does not discharge the external review named above.
+author as the code and did not discharge the external review named above.
 
-Neither did the deferral. Not building something is not a way of reviewing it, and if this record is
-reopened the external review is still the first condition on its list.
+Neither did the deferral. Not building something is not a way of reviewing it. **The external review
+itself happened on 2026-08-21** and cleared the gate — but it read a codebase this record has not
+touched, so what stands at the top of the condition list is now a pass over the surface this record
+would add, which is the one thing a deferral cannot produce in advance.
 
 ## Consequences
 

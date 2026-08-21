@@ -8,6 +8,46 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — five documents still said the external review was pending
+
+The review took place on 2026-08-21 and `docs/security-review.md`, `SECURITY.md`, `AGENTS.md`,
+`docs/README.md` and `openapi.yaml` were all brought up to it the same day. Five places were not, and
+they are the five where the claim was load-bearing rather than descriptive: ADR-15's status line said
+"the build still waits on the external review below", its condition list said the first item "has not
+moved", ADR-16 said a reopened record would find the review "still the first condition on its list",
+ADR-21 said the same, and `docs/operations/freeze.md` said phase 8 "may not be built before the
+external review in any case". A reader who started from any of them concluded that phase 8 is
+forbidden, which it no longer is.
+
+**The correction is not a strike-through, because the condition did not disappear — it changed
+shape.** All three ADRs add surface to `ciphr-crypto` or to the authentication path, and the
+acceptance says in its own words that new surface there does not inherit it, naming phase 8 as the
+example. So each condition now reads as its second form: *built on top of reviewed code, and then
+reviewed itself*, rather than waiting on a review that had nothing to read. ADR-15 also gains the
+consequence for whoever builds it — the claims in `docs/security-review.md` covering the token path
+need an entry for bait, rather than a later reviewer inferring one.
+
+**Two places where a cleared gate implies nothing, now said out loud.** `freeze.md` describes a tier
+that was dropped for an unrelated reason (one machine identity serves every deploy target), so the
+review changes nothing on that page. And ADR-15's Cargo feature keeps a narrower justification than
+it had: the accepted review covers the authentication path *without* honeypot code, so a deployment
+that plants no bait runs nothing the acceptance does not reach.
+
+The doc comment on `ciphr-crypto` said the crate "must pass external review before the first
+production use" and now says that it did, against `v0.3.0`, and that new surface here needs its own
+pass. Nothing but comments and documents changed.
+
+### Fixed — a comment invited exactly the wrong conclusion from the review
+
+`.forgejo/workflows/build-images.yml` explains why the GHCR package stays private while the source
+is: publishing "the artefact of an unreviewed cryptographic implementation invites someone to run
+it". The word that reasoning turns on is *unreviewed*, so the short inference from a cleared gate is
+that the package can now be public. It cannot, and the comment now says why before somebody acts on
+it: the acceptance raises the bar back to a *human* review for making this repository public as
+something others are invited to run, and the second half of the argument never mentioned the review
+at all — a public image from a private repository is unauditable whatever its provenance. The
+condition for deleting that file is unchanged and is the repository going public.
+
 ### Changed — the viewer is released as `ui-v0.3.0`
 
 Its own image and its own cadence (ADR-11), so it moves on its own tag rather than with the service.

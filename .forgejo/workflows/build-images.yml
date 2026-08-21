@@ -21,9 +21,20 @@
 # from a private repository is also unauditable, which is the posture this
 # project rejects everywhere else.
 #
+# **The review happened on 2026-08-21, and it does not unblock that.** Stated
+# here because the inference is short and wrong: the reasoning above turns on
+# the word `unreviewed`, so a reader who knows the gate fell concludes the
+# package can go public. It cannot, for two reasons that survive the review.
+# The acceptance in `docs/security-review.md` says in its own words that making
+# this repository public *as something others are invited to run* raises the bar
+# back to a human review, and the review of 2026-08-21 was performed by an AI
+# model. And the second sentence never mentioned the review at all: a public
+# image from a private repository is unauditable whatever its provenance.
+#
 # **Delete this file once the repository is public.** Then the GHCR package can
 # be public too, `release.yml` is the single publisher again, and the deployment
-# pulls from there.
+# pulls from there. Note that the condition is the repository going public --
+# not the review, and not this comment.
 #
 # ── What this workflow does NOT do ────────────────────────────────────────────
 # It does not run the test suite, and it cannot: the gates live in

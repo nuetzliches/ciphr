@@ -146,9 +146,12 @@ verbs. A capability invented per feature is the drift the set exists to prevent.
 
 ## What must be true before this can be built
 
-- **The external review has taken place.** The subkey derivation lands in `ciphr-crypto`, which is
-  in the mandatory scope, and this record adds a write path to the reviewed composition. The same
-  ordering that holds for phase 8 holds here: built after the review, not as its backlog.
+- ~~**The external review has taken place.**~~ **Met 2026-08-21**, and the ordering it stood for now
+  reads differently. The subkey derivation lands in `ciphr-crypto`, which is in the mandatory scope,
+  and this record adds a write path to the reviewed composition — so the accepted review read the
+  composition *without* it, and `docs/security-review.md` says new surface there does not inherit the
+  acceptance. The same ordering that holds for phase 8 still holds here, in its second form: built on
+  top of reviewed code, and then reviewed itself, rather than shipped as the review's backlog.
 - **The ADR-20 gate exists.** This may be the first surface entry to ship; if so, the check that the
   core crates declare no features and reference no surface module arrives in the same change, as
   ADR-20 requires.

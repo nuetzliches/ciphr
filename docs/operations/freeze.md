@@ -1,9 +1,15 @@
 # Freeze: what it closes, and how it ends
 
-**Status:** written 2026-08-20, revised the same day, and **nothing here is implemented**. It
+**Status:** written 2026-08-20, last revised 2026-08-21, and **nothing here is implemented**. It
 describes a tier ADR-15 designed and then deliberately left out: that record was accepted in the
-`alert` tier only, so `freeze` is not being built. Phase 8 may not be built before the external review
-in any case.
+`alert` tier only, so `freeze` is not being built.
+
+**The external review that once gated all of phase 8 took place on 2026-08-21** and was accepted, and
+that changes nothing on this page — which is the point worth stating rather than leaving to inference.
+`freeze` is absent for the other reason: downstream there is one machine identity for every deploy
+target, so revoking it and stopping everything are the same event, and the severe tiers buy nothing
+until that stops being true. A cleared gate is permission for the work that was behind it, not for the
+work that was dropped in front of it.
 
 **Why this document survives the decision that dropped its subject.** ADR-15 requires the runbook
 before the code, and the condition under which `freeze` returns is named rather than closed — it

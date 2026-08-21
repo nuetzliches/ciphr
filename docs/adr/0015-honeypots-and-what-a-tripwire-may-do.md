@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Accepted 2026-08-20, in the `alert` tier only.** Nothing is implemented; the build still waits on the external review below |
+| **Status** | **Accepted 2026-08-20, in the `alert` tier only.** Nothing is implemented. The external review that gated the build took place on 2026-08-21 and was accepted, so the order this record insisted on is satisfied — what is left is that the surface *this* record adds does not inherit that acceptance and needs its own pass (see the conditions at the end) |
 | **Date** | 2026-08-19 |
 | **Affects** | `ciphr-store`, `ciphr-server`, `ciphr-audit`, `ciphr-cli`, plan section 22, phase 8 |
 
@@ -39,6 +39,15 @@ else is implementation.
 lives, what a trip may do. It does not release the code. The external review named at the end of this
 record is a condition on *building* phase 8, and accepting a narrower design did not discharge it — a
 narrower thing built in the wrong order is still built in the wrong order.
+
+**The review has since discharged it (2026-08-21), and the sentence above is why that is worth
+distinguishing.** What was released is the *order*: there is now code that somebody outside this
+project has read, and a tripwire built on top of it is no longer built on top of nothing. What was not
+released is coverage. The acceptance in `docs/security-review.md` says in its own words that new
+surface in the authentication path does not inherit it, and names this phase as the example — the
+review read what a rejected credential does today, not what it does once bait exists. So the condition
+at the end of this record changes shape rather than disappearing: it stops being *wait for a review*
+and becomes *the behaviour added here is reviewed when it exists, against that same document*.
 
 **1. Bait is indistinguishable from the real thing, on every axis a caller can observe.** Same token
 format, same `401` with the same body, same response shape for a secret read, no additional field
@@ -85,8 +94,11 @@ build — a *build entry* in the sense of [ADR-20](0020-optional-surface.md), no
 configuration file. Property 1 of this record claims that bait is indistinguishable on the
 authentication path; for every deployment that plants none, code which is not compiled in is the
 strongest available version of that claim, because absent code has no timing to get wrong. It also
-keeps this record's behaviour out of the default binary while the external review below is
-outstanding.
+keeps this record's behaviour out of the default binary — which mattered while the external review below
+was outstanding, and still does for a narrower reason now that it has happened: the accepted review
+covers the authentication path *without* this code, so a deployment that plants no bait runs nothing
+the acceptance does not cover. The feature is what makes that sentence true by construction rather than
+by discipline.
 
 **4. No unauthenticated request reaches a tier above `alert`.** The leak-report endpoint of ADR-16
 accepts candidate values from whoever can reach it. A reported honeypot value is the strongest signal
@@ -150,14 +162,24 @@ things. Bait decides nothing.
 
 ## What must be true before this can be built
 
-Acceptance did not clear this list. Every item is a condition on the code, and the first of them has
-not moved.
+Acceptance did not clear this list. Every item is a condition on the code, and as of 2026-08-21
+exactly one of them has moved — the first, which was also the only one nobody here could clear alone.
 
-- **The external review of `ciphr-crypto`, `ciphr-policy`, and the path and pattern code in
-  `ciphr-core` has taken place.** This ADR adds behaviour to the authentication path. Building a
-  tripwire into code that nobody outside this project has read inverts the order that matters, and it
-  is the inversion that feels like progress. `docs/security-review.md` says whether the condition is
-  met; nothing here changes that line.
+- ~~**The external review … has taken place.**~~ **Met 2026-08-21.** The review of `ciphr-crypto`,
+  `ciphr-policy`, and the path and pattern code in `ciphr-core` took place against `v0.3.0` and was
+  accepted; `docs/security-review.md` carries the decision and `docs/review-2026-08-21.md` the record.
+  The reasoning that put it here is unchanged and still worth reading: building a tripwire into code
+  that nobody outside this project has read inverts the order that matters, and it is the inversion
+  that feels like progress.
+
+  **What replaces it, because it is not simply gone.** This ADR adds behaviour to the authentication
+  path, and the acceptance explicitly does not stretch to new surface there — it names this phase. So
+  the obligation inverts in time: the code is now built *first* and reviewed *after*, against
+  `docs/security-review.md`, instead of waiting on a review that had nothing to read. Two things follow
+  for whoever builds it. The reviewer needs to be told what changed, which means the claims in that
+  document covering the token path get an entry for bait rather than a reader inferring one. And the
+  Cargo feature above is what keeps the gap honest in the meantime: a deployment that plants no bait is
+  still running exactly the code the accepted review read.
 - **The timing property is a test, not a claim.** `every_kind_of_invalid_token_looks_the_same` in
   `crates/ciphr-store/src/tokens.rs` is where the honeypot case belongs — inside that test, not
   beside it.

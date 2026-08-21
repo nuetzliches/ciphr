@@ -15,7 +15,10 @@
 //! Together with `ciphr-policy` this crate *is* the project; everything else is
 //! packaging. It therefore carries a hard dependency budget, stays small enough
 //! for one person to review in full, and must pass external review before the
-//! first production use.
+//! first production use. That review took place on 2026-08-21 against `v0.3.0`
+//! and was accepted — but it covers this crate as it was read, so new surface
+//! here needs its own pass rather than inheriting it. See
+//! `docs/security-review.md`.
 //!
 //! No custom constructions: established AEAD primitives, composed in the
 //! documented standard pattern, with known-answer tests so a later refactor
