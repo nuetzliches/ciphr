@@ -226,23 +226,33 @@ mod tests {
         // including nulls: a reader years later can tell "not applicable" from "this
         // version did not record it".
         //
-        // Last changed on 2026-08-20, when `subject` was added for the token
-        // actions: an operator issues a credential *for* an identity, and the
-        // actor and the party it concerns are two different things. The hash below
-        // was recomputed independently rather than copied from the failure output,
-        // which is the only way this vector pins anything.
+        // Changed on 2026-08-20, when `subject` was added for the token actions: an
+        // operator issues a credential *for* an identity, and the actor and the party
+        // it concerns are two different things.
+        //
+        // Last changed on 2026-08-21, when `detail` was added for
+        // `Action::SurfaceActive` — the startup entry naming the active surface
+        // entries (ADR-20) has no path and no identity, so it had nowhere to say what
+        // it is about. `deny_reason` was the tempting place and is wrong: that entry
+        // refuses nothing, and putting it there would make the trail claim a denial.
+        //
+        // The hash below was recomputed independently rather than copied from the
+        // failure output, which is the only way this vector pins anything. The method
+        // was checked by reproducing the *previous* pinned hash from the previous
+        // payload first — a calculation that cannot reproduce the old answer is not
+        // evidence about the new one.
         let chain = Chain::new();
         let record = chain.encode(&sample_entry(), 1_767_225_599_999).unwrap();
 
         assert_eq!(
             record.payload,
-            r#"{"seq":1,"ts":"2025-12-31T23:59:59.999Z","prev_hash":"0000000000000000000000000000000000000000000000000000000000000000","entry":{"principal":{"name":"deploy-runner","kind":"machine","token_id":"a1b2c3d4"},"subject":null,"action":"read","path":"infra/service-a/DB_PASSWORD","version":1,"allowed":true,"deny_reason":null,"rule":{"policy":"infra-read","pattern":"infra/**"},"results":null,"request":{"request_id":"r-1","client_ip":"10.0.0.7","user_agent":"curl/8.5.0","http_status":200,"channel":null}}}"#
+            r#"{"seq":1,"ts":"2025-12-31T23:59:59.999Z","prev_hash":"0000000000000000000000000000000000000000000000000000000000000000","entry":{"principal":{"name":"deploy-runner","kind":"machine","token_id":"a1b2c3d4"},"subject":null,"action":"read","path":"infra/service-a/DB_PASSWORD","version":1,"allowed":true,"deny_reason":null,"rule":{"policy":"infra-read","pattern":"infra/**"},"results":null,"detail":null,"request":{"request_id":"r-1","client_ip":"10.0.0.7","user_agent":"curl/8.5.0","http_status":200,"channel":null}}}"#
         );
         assert_eq!(record.hash_hex(), KAT_HASH);
         assert_eq!(record.prev_hash, GENESIS);
     }
 
-    const KAT_HASH: &str = "c0a9a6d9372c4280096ba01a551c0866772301749a6b2b99e53a43cfa18bde14";
+    const KAT_HASH: &str = "5c5a319997ee9af080163c092a35238972ca356508ebe8f62518a93e5a28ead8";
 
     #[test]
     fn absent_fields_are_written_as_null_rather_than_omitted() {

@@ -79,6 +79,19 @@ pub enum Action {
     /// the trail explains its own gaps instead of leaving whoever finds one to guess,
     /// and guessing wrong means treating a disk hiccup as an unlogged access.
     AuditDeviceFailed,
+    /// What optional surface this process started with.
+    ///
+    /// One entry at startup, naming the active entries of ADR-20's surface list, or
+    /// `none`. Not an operation anybody requested — like [`Action::AuditDeviceFailed`],
+    /// an event in the trail's own life.
+    ///
+    /// It exists because a deployment changing its own shape otherwise leaves no record
+    /// the trail can be asked about. "Which routes did this service offer in March" is
+    /// answerable from a configuration file only if somebody kept the version of it
+    /// that was in effect in March, and the interesting case is the one where nobody
+    /// did. The entry makes the question answerable from the trail, which is the one
+    /// artefact this project keeps tamper-evident.
+    SurfaceActive,
 }
 
 impl Action {
@@ -97,6 +110,7 @@ impl Action {
             Self::IssueToken => "issue-token",
             Self::RevokeToken => "revoke-token",
             Self::AuditDeviceFailed => "audit-device-failed",
+            Self::SurfaceActive => "surface-active",
         }
     }
 }
@@ -223,6 +237,20 @@ pub struct Entry {
     /// size of a listing would be a way to make records unbounded, and the caller's
     /// policy already bounds what those names can be.
     pub results: Option<u32>,
+    /// What an informational entry is about, when no path or identity says it.
+    ///
+    /// For entries that record an event in the trail's own life rather than an access:
+    /// so far only [`Action::SurfaceActive`], which carries the names of the active
+    /// surface entries or `none`.
+    ///
+    /// **Not a second `deny_reason`, and the difference is worth stating** because the
+    /// two look interchangeable. [`Action::AuditDeviceFailed`] keeps naming its device
+    /// in `deny_reason` and is right to: a device refused, so that entry has
+    /// `allowed: false` and a refusal to explain. A surface entry refuses nothing, so
+    /// `deny_reason` on it would make the trail claim a denial that never happened —
+    /// which is precisely the confusion `0.4.0` had to warn consumers about when the
+    /// correcting entries arrived.
+    pub detail: Option<String>,
     /// Where the request came from.
     pub request: RequestContext,
 }
@@ -240,6 +268,7 @@ impl Entry {
             deny_reason: None,
             rule: None,
             results: None,
+            detail: None,
             request: RequestContext::default(),
         }
     }
@@ -256,8 +285,16 @@ impl Entry {
             deny_reason: Some(reason.into()),
             rule: None,
             results: None,
+            detail: None,
             request: RequestContext::default(),
         }
+    }
+
+    /// Attach a detail string to an informational entry.
+    #[must_use]
+    pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
+        self.detail = Some(detail.into());
+        self
     }
 
     /// Attach the principal.

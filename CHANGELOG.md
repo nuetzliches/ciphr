@@ -8,6 +8,62 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — the optional surface mechanism, and its first entry
+
+ADR-20 decided where optionality is allowed to live and said the gate arrives with the first entry.
+Phase 8 is that entry, so the mechanism arrives with it: `[[surface]]` stanzas in the server
+configuration, each naming an entry, the date the deployment accepted the cost, and the reason.
+**All three are required and the server refuses to start without them** — the same refusal as
+starting with no audit device, because a configuration that cannot answer the question is a
+configuration error rather than an operating mode.
+
+`honeypot_alert` is the first and so far only entry: ADR-15's `alert` tier, as a Cargo feature absent
+from the default build. Nothing of the tier itself is implemented yet — this release adds the switch,
+the record, and the refusals, so that the behaviour lands on a mechanism instead of beside one.
+
+**A build entry is checked in both directions, and the second one is the reason it is a check at
+all.** Compiled in and not named in the configuration means a deployment is running surface it never
+recorded a decision about. Named in the configuration and *not* compiled in is worse: the deployment
+believes it has bait recognition, has written down when and why, and has none — and nothing would
+ever say so, because bait that cannot fire looks exactly like bait nobody took. So both refuse.
+
+`GET /v1/health` gains `surface`, an array of the active entry names, and it is unauthenticated for
+the reason plan section 10 gives: which entries are active is what the process *enforces*. The date
+and the reason are prose about somebody's environment and stay behind an authenticated read. An empty
+array is the ordinary answer.
+
+**Startup writes one audit entry**, `surface-active`, naming the active entries or the literal
+`none`. A deployment that changes its own shape otherwise leaves no record the trail can be asked
+about — "which routes did this service offer in March" is answerable from a configuration file only
+if somebody kept the March version of it, and the interesting case is the one where nobody did.
+
+Audit records gain a `detail` field for that entry, and it is deliberately **not** a second
+`deny_reason`: a `surface-active` entry refuses nothing, so putting its content there would make the
+trail claim a denial that never happened. `audit-device-failed` keeps naming its device in
+`deny_reason` and is right to — a device did refuse. Records written by an older build do not carry
+the key at all; from here it is present as `null`, which is the rule the whole record follows.
+
+**The known-answer test for the record encoding moved**, because `detail` changes the stored shape.
+Old records keep verifying — verification hashes the stored bytes and re-serializes nothing — and the
+new hash was recomputed independently rather than copied from the failure output. The method was
+checked by reproducing the *previous* pinned hash from the previous payload first: a calculation that
+cannot reproduce the old answer is not evidence about the new one.
+
+### Added — a gate for the property the external review's scope depends on
+
+`ci/check-core-no-features.sh`. Four claims about `ciphr-crypto`, `ciphr-policy` and `ciphr-core`: no
+`[features]` table, no `cfg(feature)` in the sources, no code reference to a surface module, and no
+features handed to them by `[workspace.dependencies]`. That last one is the same claim from the other
+side — a crate that declares none can still be built with some if a dependent asks.
+
+What it protects is the meaning of "three crates, about 1500 lines, read end to end": a claim about
+the code every build runs. One `cfg(feature)` in those crates turns it into a claim about one
+configuration, and a review that has to be repeated per configuration is a promise to do one later.
+
+Comment lines are stripped before the surface check, because all three crates discuss attack surface
+in their doc comments and should keep doing so. Verified by making each claim false in turn — the
+`cfg(not(feature = …))` form included — and by appending prose to confirm the check stays quiet.
+
 ### Fixed — the specification said "Draft. No code written yet." through four releases
 
 `.claude/plans/PLAN.md` is the full specification and has been amended twenty-two times, most

@@ -556,7 +556,7 @@ components:
 
     Health:
       type: object
-      required: [status, sealed, seal, key_source, audit_devices, api_version]
+      required: [status, sealed, seal, key_source, audit_devices, surface, api_version]
       properties:
         status: { type: string, examples: ["ok"] }
         sealed:
@@ -608,6 +608,24 @@ components:
                   record is written -- "nothing recorded yet" is a different state from
                   "the last record was accepted", and a monitor that conflates them
                   reports a healthy device on a service that has never written to it.
+        surface:
+          type: array
+          description: |
+            Which optional surface entries this process is running (ADR-20). Names
+            only, and an empty array is the ordinary answer -- every entry is off
+            until a deployment names it in its configuration.
+
+            Here rather than behind a token because *which entries are active* is what
+            the process enforces, and an unauthenticated endpoint may report that. The
+            date a deployment accepted the cost and the reason it wrote down are prose
+            about somebody's environment, so they stay behind `read` on `sys/surface`.
+
+            A monitor that cannot see the shape of the thing it monitors is watching a
+            different system -- which is the whole reason this field is not authenticated.
+          items:
+            type: string
+            enum: [honeypot_alert]
+          examples: [[], ["honeypot_alert"]]
         api_version: { type: string, examples: ["v1"] }
 
     SecretInput:
@@ -807,6 +825,7 @@ components:
                   classify,
                   issue-token,
                   revoke-token,
+                  surface-active,
                 ]
             subject:
               type: [object, "null"]
@@ -856,6 +875,24 @@ components:
                 there means "the operation ran" rather than "a rule permitted it". The
                 names are deliberately absent: an entry that grew with the size of a
                 listing would make records unbounded.
+            detail:
+              type: [string, "null"]
+              description: |
+                What an informational entry is about, when no path and no identity say
+                it. Set by `surface-active`, which carries the comma-separated names of
+                the active surface entries or the literal `none`, and null everywhere
+                else.
+
+                **Not a second `deny_reason`.** A `surface-active` entry refuses
+                nothing, so `deny_reason` there would make the trail claim a denial that
+                never happened -- the same confusion the correcting entries of `0.4.0`
+                had to be documented against. `audit-device-failed` keeps naming its
+                device in `deny_reason` and is right to: a device refused.
+
+                New in this release, so records written by an older build do not carry
+                the key at all. Present as `null` from here on rather than omitted,
+                which is the rule the whole record follows: a reader years later can
+                tell "not applicable" from "this version did not record it".
             request:
               type: object
               properties:

@@ -22,6 +22,17 @@ serde_json.workspace     = true
 tokio.workspace          = true
 toml.workspace           = true
 
+# Surface entries of the build kind (ADR-20): a Cargo feature, absent from the
+# default build, chosen where a deployment has to be able to prove the code is not
+# there rather than merely not called. Nothing here is on by default, and there is
+# deliberately no `default = [...]` line -- a default that turns surface on is the
+# thing this mechanism exists to prevent.
+#
+# `honeypot_alert` is ADR-15's `alert` tier. The severe tiers are designed and not
+# built, so they are not features: optionality by not writing the code.
+[features]
+honeypot_alert = []
+
 [dev-dependencies]
 tempfile.workspace = true
 tower.workspace    = true

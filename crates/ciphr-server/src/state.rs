@@ -59,6 +59,10 @@ struct Inner {
     pepper: TokenPepper,
     seal_id: String,
     key_source: String,
+    /// Resolved at startup and immutable afterwards — not behind a `Mutex`, and that is
+    /// the point rather than an optimization. ADR-20 rejects a route that flips an
+    /// entry, and interior mutability here is what such a route would need.
+    surface: crate::surface::Active,
     devices: Mutex<Vec<DeviceHealth>>,
 }
 
@@ -111,6 +115,7 @@ impl AppState {
         root: RootKey,
         seal_id: String,
         key_source: String,
+        surface: crate::surface::Active,
     ) -> Self {
         let pepper = TokenPepper::derive(&root);
         let devices = audit
@@ -131,6 +136,7 @@ impl AppState {
                 pepper,
                 seal_id,
                 key_source,
+                surface,
                 devices: Mutex::new(devices),
             }),
         }
@@ -160,6 +166,15 @@ impl AppState {
     /// process is configured with. See [`AppState::key_source`] for the difference.
     pub fn seal_id(&self) -> &str {
         &self.inner.seal_id
+    }
+
+    /// The optional surface this process is running (ADR-20).
+    ///
+    /// Resolved once at startup and never afterwards: an entry is a decision recorded
+    /// on the host, and a process that could change its own surface would be a process
+    /// whose surface an adversary can change.
+    pub fn surface(&self) -> &crate::surface::Active {
+        &self.inner.surface
     }
 
     /// What each audit device did with the most recent record, for the health endpoint.
@@ -489,6 +504,26 @@ impl AppState {
             );
             let _ = sink.record(&entry, now_millis());
         }
+    }
+
+    /// Record which optional surface entries this process started with (ADR-20).
+    ///
+    /// One entry, at startup, before the listener is bound. `none` when a deployment
+    /// turned nothing on — an empty string there would leave a reader unable to tell
+    /// "nothing was active" from "this version did not record it", which is the same
+    /// distinction the trail keeps everywhere else by writing nulls out.
+    ///
+    /// Inside the fail-closed contract on purpose: this is the entry that says what the
+    /// process offers, and serving requests while unable to record that is the state the
+    /// audit requirement exists to prevent.
+    ///
+    /// # Errors
+    ///
+    /// [`ApiError::AuditUnavailable`] if no device accepted the record, which the
+    /// caller turns into a refusal to start.
+    pub fn record_surface(&self) -> Result<(), ApiError> {
+        let entry = Entry::allowed(Action::SurfaceActive).with_detail(self.surface().summary());
+        self.record(&entry)
     }
 
     /// Record an attempt that failed before any identity was established.

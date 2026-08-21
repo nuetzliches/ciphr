@@ -43,6 +43,23 @@
 //! path        = "/var/log/ciphr/audit.jsonl"
 //! rotate_size = "64MB"
 //! ```
+//!
+//! **`[[surface]]` is absent from that example on purpose**, because absent is what
+//! almost every deployment should have. An optional surface entry is off until a
+//! deployment names it, and naming it means recording a decision rather than setting a
+//! flag (ADR-20):
+//!
+//! ```toml
+//! [[surface]]
+//! entry    = "honeypot_alert"
+//! accepted = "2026-08-21"
+//! reason   = "bait under infra/_runner, which no consumer fetches; Gatus pages on the health endpoint"
+//! ```
+//!
+//! All three fields are required and the server refuses to start without them. A flag
+//! with no reason beside it reads as an accident six months later, and the
+//! safest-looking response to an accident is to restore the default — which for
+//! surface is the wrong direction to guess in. See [`crate::surface`].
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -66,6 +83,15 @@ pub struct Config {
     /// Audit devices. At least one is required.
     #[serde(default, rename = "audit")]
     pub audit: Vec<AuditConfig>,
+    /// Optional surface entries this deployment turns on (ADR-20).
+    ///
+    /// Empty is the ordinary case and the one the default build wants: an entry is off
+    /// until a deployment names it, with the date it accepted the cost and the reason.
+    /// A build entry that is compiled in and not named here is a refusal to start, and
+    /// so is one named here that this binary does not contain — see
+    /// [`crate::surface`] for why both directions have to fail.
+    #[serde(default, rename = "surface")]
+    pub surface: Vec<crate::surface::SurfaceConfig>,
 }
 
 /// Listener and TLS settings.

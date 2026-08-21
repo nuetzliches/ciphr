@@ -128,6 +128,9 @@ impl Live {
             root,
             "static".to_owned(),
             "supplied".to_owned(),
+            // The surface the default build has: nothing. A test that wants an entry
+            // resolves one explicitly, so no test inherits a shape it did not ask for.
+            ciphr_server::ActiveSurface::default(),
         );
 
         let generated = rcgen::generate_simple_self_signed(vec![

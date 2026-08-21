@@ -47,6 +47,12 @@ impl Server {
             })?;
         let policies = PolicySet::from_toml(&policy_text)?;
 
+        // The surface next, and before the store lock: it is a pure check of the file
+        // against the binary, so an operator with a stanza this build cannot honour
+        // finds out without supplying a master key or taking a lock. Same reason the
+        // policy file goes first.
+        let surface = crate::surface::resolve(&config.surface)?;
+
         // One writer per store, taken before anything else and held for the life of
         // the process. Without it a `ciphr` command run against this store while the
         // server is up moves the audit chain's head, the server's next record
@@ -79,7 +85,26 @@ impl Server {
 
         let seal_id = seal_state.seal_id.clone();
         let key_source = seal.source().kind().to_owned();
-        let state = AppState::new(store, sink, policies, root, seal_id, key_source);
+        let state = AppState::new(store, sink, policies, root, seal_id, key_source, surface);
+
+        // One entry naming the active surface, before the listener is bound. A
+        // deployment that changes its own shape otherwise leaves no record the trail
+        // can be asked about, and the trail is the artefact here that is
+        // tamper-evident.
+        //
+        // Written through the ordinary fail-closed path, so a store that cannot record
+        // it does not start. That is deliberate: this is the entry that says what the
+        // process offers, and serving requests while unable to say so is the state the
+        // audit requirement exists to prevent.
+        //
+        // Mapped rather than converted: `ApiError` is what a request sees, and a
+        // `503` has no meaning before there is a listener. What an operator needs
+        // here is the sentence that says the trail refused the first record.
+        state.record_surface().map_err(|_| {
+            StartupError::Audit(
+                "no audit device accepted the startup record naming the active surface".to_owned(),
+            )
+        })?;
 
         Ok(Self {
             state,

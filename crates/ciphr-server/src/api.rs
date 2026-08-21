@@ -81,6 +81,15 @@ struct Health {
     /// the configuration file it edited is the one in effect.
     key_source: String,
     audit_devices: Vec<DeviceHealth>,
+    /// Which optional surface entries are active (ADR-20).
+    ///
+    /// Names only. Which entries are active is what the process *enforces*, so plan
+    /// section 10 permits it here; the date and the reason are prose an operator wrote
+    /// about their own environment and stay behind an authenticated read.
+    ///
+    /// Empty is the ordinary answer, and a monitor that cannot see the shape of the
+    /// thing it monitors is watching a different system.
+    surface: Vec<&'static str>,
     api_version: &'static str,
 }
 
@@ -267,6 +276,7 @@ async fn health(State(state): State<AppState>) -> Json<Health> {
         seal: state.seal_id().to_owned(),
         key_source: state.key_source().to_owned(),
         audit_devices: state.audit_devices(),
+        surface: state.surface().names(),
         api_version: "v1",
     })
 }

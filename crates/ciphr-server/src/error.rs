@@ -184,6 +184,40 @@ pub enum ConfigError {
     },
     /// No audit device was configured.
     NoAuditDevice,
+    /// A `[[surface]]` stanza names something that is not an entry.
+    SurfaceUnknown {
+        /// What was written.
+        name: String,
+        /// The entries this version has, comma-separated.
+        known: String,
+    },
+    /// Two `[[surface]]` stanzas for the same entry.
+    SurfaceDuplicate {
+        /// Which entry.
+        name: String,
+    },
+    /// An entry's `accepted` field is not a `YYYY-MM-DD` date.
+    SurfaceDate {
+        /// Which entry.
+        name: String,
+        /// What was written there.
+        found: String,
+    },
+    /// An entry's `reason` field is empty or only whitespace.
+    SurfaceReason {
+        /// Which entry.
+        name: String,
+    },
+    /// The configuration enables a build entry this binary does not contain.
+    SurfaceNotBuilt {
+        /// Which entry.
+        name: String,
+    },
+    /// This binary contains a build entry the configuration does not account for.
+    SurfaceUndeclared {
+        /// Which entry.
+        name: String,
+    },
 }
 
 impl core::fmt::Display for ConfigError {
@@ -198,6 +232,41 @@ impl core::fmt::Display for ConfigError {
             Self::NoAuditDevice => f.write_str(
                 "no audit device is configured; a secret store without an audit trail is a \
                  configuration error, so the server will not start",
+            ),
+            Self::SurfaceUnknown { name, known } => write!(
+                f,
+                "[[surface]] names `{name}`, which is not a surface entry in this \
+                 version; the entries are: {known}"
+            ),
+            Self::SurfaceDuplicate { name } => write!(
+                f,
+                "[[surface]] has two stanzas for `{name}`; one entry has one record, \
+                 or which date and reason apply is whichever line came last"
+            ),
+            Self::SurfaceDate { name, found } => write!(
+                f,
+                "[[surface]] entry `{name}` has accepted = '{found}', which is not a \
+                 YYYY-MM-DD date; an entry that is on has to say since when"
+            ),
+            Self::SurfaceReason { name } => write!(
+                f,
+                "[[surface]] entry `{name}` has no reason; an entry that is on has to \
+                 say why, because a flag with no reason beside it reads as an accident \
+                 six months later, and the safest-looking fix for an accident is the \
+                 default"
+            ),
+            Self::SurfaceNotBuilt { name } => write!(
+                f,
+                "[[surface]] enables `{name}` and this binary was not built with it; \
+                 the deployment has recorded a decision about surface it is not \
+                 running, and nothing else would ever say so -- build with --features \
+                 {name}, or remove the stanza"
+            ),
+            Self::SurfaceUndeclared { name } => write!(
+                f,
+                "this binary was built with `{name}` and the configuration does not \
+                 say since when or why; add a [[surface]] stanza with entry, accepted \
+                 and reason, or use a build without the feature"
             ),
         }
     }
