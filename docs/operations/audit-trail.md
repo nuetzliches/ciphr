@@ -74,6 +74,24 @@ Two operational consequences, both intended:
 - **The server refuses to start with no audit device configured.** A secret store without an audit
   trail is a configuration error in this project, not an operating mode.
 
+### Who can fill the volume: anyone who can reach the listener
+
+Added 2026-08-21, finding F5 of the review. **A rejected request writes an entry too** — a missing or
+invalid token is exactly the event a trail should carry, since brute force that leaves no trace is
+the worse failure. Combined with fail-closed auditing that makes the outage above reachable
+**without a credential**, by anyone who can open a connection.
+
+This is inside the threat model's stated boundary, and it turns into three operational rules:
+
+1. **Do not publish the port.** The deploy network is the only place that needs to reach it. Ours
+   has no `ports:` at all and every deploy runs through a runner on the LAN.
+2. **Rate-limit unauthenticated 401s at the reverse proxy**, so they never become entries.
+3. **Alert on the rate of audit growth**, not only on free space. Growth is what warns in time; a
+   full volume is the outage.
+
+Retention (below) bounds what is *queryable*, not what is on disk: `ciphr audit cut` is a scheduled
+operation and not a defence against a peer writing faster than the schedule runs.
+
 A record that no device stored does **not** consume a sequence number. A gap in the sequence is
 indistinguishable from a deleted entry, and an audit trail that reports tampering after a disk error
 is one nobody will read twice.

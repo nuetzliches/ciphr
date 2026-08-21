@@ -1,6 +1,6 @@
 # Threat model
 
-**Status:** current as of 2026-08-20, `v0.3.0` released, phases 0-3 and 7 in it. The adversaries and
+**Status:** current as of 2026-08-21, `v0.3.0` released, phases 0-3 and 7 in it. The adversaries and
 boundaries are settled. The cryptographic, storage, authorization, audit and transport defences
 exist. **A7 now describes a component that is built:** every countermeasure in that row is
 implemented in `ui/` and the ones that can be gated are gated — see [ui.md](ui.md). **A8 still
@@ -72,6 +72,21 @@ constant-time. There is no protection against cache-timing or Spectre-class atta
 the audit volume or by load. That is bounded on purpose: running services keep running, only new
 deploys are affected (see *Availability* below).
 
+**And the fill needs no credential** (stated 2026-08-21, finding F5 of the review; the paragraph
+above read as though it took one). Every request with a missing or invalid token writes an audit
+entry — deliberately, because brute force that leaves no trace is worse — so anyone who can reach
+the listener can grow the audit store at line rate until the volume is full, at which point
+fail-closed auditing refuses everything. The two facts compose, and each of them is a decision this
+document defends. What follows from them is a deployment requirement rather than a code change:
+
+- **Reach is the control.** This endpoint has no reason to be reachable from anywhere but the
+  network that deploys from it. Our own instance has no published port and every deploy runs through
+  a runner on the LAN, which is the same reasoning that deferred ADR-16.
+- **Rate-limit unauthenticated 401s upstream**, where a reverse proxy can drop them before they
+  become entries.
+- **Alert on audit growth**, not only on free space. Growth is the signal that arrives early enough
+  to act on; a full volume is the outage itself.
+
 ## Explicitly defended against, because these are the leaks that actually happen
 
 **A secret in a log.** Structurally prevented: secret-bearing types implement neither `Debug`,
@@ -132,7 +147,8 @@ deliberate counter-entry to the security gain, and it should be understood befor
 pattern, not after.
 
 Fail-closed auditing means a full audit volume is a total outage rather than a logging gap. That is
-intended, and it is why fill level is a monitored metric rather than a footnote.
+intended, and it is why fill level is a monitored metric rather than a footnote — together with the
+*rate* of growth, because an unauthenticated peer can drive it (finding F5, above).
 
 ## The honest end state
 

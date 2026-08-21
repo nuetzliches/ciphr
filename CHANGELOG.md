@@ -49,6 +49,21 @@ enforced at the wrong layer, and the layer that was missing it is the one the cl
 - The HTTP and CLI checks stay as early, specific errors, and both now call the shared refusal. A
   refused `put` reaches the store no more than it reaches the audit trail.
 
+### Documented — the conceded audit denial of service needs no credential
+
+Finding F5 of the review of 2026-08-21. Two decisions this project defends compose into one the
+threat model described imprecisely: **every request with a missing or invalid token writes an audit
+entry** (so brute force is visible), and **auditing is fail-closed** (so a full volume refuses
+everything). Together, anyone who can reach the listener can fill the volume and take the instance
+offline without holding a credential. The threat model conceded denial of service by "filling the
+audit volume" in a paragraph that read as though it took load or a token.
+
+Inside the stated boundary, so this is a sharpening and not a defect. It turns into deployment rules
+rather than code: do not publish the port, rate-limit unauthenticated 401s at the reverse proxy, and
+alert on the *rate* of audit growth rather than on free space alone — growth warns in time, a full
+volume is the outage. `docs/operations/audit-trail.md` carries them, and notes that `ciphr audit cut`
+bounds what is queryable rather than what a peer can write.
+
 ### Documented — "nonce reuse is structurally impossible" now says at which level
 
 Finding F3 of the review of 2026-08-21. The claim is exactly true for a value: one data key, one
