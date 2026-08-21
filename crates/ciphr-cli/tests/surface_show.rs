@@ -56,9 +56,10 @@ fn a_file_that_names_nothing_still_names_every_entry_it_left_off() {
 
     let (stdout, stderr) = show(&config);
 
-    // The sentence that was already right, and is still the first thing said.
+    // The framing sentence, on stderr with the rest of the prose and after the list it
+    // frames -- see the comment at its call site for why it is not the lead any more.
     assert!(
-        stderr.contains("turns nothing on. That is the ordinary configuration."),
+        stderr.contains("names no entry, so everything above is off"),
         "{stderr}"
     );
 

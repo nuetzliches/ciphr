@@ -49,8 +49,11 @@ use serde::{Deserialize, Serialize};
 use crate::error::ConfigError;
 
 /// How an entry is switched on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
+///
+/// `Serialize` is hand-written below rather than derived with `rename_all`, so that the
+/// word on the wire is the same *expression* as the word on the host and not merely the
+/// same string today. See [`Kind::as_str`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     /// A Cargo feature, absent from the default build. Off means the code is not in
     /// the binary.
@@ -62,15 +65,25 @@ pub enum Kind {
 }
 
 impl Kind {
-    /// The word an operator reads, and the same one `GET /v1/surface` serializes.
+    /// The word an operator reads, and the word `GET /v1/surface` sends.
     ///
-    /// Here rather than in whatever prints it, so a report on the host and a response on
-    /// the wire cannot end up calling the same thing by two names.
+    /// **One expression, not one string that happens to match.** When this was added it
+    /// left two other spellings in place — a `match` in `api.rs` building the response
+    /// and a `rename_all` attribute on the derive — and the comment here claimed a
+    /// property the code did not have, which is the same defect the release that
+    /// introduced it existed to correct. Both now route through here: the response calls
+    /// this, and [`Kind`]'s `Serialize` is written in terms of it.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Build => "build",
             Self::Runtime => "runtime",
         }
+    }
+}
+
+impl Serialize for Kind {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
     }
 }
 
@@ -416,6 +429,17 @@ mod tests {
         assert_eq!(active.names(), vec!["honeypot_alert"]);
         assert_eq!(active.summary(), "honeypot_alert");
         assert_eq!(active.entries()[0].kind, super::Kind::Build);
+    }
+
+    /// `Serialize` and [`super::Kind::as_str`] are the same word, because one is written
+    /// in terms of the other. A derive with `rename_all` was the second spelling this
+    /// pins against; a third lived in `api.rs`.
+    #[test]
+    fn the_wire_word_and_the_printed_word_are_one_expression() {
+        for kind in [super::Kind::Build, super::Kind::Runtime] {
+            let json = serde_json::to_string(&kind).expect("a string");
+            assert_eq!(json, format!("\"{}\"", kind.as_str()));
+        }
     }
 
     #[test]

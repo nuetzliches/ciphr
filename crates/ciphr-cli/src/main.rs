@@ -1033,10 +1033,6 @@ fn surface(command: &SurfaceCommand) -> Result<(), CliError> {
     // the other; the server refuses to start when the two disagree, but nothing here can
     // see the server's build. So this says what the deployment *asked for*, and points at
     // the endpoint that says what it got.
-    if stanzas.is_empty() {
-        eprintln!("{config} turns nothing on. That is the ordinary configuration.");
-    }
-
     for (entry, accepted, reason) in &stanzas {
         println!("on   {entry}");
         println!("    accepted  {accepted}");
@@ -1082,6 +1078,16 @@ fn surface(command: &SurfaceCommand) -> Result<(), CliError> {
         println!();
     }
 
+    // **Framing last, and on stderr with the rest of it.** This line used to lead, and
+    // once the off list arrived below it that put a stderr line before a stdout block --
+    // an order nothing defines, so in a captured run the sentence landed after the list it
+    // was framing. The convention here is data on stdout and prose on stderr; moving it
+    // down keeps the convention and removes the interleaving question rather than betting
+    // on buffering.
+    if stanzas.is_empty() {
+        eprintln!("{config} names no entry, so everything above is off. That is the");
+        eprintln!("ordinary configuration.");
+    }
     eprintln!("A build entry needs the feature compiled in as well as a stanza, and the");
     eprintln!("service refuses to start when the two disagree. Ask that service's");
     eprintln!("/v1/health for the entries it actually contains, and a newer service may");
@@ -1145,8 +1151,11 @@ struct Known {
 /// An earlier note here said the bound was that the list was one row long; it is three
 /// now, and a missing row is not cosmetic -- it is an entry `show` would silently leave
 /// out of the off list below, which is the whole point of that list. The gate compares
-/// the names in both files. Cost *text* can still drift, and the artefact that cannot is
-/// `GET /v1/surface`, which serves the sentence the server was built with.
+/// all three fields: the name because it is a contract a deployment writes, the `kind`
+/// because it decides whether a stanza can turn the entry on at all, and the cost text
+/// with whitespace normalized because `show` now prints it for entries that are *off* --
+/// where it is a decision input rather than a record of one. That header says why the
+/// list is copied rather than moved into `ciphr-core`, which is no longer legal.
 const KNOWN: &[Known] = &[
     Known {
         name: "viewer_api",
@@ -1183,11 +1192,15 @@ fn known(name: &str) -> Option<&'static Known> {
 }
 
 /// Break a cost sentence into terminal-width lines.
+///
+/// Characters rather than bytes: these sentences are prose and will acquire a non-ASCII
+/// character eventually, and `len()` would then wrap early for an invisible reason.
 fn wrap_cost(text: &str) -> Vec<String> {
     let mut lines = Vec::new();
     let mut line = String::new();
+    let width = |text: &str| text.chars().count();
     for word in text.split_whitespace() {
-        if !line.is_empty() && line.len() + 1 + word.len() > 72 {
+        if !line.is_empty() && width(&line) + 1 + width(word) > 72 {
             lines.push(std::mem::take(&mut line));
         }
         if !line.is_empty() {

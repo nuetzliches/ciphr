@@ -865,10 +865,10 @@ impl From<&crate::surface::ActiveEntry> for SurfaceEntryResponse {
     fn from(active: &crate::surface::ActiveEntry) -> Self {
         Self {
             entry: active.name,
-            kind: match active.kind {
-                crate::surface::Kind::Build => "build",
-                crate::surface::Kind::Runtime => "runtime",
-            },
+            // Not a `match` on the two variants. That is what this was, and it made
+            // `Kind::as_str` -- added so the host and the wire could not disagree -- the
+            // second spelling rather than the only one.
+            kind: active.kind.as_str(),
             accepted: active.accepted.clone(),
             reason: active.reason.clone(),
             cost: active.cost,

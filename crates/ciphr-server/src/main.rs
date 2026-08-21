@@ -79,17 +79,29 @@ fn run(config_path: &str, check_only: bool) -> Result<(), Box<dyn core::error::E
 ///
 /// Lines rather than direct printing, so the shape is testable without capturing stdout.
 fn surface_report(active: &ActiveSurface) -> Vec<String> {
-    let mut lines = vec![
-        String::new(),
-        format!(
+    // **The headline says how many of the total this binary could offer at all**, because
+    // the bare count cannot. "2 of 3 entries on" reads as though a third were available to
+    // switch on, and for a build entry this binary lacks it is not -- that needs a
+    // different artefact. The off lines two rows down say so, but this is the line people
+    // quote.
+    let absent = ENTRIES.iter().filter(|entry| !entry.compiled_in).count();
+    let headline = match absent {
+        0 => format!(
             "surface: {} of {} entries on (ADR-20)",
             active.entries().len(),
             ENTRIES.len()
         ),
-    ];
+        absent => format!(
+            "surface: {} of {} entries on, {absent} not in this binary (ADR-20)",
+            active.entries().len(),
+            ENTRIES.len()
+        ),
+    };
+    let mut lines = vec![String::new(), headline];
 
-    // The record each entry was named with, and not its cost: the cost is the input to a
-    // decision this deployment has already made.
+    // The name, the kind and the date each entry was accepted -- not the reason, which the
+    // operator has in the file open in front of them, and not the cost, which is the input
+    // to a decision this deployment has already made.
     for entry in active.entries() {
         lines.push(active_line(entry));
     }
@@ -141,11 +153,16 @@ fn inactive_lines(known: &Entry) -> Vec<String> {
 }
 
 /// Break a cost sentence into lines that fit a terminal.
+///
+/// Measured in characters rather than bytes. These sentences are prose, and prose acquires
+/// an em dash eventually -- `len()` would then wrap early for a reason nobody reading the
+/// output could see.
 fn wrap(text: &str, width: usize) -> Vec<String> {
     let mut lines = Vec::new();
     let mut line = String::new();
+    let width_of = |text: &str| text.chars().count();
     for word in text.split_whitespace() {
-        if !line.is_empty() && line.len() + 1 + word.len() > width {
+        if !line.is_empty() && width_of(&line) + 1 + width_of(word) > width {
             lines.push(std::mem::take(&mut line));
         }
         if !line.is_empty() {

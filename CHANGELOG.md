@@ -8,6 +8,68 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+**A review of `v0.5.1` by the deployment that filed the report it answers**, recorded in
+[`docs/review-0.5.1-2026-08-21.md`](docs/review-0.5.1-2026-08-21.md). It confirms all four findings
+answered and the corrected `bulk_export` sentence accurate against the code it describes — read end
+to end, not taken from the changelog. Three things it asked for, and four smaller ones.
+
+### Fixed — `Kind::as_str` was the second spelling rather than the only one
+
+Added in `0.5.1` with the comment *"so a report on the host and a response on the wire cannot end up
+calling the same thing by two names"*, and it left both other names in place: `GET /v1/surface` built
+its `kind` from its own `match` in `api.rs`, and the derive on `Kind` carried
+`#[serde(rename_all = "lowercase")]`. **A doc comment claiming a property the code does not have is
+the same defect `0.5.1` existed to correct**, which is what makes this the first item rather than a
+footnote.
+
+Both route through `as_str` now: the response calls it, and `Kind`'s `Serialize` is hand-written in
+terms of it rather than derived. The derive is gone rather than kept beside a function that disagrees
+with it — a serde attribute describing a wire format nothing reaches is the dormant-flag shape
+`0.5.0` removed a check for. `ActiveEntry` keeps its `Serialize`, which now produces the same words
+the wire does.
+
+Pinned in two places, both against the function rather than a literal: a unit test that
+`serde_json` and `as_str` agree for every variant, and the `/v1/surface` integration test asserting
+`entry["kind"] == Kind::Build.as_str()`.
+
+### Changed — `ci/check-surface-entries.sh` compares kind and cost, not only names
+
+It bounded the field whose drift is loudest and left two that change meaning quietly.
+
+**`kind` decides whether a stanza can turn an entry on at all.** A runtime entry that is off can be
+switched on by editing the file; a build entry cannot, and needs a different artefact. A drifted
+`kind` makes `ciphr surface show` print `(runtime, not named by this file)` for something no file can
+name into existence — losing exactly the distinction the server's report is careful to draw, in the
+interface an operator reaches first, because the host is where a configuration gets edited.
+
+**The cost sentence became a decision input in two implementations.** `0.5.1` made `show` print it for
+entries that are *off*, which is the state somebody is still deciding about. Each copy was pinned by a
+test and each test asserts a fragment, so a half-edited sentence passed both. `GET /v1/surface` is the
+authority and cannot drift from the binary, but reaching it needs a running service, a token and a
+network hop — not the situation of somebody reading `show` on a host with the service stopped. The
+gate compares the text with whitespace normalized, which is what the different wrapping in the two
+files needed rather than a reason to skip it.
+
+The header now also records *why* the list is copied at all. The comment `0.5.1` replaced planned to
+move it into `ciphr-core` once it grew; the list grew and the move was already illegal, because
+`ci/check-core-no-features.sh` and ADR-20 property 1 close the reviewed core to knowing that entries
+exist. The shapes that stay legal are named there for whoever needs them.
+
+### Changed — four smaller things the review named
+
+- **`surface: 2 of 3 entries on` counted an entry this binary cannot have.** It now reads
+  `2 of 3 entries on, 1 not in this binary`. The off lines said so two rows down; this is the line
+  people quote.
+- **Both wrappers measured bytes.** `line.len()` wraps a cost sentence early the moment one acquires
+  a non-ASCII character, and these are prose. Characters now, in the server binary and the CLI.
+- **`ciphr surface show` printed its framing before a list on the other stream.** `<file> turns
+  nothing on` went to stderr and the off list to stdout, an order nothing defines — in a captured run
+  the sentence landed after the list it framed. The prose now sits with the rest of the prose at the
+  end, which keeps the stdout-is-data convention and removes the question rather than betting on
+  buffering.
+- **A comment said "the record" and printed part of it.** `--check-config`'s active line prints name,
+  kind and `accepted`, not the reason; it now says so, and says why the reason is not there.
+
 ## [0.5.1] — 2026-08-21
 
 **The release that corrects `0.5.0` rather than adding to it**, and the first patch release here.

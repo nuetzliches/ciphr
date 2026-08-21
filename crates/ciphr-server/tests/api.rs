@@ -584,7 +584,11 @@ fn surface_reports_the_record_behind_an_active_entry() {
         .iter()
         .find(|entry| entry["entry"] == "honeypot_alert")
         .expect("the build entry");
-    assert_eq!(entry["kind"], "build");
+    // Against `Kind::as_str` rather than against a literal, so the wire word and the
+    // word `--check-config` prints are pinned to each other and not merely to two
+    // strings that agree today. They disagreed once: `as_str` was added to be the one
+    // spelling and the response kept its own `match`.
+    assert_eq!(entry["kind"], ciphr_server::surface::Kind::Build.as_str());
     assert!(
         entry["accepted"].as_str().is_some(),
         "a date is always reported"
@@ -597,7 +601,10 @@ fn surface_reports_the_record_behind_an_active_entry() {
         .iter()
         .find(|entry| entry["entry"] == "viewer_api")
         .expect("the runtime entry");
-    assert_eq!(runtime["kind"], "runtime");
+    assert_eq!(
+        runtime["kind"],
+        ciphr_server::surface::Kind::Runtime.as_str()
+    );
     // The operator wrote the reason; the software says what they said yes to.
     assert!(
         entry["cost"]
