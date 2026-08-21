@@ -852,13 +852,19 @@ fn authenticate(
 ) -> Result<Caller, ApiError> {
     match state.authenticate(bearer_token(headers)) {
         Ok(caller) => Ok(caller),
-        Err(error) => {
+        Err(rejection) => {
             // A rejected credential is worth a line: it is how a brute-force attempt
             // becomes visible at all. If even that cannot be recorded, the request
             // fails as unavailable rather than as unauthenticated — the audit trail
             // being down is the more important fact.
-            state.record_unauthenticated(action, request)?;
-            Err(error)
+            //
+            // **One rejection path, and bait does not get its own.** The recording is
+            // told whether the credential was bait; the response is `rejection.error`
+            // either way, and there is no second `return` for a honeypot to take. That
+            // is ADR-15's indistinguishability as a property of the code's shape rather
+            // than of somebody remembering it here.
+            state.record_rejection(action, request, rejection.bait.as_ref())?;
+            Err(rejection.error)
         }
     }
 }

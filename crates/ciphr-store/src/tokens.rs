@@ -11,6 +11,23 @@
 //! - **A rejected token is never a partial success.** Expiry and revocation are
 //!   checked after the verifier, so a wrong secret cannot learn anything from the
 //!   difference either.
+//!
+//! # Bait
+//!
+//! A honeypot token (ADR-15) is a third outcome and not a third code path. It is stored
+//! by the same function, with the same generator and the same verifier derivation, and
+//! it is recognized by reading a flag on the row the comparison already fetched — after
+//! that comparison, so nothing about it is measurable. What differs is only what the
+//! *trail* is told; the caller is refused identically.
+//!
+//! The recognition itself is unconditional, in every build, and the reason is worth
+//! stating because ADR-20 would allow a feature here. Nothing in this module *behaves*
+//! differently for bait: it reports a flag it read anyway, and reporting costs the same
+//! whatever the flag says. The behaviour that differs — a distinct audit action, the
+//! trip row, the marker file, the health flag — is composed in `ciphr-server` behind the
+//! `honeypot_alert` entry. Keeping the recognition out of the feature means this path is
+//! compiled and tested in every configuration, which for an authentication path is
+//! worth more than the absence would be.
 
 use ciphr_crypto::{Token, TokenPepper, TokenVerifier};
 use rusqlite::{OptionalExtension, params};
@@ -34,6 +51,47 @@ pub struct Authenticated {
     pub token_id: String,
 }
 
+/// What a token being issued is for.
+///
+/// An argument rather than a second function, because ADR-15 requires bait to be
+/// stored exactly as a real credential is: same generator, same verifier derivation,
+/// same row. Two code paths would be two chances for the two to drift, and a honeypot
+/// token that is distinguishable in the database is one an operator eventually
+/// recognizes and deletes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenPurpose {
+    /// A real credential, for an identity that will use it.
+    Credential,
+    /// Bait. Authenticates nothing, and is planted where credentials should not be.
+    Honeypot,
+}
+
+/// What a presented credential turned out to be.
+///
+/// Three outcomes rather than an `Option`, and the third one is why: bait has to be
+/// *recognized* while being refused exactly as anything else is. Returning it as a
+/// separate variant is what lets the caller keep one rejection path — the response is
+/// built after the match and cannot differ, which is the structural version of ADR-15's
+/// indistinguishability claim rather than the remembered version.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Authentication {
+    /// A valid credential.
+    Valid(Authenticated),
+    /// Not valid, for a reason deliberately not reported.
+    Invalid,
+    /// Not valid, and it matched a stored honeypot token.
+    ///
+    /// Recognized on the same code path, by the same constant-time comparison, as any
+    /// other token: the difference is what the *trail* records, never what the caller
+    /// is told.
+    Bait {
+        /// The bait's non-secret identifier.
+        token_id: String,
+        /// The identity it was issued for, which is what names *which* bait was taken.
+        identity: String,
+    },
+}
+
 /// A token as stored, without anything secret in it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TokenRecord {
@@ -51,6 +109,12 @@ pub struct TokenRecord {
     pub last_used_at: Option<i64>,
     /// When it was revoked, if it was.
     pub revoked_at: Option<i64>,
+    /// Whether this credential is bait (ADR-15).
+    ///
+    /// Bait is stored exactly like a real token and is refused exactly like an invalid
+    /// one. This flag is what lets the *trail* say which of the two happened, and it is
+    /// visible only on the administrative read path — never to whoever presented it.
+    pub honeypot: bool,
 }
 
 impl TokenRecord {
@@ -79,11 +143,13 @@ impl SqliteStore {
         pepper: &TokenPepper,
         created_by: &str,
         expires_at: Option<i64>,
+        purpose: TokenPurpose,
     ) -> Result<(), StoreError> {
         self.connection().execute(
             "INSERT INTO tokens (
-                 token_id, identity_name, verifier, created_at, created_by, expires_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                 token_id, identity_name, verifier, created_at, created_by, expires_at,
+                 honeypot
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 token.id().as_text(),
                 identity,
@@ -91,6 +157,7 @@ impl SqliteStore {
                 now_millis(),
                 created_by,
                 expires_at,
+                i64::from(purpose == TokenPurpose::Honeypot),
             ],
         )?;
         Ok(())
@@ -98,8 +165,11 @@ impl SqliteStore {
 
     /// Authenticate a token string.
     ///
-    /// `Ok(None)` means the token is not valid, for any reason. The reason is
-    /// deliberately not reported: see the module documentation.
+    /// [`Authentication::Invalid`] means the token is not valid, for any reason. The
+    /// reason is deliberately not reported: see the module documentation.
+    /// [`Authentication::Bait`] is also not valid — the caller must refuse it exactly
+    /// as it refuses `Invalid`, and the variant exists so the *trail* can say which
+    /// happened.
     ///
     /// On success the token's `last_used_at` is updated. That write is best-effort —
     /// a failure to record it does not fail the authentication, because refusing a
@@ -115,9 +185,9 @@ impl SqliteStore {
         &mut self,
         presented: &str,
         pepper: &TokenPepper,
-    ) -> Result<Option<Authenticated>, StoreError> {
+    ) -> Result<Authentication, StoreError> {
         let Ok(token) = Token::parse(presented) else {
-            return Ok(None);
+            return Ok(Authentication::Invalid);
         };
 
         let now = now_millis();
@@ -142,16 +212,33 @@ impl SqliteStore {
         let matched = expected.matches(&presented);
 
         let Some(record) = record else {
-            return Ok(None);
+            return Ok(Authentication::Invalid);
         };
 
         // Constant-time, and evaluated before expiry and revocation are considered, so
         // that timing cannot distinguish "wrong secret" from "expired".
         if !matched {
-            return Ok(None);
+            return Ok(Authentication::Invalid);
         }
+
+        // Bait, and this is the whole of the recognition: a flag on a row that was
+        // already fetched, read after the same comparison every other token gets. No
+        // extra query, no extra derivation, and no branch before the comparison — so
+        // there is nothing here for an attacker holding several credentials to measure.
+        //
+        // Placed before expiry and revocation on purpose. Bait is refused whatever its
+        // dates say, and asking about them first would make an *expired* honeypot token
+        // fail as an ordinary expired token and go unrecorded — which is the one way a
+        // honeypot silently stops being one.
+        if record.honeypot {
+            return Ok(Authentication::Bait {
+                token_id: record.token_id,
+                identity: record.identity,
+            });
+        }
+
         if !record.is_usable_at(now) {
-            return Ok(None);
+            return Ok(Authentication::Invalid);
         }
 
         // Best-effort: see the note above.
@@ -160,7 +247,7 @@ impl SqliteStore {
             params![record.token_id, now],
         );
 
-        Ok(Some(Authenticated {
+        Ok(Authentication::Valid(Authenticated {
             identity: record.identity,
             token_id: record.token_id,
         }))
@@ -176,7 +263,7 @@ impl SqliteStore {
             .connection()
             .query_row(
                 "SELECT token_id, identity_name, created_at, created_by,
-                        expires_at, last_used_at, revoked_at
+                        expires_at, last_used_at, revoked_at, honeypot
                  FROM tokens WHERE token_id = ?1",
                 params![token_id],
                 |row| {
@@ -188,6 +275,7 @@ impl SqliteStore {
                         expires_at: row.get(4)?,
                         last_used_at: row.get(5)?,
                         revoked_at: row.get(6)?,
+                        honeypot: row.get::<_, i64>(7)? != 0,
                     })
                 },
             )
@@ -204,7 +292,7 @@ impl SqliteStore {
     pub fn tokens(&self, identity: Option<&str>) -> Result<Vec<TokenRecord>, StoreError> {
         let mut statement = self.connection().prepare(
             "SELECT token_id, identity_name, created_at, created_by,
-                    expires_at, last_used_at, revoked_at
+                    expires_at, last_used_at, revoked_at, honeypot
              FROM tokens
              WHERE ?1 IS NULL OR identity_name = ?1
              ORDER BY created_at DESC, token_id",
@@ -218,6 +306,7 @@ impl SqliteStore {
                 expires_at: row.get(4)?,
                 last_used_at: row.get(5)?,
                 revoked_at: row.get(6)?,
+                honeypot: row.get::<_, i64>(7)? != 0,
             })
         })?;
 
@@ -285,7 +374,7 @@ impl SqliteStore {
 
 #[cfg(test)]
 mod tests {
-    use super::TokenRecord;
+    use super::{Authentication, TokenPurpose, TokenRecord};
     use crate::sqlite::SqliteStore;
     use ciphr_crypto::{RootKey, Token, TokenPepper};
 
@@ -301,14 +390,22 @@ mod tests {
         let token = Token::generate().unwrap();
 
         store
-            .issue_token("deploy-runner", &token, &pepper, "operator", None)
+            .issue_token(
+                "deploy-runner",
+                &token,
+                &pepper,
+                "operator",
+                None,
+                TokenPurpose::Credential,
+            )
             .expect("issue");
 
         let text = token.expose_text();
-        let authenticated = store
-            .authenticate(&text, &pepper)
-            .expect("authenticate")
-            .expect("must succeed");
+        let Authentication::Valid(authenticated) =
+            store.authenticate(&text, &pepper).expect("authenticate")
+        else {
+            panic!("a stored token must authenticate");
+        };
 
         assert_eq!(authenticated.identity, "deploy-runner");
         assert_eq!(authenticated.token_id, token.id().as_text());
@@ -323,13 +420,55 @@ mod tests {
         let (mut store, pepper) = store_and_pepper();
         let known = Token::generate().unwrap();
         store
-            .issue_token("deploy-runner", &known, &pepper, "operator", None)
+            .issue_token(
+                "deploy-runner",
+                &known,
+                &pepper,
+                "operator",
+                None,
+                TokenPurpose::Credential,
+            )
             .expect("issue");
 
         // Not a token at all; a well-formed token that was never issued; a token
-        // verified against the wrong pepper. All three must be indistinguishable.
+        // verified against the wrong pepper. All must be indistinguishable.
         let unknown = Token::generate().unwrap();
         let other_pepper = TokenPepper::derive(&RootKey::from_bytes([0x22; 32]));
+
+        // Bait belongs *inside* this test rather than beside it — ADR-15 names this
+        // test as the place. A honeypot token authenticates nothing, so it is one more
+        // kind of invalid credential and has to be refused on the same terms as the
+        // rest. What differs is only what the caller does with the third variant, and
+        // no assertion about that belongs here.
+        let bait = Token::generate().unwrap();
+        store
+            .issue_token(
+                "deploy-runner",
+                &bait,
+                &pepper,
+                "operator",
+                None,
+                TokenPurpose::Honeypot,
+            )
+            .expect("plant bait");
+
+        // An expired *and* revoked honeypot token: the dates must not be able to route
+        // it back into an ordinary rejection, which is the one way bait stops being
+        // recognized without anybody noticing.
+        let stale_bait = Token::generate().unwrap();
+        store
+            .issue_token(
+                "deploy-runner",
+                &stale_bait,
+                &pepper,
+                "operator",
+                Some(super::now_millis() - 3_600_000),
+                TokenPurpose::Honeypot,
+            )
+            .expect("plant stale bait");
+        store
+            .revoke_token(&stale_bait.id().as_text())
+            .expect("revoke");
 
         for (what, outcome) in [
             ("garbage", store.authenticate("not-a-token", &pepper)),
@@ -341,9 +480,121 @@ mod tests {
                 "wrong pepper",
                 store.authenticate(&known.expose_text(), &other_pepper),
             ),
+            ("bait", store.authenticate(&bait.expose_text(), &pepper)),
+            (
+                "expired and revoked bait",
+                store.authenticate(&stale_bait.expose_text(), &pepper),
+            ),
         ] {
-            assert_eq!(outcome.expect("no error"), None, "{what} must be rejected");
+            let outcome = outcome.expect("no error");
+            assert!(
+                !matches!(outcome, Authentication::Valid(_)),
+                "{what} must be rejected"
+            );
         }
+    }
+
+    /// The trail has to be able to say bait was taken, and to say *which* bait.
+    ///
+    /// Separate from the test above because it asserts the opposite kind of thing: that
+    /// one of these rejections is distinguishable to the *process*, while the test above
+    /// pins that none of them is distinguishable to the caller.
+    #[test]
+    fn bait_is_recognized_and_names_itself() {
+        let (mut store, pepper) = store_and_pepper();
+        let bait = Token::generate().unwrap();
+        store
+            .issue_token(
+                "deploy-runner",
+                &bait,
+                &pepper,
+                "operator",
+                None,
+                TokenPurpose::Honeypot,
+            )
+            .expect("plant bait");
+
+        match store
+            .authenticate(&bait.expose_text(), &pepper)
+            .expect("no error")
+        {
+            Authentication::Bait { token_id, identity } => {
+                assert_eq!(token_id, bait.id().as_text());
+                assert_eq!(identity, "deploy-runner");
+            }
+            other => panic!("bait must be recognized, got {other:?}"),
+        }
+    }
+
+    /// Bait is stored as an ordinary token is, and only the flag tells them apart.
+    ///
+    /// An operator who can spot bait in the database by its shape is an operator who
+    /// eventually tidies it away.
+    #[test]
+    fn bait_is_stored_like_any_other_token() {
+        let (mut store, pepper) = store_and_pepper();
+        let real = Token::generate().unwrap();
+        let bait = Token::generate().unwrap();
+        store
+            .issue_token(
+                "deploy-runner",
+                &real,
+                &pepper,
+                "operator",
+                None,
+                TokenPurpose::Credential,
+            )
+            .expect("issue");
+        store
+            .issue_token(
+                "deploy-runner",
+                &bait,
+                &pepper,
+                "operator",
+                None,
+                TokenPurpose::Honeypot,
+            )
+            .expect("plant");
+
+        let real = store.token(&real.id().as_text()).unwrap().expect("stored");
+        let planted = store.token(&bait.id().as_text()).unwrap().expect("stored");
+
+        assert!(!real.honeypot);
+        assert!(planted.honeypot);
+        // Everything else that is visible about the two is the same shape.
+        assert_eq!(real.identity, planted.identity);
+        assert_eq!(real.created_by, planted.created_by);
+        assert_eq!(real.expires_at, planted.expires_at);
+        assert_eq!(real.revoked_at, planted.revoked_at);
+        assert_eq!(planted.last_used_at, None);
+    }
+
+    /// Presenting bait must not update `last_used_at`.
+    ///
+    /// Two reasons, and the second is the load-bearing one. Bait never authenticates, so
+    /// there is no use to record; and the update is a write the ordinary rejection path
+    /// does not perform, which would make taking the bait cost measurably more than
+    /// failing on a wrong secret.
+    #[test]
+    fn taking_the_bait_writes_nothing_to_the_token_row() {
+        let (mut store, pepper) = store_and_pepper();
+        let bait = Token::generate().unwrap();
+        store
+            .issue_token(
+                "deploy-runner",
+                &bait,
+                &pepper,
+                "operator",
+                None,
+                TokenPurpose::Honeypot,
+            )
+            .expect("plant");
+
+        let before = store.token(&bait.id().as_text()).unwrap().expect("stored");
+        let _ = store.authenticate(&bait.expose_text(), &pepper);
+        let after = store.token(&bait.id().as_text()).unwrap().expect("stored");
+
+        assert_eq!(before, after, "the row must be untouched");
     }
 
     #[test]
@@ -354,12 +605,19 @@ mod tests {
         // Expired an hour ago.
         let past = super::now_millis() - 3_600_000;
         store
-            .issue_token("deploy-runner", &token, &pepper, "operator", Some(past))
+            .issue_token(
+                "deploy-runner",
+                &token,
+                &pepper,
+                "operator",
+                Some(past),
+                TokenPurpose::Credential,
+            )
             .expect("issue");
 
         assert_eq!(
             store.authenticate(&token.expose_text(), &pepper).unwrap(),
-            None
+            Authentication::Invalid
         );
     }
 
@@ -368,20 +626,25 @@ mod tests {
         let (mut store, pepper) = store_and_pepper();
         let token = Token::generate().unwrap();
         store
-            .issue_token("deploy-runner", &token, &pepper, "operator", None)
+            .issue_token(
+                "deploy-runner",
+                &token,
+                &pepper,
+                "operator",
+                None,
+                TokenPurpose::Credential,
+            )
             .expect("issue");
 
-        assert!(
-            store
-                .authenticate(&token.expose_text(), &pepper)
-                .unwrap()
-                .is_some()
-        );
+        assert!(matches!(
+            store.authenticate(&token.expose_text(), &pepper).unwrap(),
+            Authentication::Valid(_)
+        ));
 
         store.revoke_token(&token.id().as_text()).expect("revoke");
         assert_eq!(
             store.authenticate(&token.expose_text(), &pepper).unwrap(),
-            None
+            Authentication::Invalid
         );
 
         // Revoking twice keeps the original time rather than moving it.
@@ -406,13 +669,27 @@ mod tests {
         for _ in 0..3 {
             let token = Token::generate().unwrap();
             store
-                .issue_token("deploy-runner", &token, &pepper, "operator", None)
+                .issue_token(
+                    "deploy-runner",
+                    &token,
+                    &pepper,
+                    "operator",
+                    None,
+                    TokenPurpose::Credential,
+                )
                 .expect("issue");
             tokens.push(token);
         }
         let other = Token::generate().unwrap();
         store
-            .issue_token("someone-else", &other, &pepper, "operator", None)
+            .issue_token(
+                "someone-else",
+                &other,
+                &pepper,
+                "operator",
+                None,
+                TokenPurpose::Credential,
+            )
             .expect("issue");
 
         assert_eq!(store.revoke_identity_tokens("deploy-runner").unwrap(), 3);
@@ -420,16 +697,14 @@ mod tests {
         for token in &tokens {
             assert_eq!(
                 store.authenticate(&token.expose_text(), &pepper).unwrap(),
-                None
+                Authentication::Invalid
             );
         }
         // Another identity's token is untouched.
-        assert!(
-            store
-                .authenticate(&other.expose_text(), &pepper)
-                .unwrap()
-                .is_some()
-        );
+        assert!(matches!(
+            store.authenticate(&other.expose_text(), &pepper).unwrap(),
+            Authentication::Valid(_)
+        ));
 
         // A second call has nothing left to do.
         assert_eq!(store.revoke_identity_tokens("deploy-runner").unwrap(), 0);
@@ -446,6 +721,7 @@ mod tests {
                     &pepper,
                     "operator",
                     Some(1),
+                    TokenPurpose::Credential,
                 )
                 .expect("issue");
         }
@@ -474,6 +750,7 @@ mod tests {
             expires_at: None,
             last_used_at: None,
             revoked_at: None,
+            honeypot: false,
         };
 
         assert!(base.is_usable_at(1_000));

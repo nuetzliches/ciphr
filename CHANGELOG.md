@@ -8,6 +8,46 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — a honeypot token is recognized, and the trail says so
+
+ADR-15's first kind of bait: a credential in the documented format that authenticates nothing. It is
+issued by the same function as a real token, with the same generator and the same verifier derivation,
+into the same row — `issue_token` takes a `TokenPurpose` rather than gaining a twin, because two code
+paths are two chances for bait and credentials to drift, and bait that is distinguishable in the
+database is bait an operator eventually tidies away.
+
+**Recognition is a flag on a row the comparison already fetched, read after that comparison.** No
+extra query, no extra derivation, no branch before the constant-time check — so there is nothing here
+for somebody holding several credentials to measure. It is checked *before* expiry and revocation on
+purpose: bait is refused whatever its dates say, and asking about the dates first would let an expired
+honeypot token fail as an ordinary expired token and go unrecorded, which is the one way a honeypot
+stops being one without anybody noticing.
+
+**One rejection path, and bait does not get its own.** `authenticate` now returns three outcomes, and
+`AppState::authenticate` turns the third into a `Rejection` that carries the error *and*, separately,
+the bait. The error is produced without consulting what the credential was, and the handler's single
+`return` uses it either way — ADR-15's indistinguishability as a property of the code's shape rather
+than of somebody remembering it at each call site.
+
+**A trip replaces the entry the request was going to write; it does not add one.** The action becomes
+`honeypot-triggered`, `subject` names which bait (the identity it was issued for, plus the non-secret
+token id — `subject` and not `principal`, because nobody authenticated), and `detail` carries the
+attempted action, since "they tried to read" and "they tried to write" are different facts about a
+compromise. One entry, same size, same devices, same fail-closed rule: a second write would be work an
+ordinary rejected credential does not cause, and therefore measurable. Presenting bait also updates
+nothing on the token row, for the same reason and because bait never authenticates.
+
+**In a build without the entry this is the previous behaviour exactly**, with an argument that is
+ignored, and there is a test for that rather than a claim: a deployment that plants no bait runs the
+code the accepted review read.
+
+The honeypot case went **inside** `every_kind_of_invalid_token_looks_the_same` and inside the server's
+`every_kind_of_bad_token_gets_the_same_answer`, which is where ADR-15 asks for it — an expired *and*
+revoked honeypot token is in there too, because the dates must not be able to route bait back into an
+ordinary rejection. A further test compares the whole response, headers included, against an unknown
+token: a `WWW-Authenticate` that differed would be the bait that announces itself to whoever measures
+carefully.
+
 ### Added — schema 6: bait, and where a trip is remembered
 
 `secrets.honeypot_tier` (NULL means not bait), `tokens.honeypot`, and a `tripwire` table. Additive:

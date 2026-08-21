@@ -91,12 +91,18 @@ impl Live {
         let pepper = TokenPepper::derive(&root);
         let service = Token::generate().expect("entropy");
         let outsider = Token::generate().expect("entropy");
-        store
-            .issue_token("service-a", &service, &pepper, "operator", None)
-            .expect("issue a token");
-        store
-            .issue_token("outsider", &outsider, &pepper, "operator", None)
-            .expect("issue a token");
+        for (identity, token) in [("service-a", &service), ("outsider", &outsider)] {
+            store
+                .issue_token(
+                    identity,
+                    token,
+                    &pepper,
+                    "operator",
+                    None,
+                    ciphr_store::TokenPurpose::Credential,
+                )
+                .expect("issue a token");
+        }
 
         // Two secrets under one prefix, with distinct last segments, so the prefix has
         // a usable environment.

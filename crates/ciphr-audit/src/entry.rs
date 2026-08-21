@@ -92,6 +92,23 @@ pub enum Action {
     /// did. The entry makes the question answerable from the trail, which is the one
     /// artefact this project keeps tamper-evident.
     SurfaceActive,
+    /// Bait was taken (ADR-15).
+    ///
+    /// **The authoritative record of a trip, and the only one inside the fail-closed
+    /// contract.** It replaces the action the entry would otherwise have carried rather
+    /// than being written beside it, which is what keeps a trip free of extra work: one
+    /// entry either way, the same size, through the same devices. A separate second
+    /// entry would be work an ordinary rejected credential does not cause, and therefore
+    /// measurable — the bait that announces itself to whoever measures carefully.
+    ///
+    /// The attempted action is not lost; it goes in [`Entry::detail`], because "they
+    /// tried to read" and "they tried to write" are different facts about a compromise.
+    ///
+    /// The trip row, the marker file and the `/v1/health` flag are *derived* state,
+    /// written after the response is flushed and outside the contract. See the dated
+    /// decision in ADR-15 for why the split falls here: an audit device and the store
+    /// hold separate connections, so a row and a record cannot be made to fail together.
+    HoneypotTriggered,
 }
 
 impl Action {
@@ -111,6 +128,7 @@ impl Action {
             Self::RevokeToken => "revoke-token",
             Self::AuditDeviceFailed => "audit-device-failed",
             Self::SurfaceActive => "surface-active",
+            Self::HoneypotTriggered => "honeypot-triggered",
         }
     }
 }

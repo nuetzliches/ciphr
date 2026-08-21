@@ -66,6 +66,8 @@ struct Harness {
     deploy_token: String,
     /// A token for `auditor`.
     auditor_token: String,
+    /// A honeypot token, planted for `deploy` (ADR-15). Authenticates nothing.
+    bait_token: String,
     /// Where the database is, so a test can read the audit log independently.
     database: std::path::PathBuf,
     /// Kept alive so the directory is not removed while the test runs.
@@ -101,11 +103,40 @@ impl Harness {
         let deploy = Token::generate().expect("entropy");
         let auditor = Token::generate().expect("entropy");
         store
-            .issue_token("deploy", &deploy, &pepper, "operator", None)
+            .issue_token(
+                "deploy",
+                &deploy,
+                &pepper,
+                "operator",
+                None,
+                ciphr_store::TokenPurpose::Credential,
+            )
             .expect("issue");
         store
-            .issue_token("auditor", &auditor, &pepper, "operator", None)
+            .issue_token(
+                "auditor",
+                &auditor,
+                &pepper,
+                "operator",
+                None,
+                ciphr_store::TokenPurpose::Credential,
+            )
             .expect("issue");
+
+        // Bait, planted in every harness rather than in the one test that needs it.
+        // Its presence must not change any other behaviour, and having it everywhere is
+        // what would notice if it did.
+        let bait = Token::generate().expect("entropy");
+        store
+            .issue_token(
+                "deploy",
+                &bait,
+                &pepper,
+                "operator",
+                None,
+                ciphr_store::TokenPurpose::Honeypot,
+            )
+            .expect("plant bait");
 
         // Seed one secret so reads have something to find.
         let path = SecretPath::parse("infra/service-a/DB_PASSWORD").expect("valid");
@@ -147,6 +178,7 @@ impl Harness {
             router: api::router(state),
             deploy_token: deploy.expose_text().to_string(),
             auditor_token: auditor.expose_text().to_string(),
+            bait_token: bait.expose_text().to_string(),
             database,
             _directory: directory,
         }
@@ -342,6 +374,10 @@ fn every_kind_of_bad_token_gets_the_same_answer() {
         valid[..valid.len() - 1].to_owned(),
         // Well-formed but never issued.
         Token::generate().unwrap().expose_text().to_string(),
+        // Bait belongs in this list and not in a test of its own: ADR-15's property 1
+        // is that a honeypot token is one more kind of invalid credential from the
+        // caller's side. If that ever stops being true, this loop is where it shows.
+        harness.bait_token.clone(),
     ] {
         let (status, body) = harness.get(
             "/v1/secrets/infra/service-a/DB_PASSWORD",
@@ -352,6 +388,124 @@ fn every_kind_of_bad_token_gets_the_same_answer() {
         // Nothing about which part was wrong.
         assert!(body.get("detail").is_none());
     }
+}
+
+/// The response headers must not distinguish bait either.
+///
+/// The body and the status are checked above; a `WWW-Authenticate` that differed, or an
+/// extra header on one path, would be exactly the bait that announces itself to whoever
+/// measures carefully.
+#[test]
+fn bait_and_an_unknown_token_produce_identical_responses() {
+    let harness = Harness::new();
+    let unknown = Token::generate().unwrap().expose_text().to_string();
+
+    let responses: Vec<_> = [unknown.as_str(), harness.bait_token.as_str()]
+        .into_iter()
+        .map(|token| {
+            let request = Harness::build(
+                "GET",
+                "/v1/secrets/infra/service-a/DB_PASSWORD",
+                Some(token),
+                None,
+            );
+            let response = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("runtime")
+                .block_on(harness.router.clone().oneshot(request))
+                .expect("answer");
+            let status = response.status();
+            let mut headers: Vec<_> = response
+                .headers()
+                .iter()
+                .map(|(name, value)| {
+                    (
+                        name.as_str().to_owned(),
+                        value.to_str().unwrap_or_default().to_owned(),
+                    )
+                })
+                .collect();
+            headers.sort();
+            (status, headers)
+        })
+        .collect();
+
+    assert_eq!(responses[0], responses[1]);
+}
+
+/// The trail says bait was taken, and says which bait and what was attempted.
+///
+/// Only in a build that has the entry. Without it there is nothing to record, which the
+/// companion test below pins.
+#[cfg(feature = "honeypot_alert")]
+#[test]
+fn taking_the_bait_is_recorded_as_a_trip() {
+    let harness = Harness::new();
+    let (status, _) = harness.get(
+        "/v1/secrets/infra/service-a/DB_PASSWORD",
+        Some(&harness.bait_token.clone()),
+    );
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let entries = harness.audit_entries();
+    let trip = entries
+        .iter()
+        .find(|entry| entry["entry"]["action"] == "honeypot-triggered")
+        .expect("the trip must be in the trail");
+
+    // Which bait. `subject` and not `principal`: nobody authenticated.
+    assert_eq!(trip["entry"]["subject"]["name"], "deploy");
+    assert!(trip["entry"]["subject"]["token_id"].is_string());
+    assert!(trip["entry"]["principal"].is_null());
+    // What was attempted, which replacing the action would otherwise discard.
+    assert_eq!(trip["entry"]["detail"], "attempted: read");
+    assert_eq!(trip["entry"]["allowed"], false);
+    assert_eq!(trip["entry"]["request"]["http_status"], 401);
+
+    // One entry for the attempt, not two. A second write is work an ordinary rejected
+    // credential does not cause, and therefore measurable.
+    let attempts = entries
+        .iter()
+        .filter(|entry| {
+            entry["entry"]["action"] == "honeypot-triggered"
+                || entry["entry"]["deny_reason"] == "unauthenticated"
+        })
+        .count();
+    assert_eq!(
+        attempts, 1,
+        "a trip replaces the entry rather than adding one"
+    );
+}
+
+/// Without the entry, bait is recorded as any other rejected credential is.
+///
+/// This is what "a deployment that plants none runs the code the review read" means in
+/// practice, and it is worth a test because the alternative -- a build that quietly
+/// records trips it cannot act on -- would look identical from the outside.
+#[cfg(not(feature = "honeypot_alert"))]
+#[test]
+fn without_the_entry_bait_is_just_a_rejected_credential() {
+    let harness = Harness::new();
+    let (status, _) = harness.get(
+        "/v1/secrets/infra/service-a/DB_PASSWORD",
+        Some(&harness.bait_token.clone()),
+    );
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let entries = harness.audit_entries();
+    assert!(
+        !entries
+            .iter()
+            .any(|entry| entry["entry"]["action"] == "honeypot-triggered"),
+        "a build without the entry has no trips to record"
+    );
+    assert!(
+        entries
+            .iter()
+            .any(|entry| entry["entry"]["deny_reason"] == "unauthenticated"),
+        "the attempt is still recorded, as any rejected credential is"
+    );
 }
 
 #[test]

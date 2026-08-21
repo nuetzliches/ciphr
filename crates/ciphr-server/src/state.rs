@@ -40,7 +40,7 @@ use ciphr_audit::{Action, AuditError, AuditSink, Entry, Principal, RequestContex
 use ciphr_core::{Capability, SecretPath};
 use ciphr_crypto::{RootKey, TokenPepper};
 use ciphr_policy::{Decision, PolicySet};
-use ciphr_store::SqliteStore;
+use ciphr_store::{Authentication, SqliteStore};
 use serde::Serialize;
 
 use crate::error::ApiError;
@@ -82,6 +82,39 @@ pub struct DeviceHealth {
     pub name: String,
     /// Whether it accepted the last record. `None` before the first one.
     pub accepting: Option<bool>,
+}
+
+/// A honeypot token that was presented (ADR-15).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Bait {
+    /// The bait's non-secret identifier.
+    pub token_id: String,
+    /// The identity it was issued for — which bait was taken.
+    pub identity: String,
+}
+
+/// Why a request has no caller.
+///
+/// Carries the error *and*, separately, whether the credential was bait. The split is
+/// the point: the error is what the client is told and is produced without consulting
+/// the credential's nature, so a caller cannot accidentally answer bait differently.
+/// [`Bait`] only ever reaches the audit trail.
+///
+/// `Debug` only: [`ApiError`] is not `Clone` or `Eq`, and giving it those to make this
+/// comparable would widen a type on the response path for a test's convenience.
+#[derive(Debug)]
+pub struct Rejection {
+    /// What the client is told. Identical for bait and for anything else invalid.
+    pub error: ApiError,
+    /// Set when the presented credential matched a stored honeypot token.
+    pub bait: Option<Bait>,
+}
+
+impl Rejection {
+    /// A rejection with no bait involved.
+    pub fn plain(error: ApiError) -> Self {
+        Self { error, bait: None }
+    }
 }
 
 /// Who is making a request, once their token has been checked.
@@ -230,19 +263,31 @@ impl AppState {
     /// Returns [`ApiError::Unauthenticated`] for a missing, malformed, unknown,
     /// expired, or revoked token — all of them identical, so that probing learns
     /// nothing.
-    pub fn authenticate(&self, bearer: Option<&str>) -> Result<Caller, ApiError> {
+    pub fn authenticate(&self, bearer: Option<&str>) -> Result<Caller, Rejection> {
         let Some(presented) = bearer else {
-            return Err(ApiError::Unauthenticated);
+            return Err(Rejection::plain(ApiError::Unauthenticated));
         };
 
-        let authenticated = self.with_store(|store| {
-            store
-                .authenticate(presented, &self.inner.pepper)
-                .map_err(ApiError::from)
-        })?;
+        let outcome = self
+            .with_store(|store| {
+                store
+                    .authenticate(presented, &self.inner.pepper)
+                    .map_err(ApiError::from)
+            })
+            .map_err(Rejection::plain)?;
 
-        let Some(authenticated) = authenticated else {
-            return Err(ApiError::Unauthenticated);
+        let authenticated = match outcome {
+            Authentication::Valid(authenticated) => authenticated,
+            Authentication::Invalid => return Err(Rejection::plain(ApiError::Unauthenticated)),
+            // The one place bait is distinguished, and it decides only what is
+            // recorded. The error is the same value the line above returns, produced
+            // here rather than derived from anything about the credential.
+            Authentication::Bait { token_id, identity } => {
+                return Err(Rejection {
+                    error: ApiError::Unauthenticated,
+                    bait: Some(Bait { token_id, identity }),
+                });
+            }
         };
 
         let kind = self
@@ -544,6 +589,55 @@ impl AppState {
             ..request.clone()
         });
         self.record(&entry)
+    }
+
+    /// Record a rejected credential, saying so if it was bait.
+    ///
+    /// One entry either way, and the same one: for bait the *action* becomes
+    /// `honeypot-triggered` and the attempted action moves into `detail`. Nothing is
+    /// written beside the ordinary entry, because a second write is work an ordinary
+    /// rejected credential does not cause and is therefore measurable — ADR-15's
+    /// property 1 covers what follows the decision as well as the decision itself.
+    ///
+    /// Where `honeypot_alert` is not in the build this is `record_unauthenticated` with
+    /// an argument it ignores, so a deployment that plants no bait runs exactly the code
+    /// the accepted review read.
+    ///
+    /// # Errors
+    ///
+    /// [`ApiError::AuditUnavailable`] if no device accepted the record.
+    pub fn record_rejection(
+        &self,
+        action: Action,
+        request: &RequestContext,
+        bait: Option<&Bait>,
+    ) -> Result<(), ApiError> {
+        #[cfg(feature = "honeypot_alert")]
+        if let Some(bait) = bait {
+            let entry = Entry::denied(Action::HoneypotTriggered, "unauthenticated")
+                // Which bait, by the identity it was issued for and its non-secret id.
+                // `subject` rather than `principal`: nobody authenticated, so there is
+                // no actor to name, and the credential is what the entry is *about*.
+                .with_subject(Principal {
+                    name: bait.identity.clone(),
+                    kind: None,
+                    token_id: Some(bait.token_id.clone()),
+                })
+                // The route the bait was presented to. "They tried to read" and "they
+                // tried to write" are different facts about a compromise, and replacing
+                // the action would otherwise discard the difference.
+                .with_detail(format!("attempted: {action}"))
+                .with_request(RequestContext {
+                    http_status: Some(401),
+                    ..request.clone()
+                });
+            return self.record(&entry);
+        }
+
+        // Named `_bait` in a build without the entry so the signature stays one shape:
+        // the caller has one rejection path in both configurations, which is the point.
+        let _ = bait;
+        self.record_unauthenticated(action, request)
     }
 }
 

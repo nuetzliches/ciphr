@@ -97,10 +97,24 @@ impl Live {
         let service = Token::generate().expect("entropy");
         let outsider = Token::generate().expect("entropy");
         store
-            .issue_token("service-a", &service, &pepper, "operator", None)
+            .issue_token(
+                "service-a",
+                &service,
+                &pepper,
+                "operator",
+                None,
+                ciphr_store::TokenPurpose::Credential,
+            )
             .expect("issue a token");
         store
-            .issue_token("outsider", &outsider, &pepper, "operator", None)
+            .issue_token(
+                "outsider",
+                &outsider,
+                &pepper,
+                "operator",
+                None,
+                ciphr_store::TokenPurpose::Credential,
+            )
             .expect("issue a token");
 
         for (path, value) in [

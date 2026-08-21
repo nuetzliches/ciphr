@@ -901,9 +901,14 @@ fn issue_token(
             },
         ),
     )?;
-    session
-        .store
-        .issue_token(&identity, &token, &pepper, "cli", expires_at)?;
+    session.store.issue_token(
+        &identity,
+        &token,
+        &pepper,
+        "cli",
+        expires_at,
+        ciphr_store::TokenPurpose::Credential,
+    )?;
 
     // Printed once, here, and never recoverable afterwards: what the database
     // holds is a verifier, not the token.
