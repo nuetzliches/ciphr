@@ -8,6 +8,42 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — schema 6: bait, and where a trip is remembered
+
+`secrets.honeypot_tier` (NULL means not bait), `tokens.honeypot`, and a `tripwire` table. Additive:
+no row is rewritten, nothing is dropped, and a database that has never seen a honeypot is
+indistinguishable from one that never will. **Schema 6 is a one-way door** — a `0.4.0` binary refuses
+it with `SchemaTooNew` — so the release notes will say back up first.
+
+**The schema is unconditional although the behaviour is not.** `honeypot_alert` is a build entry, so
+the code that recognizes bait is absent from the default binary; the columns are present in every
+build. Two schemas for one version number is a distribution problem — two artefacts with the same
+version and different databases, and a checksum that says nothing about which one you hold. Plan
+section 24 settled this shape already for ADR-21's value index: what is optional is the route, not the
+column.
+
+`honeypot_tier` admits only `alert`. The severe tiers are designed and deliberately unbuilt, and a
+column that accepts `freeze` in a binary that honours nothing by that name is the dormant-flag failure
+ADR-20 rejects — the value would sit there looking like protection. Widening it is a migration, which
+is the right price for turning on an availability lever.
+
+**The latch is two partial unique indexes, not application logic.** One open trip per piece of bait,
+stated as a database invariant, so two concurrent reads of the same bait cannot produce two open trips
+— which application-side checking would have to get right under a lock it does not hold. Clearing sets
+`cleared_at`, which frees the slot without erasing the history: the same bait can trip again and both
+trips are still there. A `CHECK` also requires exactly one reference column matching the kind, because
+a row naming neither could not be traced to any bait and one naming both leaves which piece tripped to
+interpretation.
+
+Four tests, each on a claim rather than on the DDL: an existing database comes out not-bait, an unbuilt
+tier is refused, the latch holds and survives a clear, and a mismatched reference is refused.
+
+**Noted and deliberately not changed:** `ciphr dump --format portable` does not carry the bait flag.
+It lists its columns explicitly, so this is a decision rather than an oversight — that document is
+insurance for moving to another system, which has no honeypots, and there is no portable *import*, so
+it is an exit and not a restore path. The consequence is worth knowing: a store reconstructed from that
+file has no bait in it, and re-planting is a deployment step.
+
 ### Added — the optional surface mechanism, and its first entry
 
 ADR-20 decided where optionality is allowed to live and said the gate arrives with the first entry.

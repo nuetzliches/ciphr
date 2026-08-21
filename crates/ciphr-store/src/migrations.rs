@@ -19,7 +19,7 @@ use rusqlite::Connection;
 use crate::error::StoreError;
 
 /// The schema version this build produces and understands.
-pub const SCHEMA_VERSION: u32 = 5;
+pub const SCHEMA_VERSION: u32 = 6;
 
 struct Migration {
     version: u32,
@@ -52,6 +52,11 @@ const MIGRATIONS: &[Migration] = &[
         version: 5,
         name: "rotation_unclassified",
         sql: include_str!("../migrations/005_rotation_unclassified.sql"),
+    },
+    Migration {
+        version: 6,
+        name: "honeypots",
+        sql: include_str!("../migrations/006_honeypots.sql"),
     },
 ];
 
@@ -271,5 +276,138 @@ mod tests {
             )
             .unwrap();
         assert_eq!(class, "unclassified");
+    }
+
+    /// A secret and a token both start as not-bait, and the flags are what an
+    /// existing database gains rather than something a writer has to set.
+    #[test]
+    fn migration_006_leaves_everything_not_bait() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        apply(&mut connection).unwrap();
+
+        connection
+            .execute_batch(
+                "INSERT INTO secrets (path, current_version, created_at, updated_at)
+                 VALUES ('a/ordinary', 0, 1, 1);
+                 INSERT INTO tokens (token_id, identity_name, verifier, created_at, created_by)
+                 VALUES ('t1', 'deploy', 'v', 1, 'op');",
+            )
+            .unwrap();
+
+        let tier: Option<String> = connection
+            .query_row(
+                "SELECT honeypot_tier FROM secrets WHERE path = 'a/ordinary'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tier, None, "NULL means not bait, and is the default");
+
+        let honeypot: i64 = connection
+            .query_row(
+                "SELECT honeypot FROM tokens WHERE token_id = 't1'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(honeypot, 0);
+    }
+
+    /// The severe tiers of ADR-15 are designed and not built, so the column must not
+    /// accept a value nothing in the binary honours. A stored `freeze` would sit there
+    /// looking like protection — the dormant-flag failure ADR-20 rejects.
+    #[test]
+    fn migration_006_refuses_a_tier_that_is_not_built() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        apply(&mut connection).unwrap();
+
+        for tier in ["freeze", "disable-identity", "", "ALERT"] {
+            let result = connection.execute(
+                "INSERT INTO secrets (path, current_version, created_at, updated_at, honeypot_tier)
+                 VALUES ('bait', 0, 1, 1, ?1)",
+                [tier],
+            );
+            assert!(result.is_err(), "the column must refuse {tier:?}");
+        }
+
+        connection
+            .execute(
+                "INSERT INTO secrets (path, current_version, created_at, updated_at, honeypot_tier)
+                 VALUES ('bait', 0, 1, 1, 'alert')",
+                [],
+            )
+            .expect("the built tier is accepted");
+    }
+
+    /// The latch, as a database invariant rather than a check somebody remembers.
+    ///
+    /// Two concurrent reads of the same bait must not be able to produce two open
+    /// trips, and application-side checking would have to get that right under a lock
+    /// it does not hold.
+    #[test]
+    fn migration_006_latches_one_open_trip_per_bait() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        apply(&mut connection).unwrap();
+
+        let trip = |connection: &Connection, at: i64| {
+            connection.execute(
+                "INSERT INTO tripwire (tripped_at, kind, path, tier) VALUES (?1, 'secret', 'b', 'alert')",
+                [at],
+            )
+        };
+
+        trip(&connection, 1).expect("the first trip");
+        assert!(trip(&connection, 2).is_err(), "the latch must hold");
+
+        // Clearing frees the slot, and both trips stay in the history.
+        connection
+            .execute(
+                "UPDATE tripwire SET cleared_at = 3 WHERE cleared_at IS NULL",
+                [],
+            )
+            .unwrap();
+        trip(&connection, 4).expect("cleared bait can trip again");
+
+        let trips: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM tripwire WHERE path = 'b'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(trips, 2, "clearing must not erase the first trip");
+    }
+
+    /// Exactly one reference column, matching the kind. A row naming neither could
+    /// not be traced to any bait; one naming both leaves which piece tripped to
+    /// interpretation.
+    #[test]
+    fn migration_006_requires_one_reference_matching_the_kind() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        apply(&mut connection).unwrap();
+
+        let bad = [
+            "INSERT INTO tripwire (tripped_at, kind, tier) VALUES (1, 'secret', 'alert')",
+            "INSERT INTO tripwire (tripped_at, kind, tier) VALUES (1, 'token', 'alert')",
+            "INSERT INTO tripwire (tripped_at, kind, path, token_id, tier)
+             VALUES (1, 'secret', 'b', 't1', 'alert')",
+            "INSERT INTO tripwire (tripped_at, kind, token_id, tier)
+             VALUES (1, 'secret', 't1', 'alert')",
+            "INSERT INTO tripwire (tripped_at, kind, path, tier) VALUES (1, 'guess', 'b', 'alert')",
+        ];
+        for statement in bad {
+            assert!(
+                connection.execute(statement, []).is_err(),
+                "should have been refused: {statement}"
+            );
+        }
+
+        connection
+            .execute(
+                "INSERT INTO tripwire (tripped_at, kind, token_id, tier)
+                 VALUES (1, 'token', 't1', 'alert')",
+                [],
+            )
+            .expect("a token trip names a token and no path");
     }
 }
