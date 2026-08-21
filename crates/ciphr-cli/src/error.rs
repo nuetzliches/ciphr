@@ -58,6 +58,24 @@ pub(crate) enum CliError {
     /// An export cannot name a variable for one of its secrets, or two of them want
     /// the same name.
     EnvName(ciphr_core::EnvNameError),
+    /// A configuration file could not be read as one.
+    ///
+    /// Distinct from [`Self::Io`], which covers a file that could not be *reached*, and
+    /// from [`Self::Audit`], which is about the trail rather than about an input. Reusing
+    /// `Audit` here — which an earlier draft of `surface show` did — produces "the audit
+    /// trail could not be written" in front of a TOML parse error, and an operator who
+    /// reads that goes looking at the wrong subsystem.
+    Config {
+        /// Which file.
+        path: String,
+        /// What is wrong with it.
+        reason: String,
+    },
+    /// A path was to be marked as bait and holds nothing.
+    BaitNeedsASecret {
+        /// The path that was given.
+        path: String,
+    },
     /// Something failed while reading or writing a file.
     Io(std::io::Error),
 }
@@ -102,6 +120,15 @@ impl fmt::Display for CliError {
             Self::Path(error) => write!(f, "{error}"),
             Self::Rotation(error) => write!(f, "{error}"),
             Self::EnvName(error) => write!(f, "{error}"),
+            Self::Config { path, reason } => {
+                write!(f, "{path} is not a usable configuration: {reason}")
+            }
+            Self::BaitNeedsASecret { path } => write!(
+                f,
+                "{path} holds nothing. Bait is a real secret with a real-looking value \
+                 in it -- write one there first, then mark it. A tier on an empty path \
+                 is a honeypot that answers 404 to whoever takes it."
+            ),
             Self::Io(error) => write!(f, "{error}"),
         }
     }

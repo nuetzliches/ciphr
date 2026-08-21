@@ -47,7 +47,7 @@ const AUDIT_LIMIT_DEFAULT: u32 = 100;
 
 /// Build the router.
 pub fn router(state: AppState) -> Router {
-    Router::new()
+    let router = Router::new()
         .route("/v1/health", get(health))
         .route("/v1/secrets/{*path}", get(read_secret))
         .route("/v1/secrets/{*path}", put(write_secret))
@@ -58,7 +58,18 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/audit", get(read_audit))
         .route("/v1/identities", get(read_identities))
         .route("/v1/policies", get(read_policies))
-        .with_state(state)
+        .route("/v1/surface", get(read_surface));
+
+    // `honeypot_alert` is a *build* entry, so its route is absent from the binary
+    // rather than registered and refusing. ADR-20: off means absent, never dormant --
+    // an `if enabled { … } else { 404 }` leaves the handler compiled, wired, and one
+    // boolean from serving, and it makes the off state invisible to anything but
+    // whoever can read the configuration. Here the absence is observable from outside,
+    // because axum answers from the fallback.
+    #[cfg(feature = "honeypot_alert")]
+    let router = router.route("/v1/honeypots", get(read_honeypots));
+
+    router.with_state(state)
 }
 
 // ---------------------------------------------------------------------------
@@ -742,6 +753,195 @@ fn export_secrets(
         });
     }
     Ok(secrets)
+}
+
+/// What `GET /v1/surface` returns.
+///
+/// The record behind each active entry, in full: which entry, how it is switched on,
+/// when the deployment accepted the cost, why, and what its absence would have cost.
+///
+/// Authenticated, unlike the names on `/v1/health`. Plan section 10's rule: an
+/// unauthenticated endpoint may report what the process *enforces* and never what is
+/// stored. Which entries are active is enforcement; the reason is prose an operator
+/// wrote about their own environment.
+#[derive(Debug, Serialize)]
+struct SurfaceResponse {
+    entries: Vec<SurfaceEntryResponse>,
+}
+
+/// `GET /v1/surface` — which optional surface this deployment turned on, and why.
+///
+/// Authorized as the virtual path `sys/surface`, through the ordinary evaluator (ADR-20).
+/// No new capability: `read` on a virtual path, exactly as `sys/audit` works.
+///
+/// Not gated by any entry. The mechanism is always present — what is optional is what it
+/// lists, and a deployment that turned nothing on gets an empty array rather than a 404.
+/// A route that disappeared when the list was empty would make "nothing is on" and "this
+/// build has no surface mechanism" the same answer.
+async fn read_surface(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    origin: Origin,
+) -> Result<Json<SurfaceResponse>, ApiError> {
+    let request = request_context(&headers, origin);
+    let caller = authenticate(&state, &headers, Action::Read, &request)?;
+    let virtual_path = reserved_path("surface");
+
+    state.authorize_and_record(
+        &caller,
+        Action::Read,
+        Capability::Read,
+        &virtual_path,
+        &request,
+    )?;
+
+    let entries = state
+        .surface()
+        .entries()
+        .iter()
+        .map(SurfaceEntryResponse::from)
+        .collect();
+    Ok(Json(SurfaceResponse { entries }))
+}
+
+/// One active surface entry, as `GET /v1/surface` returns it.
+#[derive(Debug, Serialize)]
+struct SurfaceEntryResponse {
+    /// The entry name, as a configuration writes it.
+    entry: &'static str,
+    /// `build` or `runtime`.
+    kind: &'static str,
+    /// The date the deployment accepted the cost.
+    accepted: String,
+    /// Why, in the operator's own words.
+    reason: String,
+    /// What its absence would cost.
+    ///
+    /// Ships with the binary rather than living in documentation, because ADR-20 asks
+    /// for exactly that: the operator writes why they said yes, and the software says
+    /// what they said yes to.
+    cost: &'static str,
+}
+
+impl From<&crate::surface::ActiveEntry> for SurfaceEntryResponse {
+    fn from(active: &crate::surface::ActiveEntry) -> Self {
+        Self {
+            entry: active.name,
+            kind: match active.kind {
+                crate::surface::Kind::Build => "build",
+                crate::surface::Kind::Runtime => "runtime",
+            },
+            accepted: active.accepted.clone(),
+            reason: active.reason.clone(),
+            cost: active.cost,
+        }
+    }
+}
+
+/// What `GET /v1/honeypots` returns.
+#[cfg(feature = "honeypot_alert")]
+#[derive(Debug, Serialize)]
+struct HoneypotsResponse {
+    /// Every piece of bait, secrets and tokens together.
+    honeypots: Vec<HoneypotResponse>,
+    /// Every trip that has not been cleared, newest first.
+    open_trips: Vec<TripResponse>,
+}
+
+/// One piece of bait.
+#[cfg(feature = "honeypot_alert")]
+#[derive(Debug, Serialize)]
+struct HoneypotResponse {
+    /// `secret` or `token`.
+    kind: &'static str,
+    /// The path, for a honeypot secret.
+    path: Option<String>,
+    /// The non-secret token identifier, for a honeypot token. Never the token.
+    token_id: Option<String>,
+    /// The identity a honeypot token was issued for.
+    identity: Option<String>,
+    /// The tier. Always `alert` in this build.
+    tier: &'static str,
+    /// Whether a trip on this bait is currently open.
+    tripped: bool,
+}
+
+/// One open trip.
+#[cfg(feature = "honeypot_alert")]
+#[derive(Debug, Serialize)]
+struct TripResponse {
+    tripped_at: i64,
+    kind: &'static str,
+    path: Option<String>,
+    token_id: Option<String>,
+    /// Who took it, when there was an authenticated identity.
+    ///
+    /// Null for a honeypot token: presenting bait authenticates nothing, so there is
+    /// nobody to name.
+    identity: Option<String>,
+    tier: &'static str,
+}
+
+/// `GET /v1/honeypots` — which paths and tokens are bait, and what has been taken.
+///
+/// Authorized as the virtual path `sys/honeypots` (plan section 22). **This is the only
+/// place the honeypot flag is ever visible.** It does not appear on a secret read, in
+/// `/v1/list`, or in `/v1/versions`, because bait that announces itself to a caller is
+/// not bait — and an operator who cannot tell bait from a real secret eventually rotates
+/// it or builds a service on it, which destroys it just as thoroughly.
+#[cfg(feature = "honeypot_alert")]
+async fn read_honeypots(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    origin: Origin,
+) -> Result<Json<HoneypotsResponse>, ApiError> {
+    let request = request_context(&headers, origin);
+    let caller = authenticate(&state, &headers, Action::Read, &request)?;
+    let virtual_path = reserved_path("honeypots");
+
+    state.authorize_and_record(
+        &caller,
+        Action::Read,
+        Capability::Read,
+        &virtual_path,
+        &request,
+    )?;
+
+    let (bait, trips) = state.with_store(|store| {
+        let bait = store.honeypots().map_err(ApiError::from)?;
+        let trips = store.open_trips().map_err(ApiError::from)?;
+        Ok((bait, trips))
+    })?;
+
+    let kind_of = |kind: ciphr_store::BaitKind| match kind {
+        ciphr_store::BaitKind::Secret => "secret",
+        ciphr_store::BaitKind::Token => "token",
+    };
+
+    Ok(Json(HoneypotsResponse {
+        honeypots: bait
+            .into_iter()
+            .map(|entry| HoneypotResponse {
+                kind: kind_of(entry.kind),
+                path: entry.path,
+                token_id: entry.token_id,
+                identity: entry.identity,
+                tier: entry.tier.as_str(),
+                tripped: entry.tripped,
+            })
+            .collect(),
+        open_trips: trips
+            .into_iter()
+            .map(|trip| TripResponse {
+                tripped_at: trip.tripped_at,
+                kind: kind_of(trip.kind),
+                path: trip.path,
+                token_id: trip.token_id,
+                identity: trip.identity,
+                tier: trip.tier.as_str(),
+            })
+            .collect(),
+    }))
 }
 
 /// `GET /v1/audit` — read the audit trail.

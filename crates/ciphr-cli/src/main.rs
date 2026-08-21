@@ -162,6 +162,10 @@ enum Command {
     #[command(subcommand)]
     Honeypot(HoneypotCommand),
 
+    /// What optional surface this binary can offer (ADR-20).
+    #[command(subcommand)]
+    Surface(SurfaceCommand),
+
     /// The audit trail.
     #[command(subcommand)]
     Audit(AuditCommand),
@@ -227,6 +231,23 @@ struct ImportArgs {
     /// Rotation class for every imported secret.
     #[arg(long)]
     rotation: Option<String>,
+}
+
+/// `ciphr surface …` — what this binary can offer beyond the core (ADR-20).
+///
+/// There is deliberately no `enable`. For a *build* entry, enabling means choosing a
+/// binary compiled with the feature and writing a `[[surface]]` stanza into the server's
+/// configuration — and a command that edited that file would be writing to something a
+/// deployment may well mount read-only, in a repository that keeps it under version
+/// control. The switch is a deployment change, and this shows what the choice costs.
+#[derive(Debug, Subcommand)]
+enum SurfaceCommand {
+    /// Show what a server configuration turned on, and what each entry costs.
+    Show {
+        /// Path to the server's configuration file, the one with the `[[surface]]`
+        /// stanzas in it.
+        config: String,
+    },
 }
 
 /// `ciphr honeypot …` — bait, and the trips it has produced (ADR-15).
@@ -689,6 +710,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
         Command::Import(args) => import(&cli, &args),
         Command::Token(command) => token(&cli, command),
         Command::Honeypot(command) => honeypot(&cli, command),
+        Command::Surface(command) => surface(&command),
         Command::Audit(command) => audit(&cli, &command),
         Command::RotateMasterKey {
             new_key_env,
@@ -995,6 +1017,123 @@ fn issue_token(
     Ok(())
 }
 
+/// `ciphr surface …`.
+///
+/// Takes no store and no policy file: what a binary contains is a property of the
+/// binary, and asking a database about it would be asking the wrong thing.
+fn surface(command: &SurfaceCommand) -> Result<(), CliError> {
+    let SurfaceCommand::Show { config } = command;
+
+    let text = std::fs::read_to_string(config)?;
+    let stanzas = parse_surface_stanzas(config, &text)?;
+
+    // **This reads a file, not a binary, and the difference is the whole caveat.** For a
+    // build entry, a stanza is one half of being switched on and the compiled feature is
+    // the other; the server refuses to start when the two disagree, but nothing here can
+    // see the server's build. So this says what the deployment *asked for*, and points at
+    // the endpoint that says what it got.
+    if stanzas.is_empty() {
+        eprintln!("{config} turns nothing on. That is the ordinary configuration.");
+        return Ok(());
+    }
+
+    for (entry, accepted, reason) in &stanzas {
+        println!("{entry}");
+        println!("    accepted  {accepted}");
+        println!("    reason    {reason}");
+        match cost_of(entry) {
+            Some(cost) => {
+                println!("    without it:");
+                for line in wrap_cost(cost) {
+                    println!("        {line}");
+                }
+            }
+            // A name this CLI does not know: either the configuration is for a newer
+            // service, or it is a typo the server will refuse at startup. Saying so is
+            // more useful than printing nothing.
+            None => println!("    without it: unknown to this CLI build"),
+        }
+        println!();
+    }
+
+    eprintln!("A build entry needs the feature compiled in as well as a stanza, and the");
+    eprintln!("service refuses to start when the two disagree. Ask that service's");
+    eprintln!("/v1/health for the entries it actually contains.");
+    Ok(())
+}
+
+/// The `[[surface]]` stanzas of a server configuration.
+///
+/// Parsed loosely on purpose: the strict typed load lives in `ciphr-server`, and
+/// duplicating it here would mean a second definition of the same schema that can drift
+/// from the one that decides whether the service starts. This reads three strings and
+/// leaves every judgement to the server.
+fn parse_surface_stanzas(
+    path: &str,
+    text: &str,
+) -> Result<Vec<(String, String, String)>, CliError> {
+    let document = toml::from_str::<toml::Value>(text).map_err(|error| CliError::Config {
+        path: path.to_owned(),
+        reason: error.to_string(),
+    })?;
+    let Some(entries) = document.get("surface").and_then(toml::Value::as_array) else {
+        return Ok(Vec::new());
+    };
+
+    let field = |value: &toml::Value, name: &str| {
+        value
+            .get(name)
+            .and_then(toml::Value::as_str)
+            .unwrap_or("(missing)")
+            .to_owned()
+    };
+    Ok(entries
+        .iter()
+        .map(|value| {
+            (
+                field(value, "entry"),
+                field(value, "accepted"),
+                field(value, "reason"),
+            )
+        })
+        .collect())
+}
+
+/// What an entry's absence costs, from the record that owns it.
+///
+/// Duplicated from `ciphr-server`'s entry list rather than imported: the CLI does not
+/// depend on the server crate and should not start, because that crate pulls in axum,
+/// rustls and a tokio runtime and none of those belong in a host tool. The duplication
+/// can drift, and what bounds it is that the list is one row long -- if it grows, that is
+/// the moment to move the list into `ciphr-core` as data rather than to copy it twice.
+fn cost_of(entry: &str) -> Option<&'static str> {
+    match entry {
+        "honeypot_alert" => Some(
+            "No detection of bait. A deployment that plants none pays nothing for the              absence, and gets the strongest form of ADR-15's indistinguishability claim:              code that is not compiled in has no timing to get wrong.",
+        ),
+        _ => None,
+    }
+}
+
+/// Break a cost sentence into terminal-width lines.
+fn wrap_cost(text: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for word in text.split_whitespace() {
+        if !line.is_empty() && line.len() + 1 + word.len() > 72 {
+            lines.push(std::mem::take(&mut line));
+        }
+        if !line.is_empty() {
+            line.push(' ');
+        }
+        line.push_str(word);
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    lines
+}
+
 /// `ciphr honeypot …`.
 fn honeypot(cli: &Context, command: HoneypotCommand) -> Result<(), CliError> {
     match command {
@@ -1052,9 +1191,9 @@ fn set_bait(cli: &Context, path: &str, bait: bool) -> Result<(), CliError> {
     // bare "not found": a tier on an empty path is the one mistake that produces bait
     // nobody can take.
     if session.store.metadata(&parsed).is_err() {
-        return Err(CliError::Audit(format!(
-            "{path} does not exist. Bait is a real secret holding a real-looking              value -- write one first, then mark it."
-        )));
+        return Err(CliError::BaitNeedsASecret {
+            path: path.to_owned(),
+        });
     }
 
     session.record(

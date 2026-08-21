@@ -17,6 +17,16 @@ ciphr-store.workspace  = true
 clap.workspace         = true
 serde.workspace        = true
 serde_json.workspace   = true
+# For `ciphr surface show`, which reads the `[[surface]]` stanzas out of a server
+# configuration on the host. Nothing new in the dependency graph: `ciphr-policy` is
+# already a dependency here and already takes `toml` (ADR-2), so this declares a crate
+# that is compiled either way rather than adding one.
+#
+# Read loosely rather than through the server's typed `Config`: depending on
+# `ciphr-server` would drag axum, rustls and a tokio runtime into a host tool, and
+# redefining the schema here would mean two definitions of the thing that decides whether
+# the service starts.
+toml.workspace         = true
 
 [dev-dependencies]
 tempfile.workspace = true

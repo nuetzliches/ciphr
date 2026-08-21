@@ -5,11 +5,19 @@
 # action, and the MCP server, which is derived from this file rather than written
 # alongside it (ADR-13).
 #
-# Four paths are listed as reserved. None of them exists in v1 and all of them return
+# Three paths are listed as reserved. None of them exists in v1 and all of them return
 # 404; they are here so the names are not claimed for something else by accident when
 # the features arrive: `POST /v1/auth/oidc/login` for OIDC federation (section 14 of
-# the plan), `GET /v1/honeypots` for tripwires (section 22, ADR-15), and
-# `POST /v1/report` with `GET /v1/leaks` for leak reports (section 23, ADR-16).
+# the plan), and `POST /v1/report` with `GET /v1/leaks` for leak reports (section 23,
+# ADR-16).
+#
+# `GET /v1/honeypots` was the fourth until 2026-08-21 and is now implemented -- but as
+# an **optional** route, which is a third state this document has to be able to express
+# and previously did not. It exists only in a build with the `honeypot_alert` surface
+# entry (ADR-20), so against a default binary it answers 404 exactly as a reserved path
+# does, for a different reason. Every optional route says so in its own description and
+# names the entry it belongs to; `GET /v1/health` lists the entries a given instance has,
+# which is how a client finds out without guessing from a 404.
 #
 # `POST /v1/report` is the reservation that matters beyond tidiness: it is the only
 # route in the design that will ever be unauthenticated besides `/v1/health`.
@@ -432,30 +440,73 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /v1/surface:
+    get:
+      tags: [administration]
+      summary: Which optional surface entries this deployment turned on, and why.
+      description: |
+        Requires `read` on the virtual path `sys/surface` (ADR-20). No new capability:
+        the same evaluator and the same mechanism as `sys/audit`.
+
+        Each entry carries the date the deployment accepted the cost, the reason an
+        operator wrote, and the cost sentence that ships with the binary — the operator
+        writes why they said yes, and the software says what they said yes to.
+
+        **Authenticated, unlike the entry names on `/v1/health`.** The rule is plan
+        section 10's: an unauthenticated endpoint may report what the process *enforces*
+        and never what is stored. Which entries are active is enforcement; the reason is
+        prose about somebody's environment.
+
+        Always present, and an empty array is the ordinary answer. A route that
+        disappeared when nothing was on would make "this deployment turned nothing on"
+        and "this build has no surface mechanism" the same answer.
+      responses:
+        "200":
+          description: The active entries.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Surface"
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "503": { $ref: "#/components/responses/AuditUnavailable" }
+
   /v1/honeypots:
     get:
       tags: [administration]
-      summary: Reserved. Not implemented in v1.
+      summary: Which paths and tokens are bait, and what has been taken. Optional.
       description: |
-        Reserved for honeypots and tripwires (plan section 22, ADR-15): which paths and
-        tokens are bait, at which trigger tier, and what has been tripped.
+        **Optional route.** It exists only in a build carrying the `honeypot_alert`
+        surface entry (ADR-15, ADR-20). Against a default binary it answers `404` from
+        the router's fallback, because off means *absent* rather than dormant — a handler
+        that answered `404` from inside itself would be compiled, wired and one boolean
+        from serving. `GET /v1/health` lists the entries an instance has, which is how a
+        client learns this rather than inferring it from a status code.
 
-        Authorized as the virtual path `sys/honeypots`. This is the only place the
-        honeypot flag is ever visible: it does not appear on a secret read, in
-        `GET /v1/list`, or in `GET /v1/versions`, because bait that announces itself to
-        a caller is not bait. `GET /v1/health` will report *that* a tripwire fired and
-        whether the service is frozen — properties of the process — and never which bait
-        was taken.
+        Requires `read` on the virtual path `sys/honeypots` (plan section 22).
 
-        Listed here so the path is not claimed for something else by accident. It
-        returns `404` in v1.
+        **This is the only place the honeypot flag is ever visible.** It does not appear
+        on a secret read, in `GET /v1/list`, or in `GET /v1/versions`, because bait that
+        announces itself to a caller is not bait — and an operator who cannot tell bait
+        from a real secret eventually rotates it or builds a service on it, which
+        destroys it just as thoroughly. `GET /v1/health` reports *that* a tripwire fired
+        and never which bait was taken.
       responses:
+        "200":
+          description: Every piece of bait, and every trip that has not been cleared.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Honeypots"
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404":
-          description: Not implemented in v1.
+          description: This build does not carry the `honeypot_alert` entry.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "503": { $ref: "#/components/responses/AuditUnavailable" }
 
 components:
   securitySchemes:
@@ -559,6 +610,110 @@ components:
         detail:
           type: string
           description: Present only where it describes the request rather than the server.
+
+    Surface:
+      type: object
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          items:
+            type: object
+            required: [entry, kind, accepted, reason, cost]
+            properties:
+              entry:
+                type: string
+                enum: [honeypot_alert]
+                description: The entry name, as a configuration writes it.
+              kind:
+                type: string
+                enum: [build, runtime]
+                description: |
+                  `build` means a Cargo feature absent from the default binary, chosen
+                  where a deployment has to be able to prove the code is not *there*
+                  rather than merely not called. `runtime` means composed at startup:
+                  the route is never registered.
+              accepted:
+                type: string
+                format: date
+                description: The date the deployment accepted the cost.
+                examples: ["2026-08-21"]
+              reason:
+                type: string
+                description: |
+                  Why this deployment wants it, in the operator's own words. The server
+                  refuses to start on an active entry with no reason: a flag with none
+                  beside it reads as an accident six months later, and the safest-looking
+                  fix for an accident is the default.
+              cost:
+                type: string
+                description: |
+                  What the entry's absence would cost, from the record that owns it. Ships
+                  with the binary rather than living in documentation.
+
+    Honeypots:
+      type: object
+      required: [honeypots, open_trips]
+      properties:
+        honeypots:
+          type: array
+          description: Every piece of bait, secrets and tokens together.
+          items:
+            type: object
+            required: [kind, tier, tripped]
+            properties:
+              kind:
+                type: string
+                enum: [secret, token]
+              path:
+                type: [string, "null"]
+                description: The path, for a honeypot secret.
+              token_id:
+                type: [string, "null"]
+                description: The non-secret identifier, for a honeypot token. Never the token.
+              identity:
+                type: [string, "null"]
+                description: |
+                  The identity a honeypot token was issued for. It grants nothing -- the
+                  name is what says *which* bait was taken in the trail.
+              tier:
+                type: string
+                enum: [alert]
+                description: |
+                  Only `alert` exists. ADR-15 designed `disable-identity` and `freeze` and
+                  deliberately left them unbuilt; the store refuses any other value, so
+                  this is the whole set rather than a subset of it.
+              tripped:
+                type: boolean
+                description: Whether a trip on this bait is currently open.
+        open_trips:
+          type: array
+          description: |
+            Every trip that has not been cleared, newest first. One per piece of bait: a
+            trip latches until an operator clears it on the host, so repeated reads of
+            the same bait appear once here and once per read in the audit trail.
+          items:
+            type: object
+            required: [tripped_at, kind, tier]
+            properties:
+              tripped_at:
+                type: integer
+                format: int64
+                description: Milliseconds since the Unix epoch, UTC.
+              kind:
+                type: string
+                enum: [secret, token]
+              path: { type: [string, "null"] }
+              token_id: { type: [string, "null"] }
+              identity:
+                type: [string, "null"]
+                description: |
+                  Who took it, when there was an authenticated identity. Null for a
+                  honeypot token: presenting bait authenticates nothing, so there is
+                  nobody to name.
+              tier:
+                type: string
+                enum: [alert]
 
     Health:
       type: object

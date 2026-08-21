@@ -57,6 +57,14 @@ name = "audit"
   [[policy.rule]]
   path         = "sys/policies"
   capabilities = ["read"]
+
+  [[policy.rule]]
+  path         = "sys/surface"
+  capabilities = ["read"]
+
+  [[policy.rule]]
+  path         = "sys/honeypots"
+  capabilities = ["read"]
 "#;
 
 /// A running API, plus what a test needs to talk to it.
@@ -80,6 +88,26 @@ impl Harness {
     }
 
     fn with_audit(kind: AuditKind) -> Self {
+        Self::build_harness(kind, ciphr_server::ActiveSurface::default())
+    }
+
+    /// A harness whose process reports the surface a deployment turned on.
+    ///
+    /// Resolved through the real `surface::resolve`, not hand-built: a test that
+    /// constructed an `ActiveSurface` directly could describe an entry this binary does
+    /// not contain, which is the one state startup exists to refuse.
+    #[cfg(feature = "honeypot_alert")]
+    fn with_surface(entry: &str, accepted: &str, reason: &str) -> Self {
+        let active = ciphr_server::surface::resolve(&[ciphr_server::surface::SurfaceConfig {
+            entry: entry.to_owned(),
+            accepted: accepted.to_owned(),
+            reason: reason.to_owned(),
+        }])
+        .expect("the entry is in this build");
+        Self::build_harness(AuditKind::Working, active)
+    }
+
+    fn build_harness(kind: AuditKind, surface: ciphr_server::ActiveSurface) -> Self {
         let directory = tempfile::tempdir().expect("temp dir");
         let database = directory.path().join("store.db");
 
@@ -169,9 +197,9 @@ impl Harness {
             root,
             "static".to_owned(),
             "supplied".to_owned(),
-            // The surface the default build has: nothing. A test that wants an entry
-            // resolves one explicitly, so no test inherits a shape it did not ask for.
-            ciphr_server::ActiveSurface::default(),
+            // Nothing unless a test asked for something, so no test inherits a shape it
+            // did not choose.
+            surface,
         );
 
         Self {
@@ -446,6 +474,132 @@ fn bait_and_an_unknown_token_produce_identical_responses() {
         .collect();
 
     assert_eq!(responses[0], responses[1]);
+}
+
+/// The surface endpoint answers, and an empty list is the ordinary answer.
+#[test]
+fn surface_is_empty_until_a_deployment_names_something() {
+    let harness = Harness::new();
+    let (status, body) = harness.get("/v1/surface", Some(&harness.auditor_token.clone()));
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["entries"].as_array().map(Vec::len), Some(0));
+}
+
+/// An unauthenticated caller gets nothing from it, even though `/v1/health` lists the
+/// same entry names.
+///
+/// That split is plan section 10's rule, and it is worth a test because the two
+/// endpoints deliberately disagree about what they will say.
+#[test]
+fn surface_needs_a_token_although_health_does_not() {
+    let harness = Harness::new();
+    let (status, _) = harness.get("/v1/surface", None);
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    let (status, _) = harness.get("/v1/health", None);
+    assert_eq!(status, StatusCode::OK);
+}
+
+/// The record behind an active entry, including the cost sentence that ships with the
+/// binary — ADR-20 asks for exactly that.
+#[cfg(feature = "honeypot_alert")]
+#[test]
+fn surface_reports_the_record_behind_an_active_entry() {
+    let harness = Harness::with_surface(
+        "honeypot_alert",
+        "2026-08-21",
+        "bait under infra/_runner, which no consumer fetches",
+    );
+    let (status, body) = harness.get("/v1/surface", Some(&harness.auditor_token.clone()));
+    assert_eq!(status, StatusCode::OK);
+
+    let entry = &body["entries"][0];
+    assert_eq!(entry["entry"], "honeypot_alert");
+    assert_eq!(entry["kind"], "build");
+    assert_eq!(entry["accepted"], "2026-08-21");
+    assert_eq!(
+        entry["reason"],
+        "bait under infra/_runner, which no consumer fetches"
+    );
+    // The operator wrote the reason; the software says what they said yes to.
+    assert!(
+        entry["cost"]
+            .as_str()
+            .is_some_and(|cost| cost.contains("No detection of bait")),
+        "the cost sentence ships with the binary"
+    );
+
+    // The same names, unauthenticated, and nothing else.
+    let (_, health) = harness.get("/v1/health", None);
+    assert_eq!(health["surface"][0], "honeypot_alert");
+    assert!(
+        !health.to_string().contains("infra/_runner"),
+        "the reason must not reach an unauthenticated endpoint"
+    );
+}
+
+/// The honeypot route is absent from a default binary, not present and refusing.
+///
+/// ADR-20: off means absent. A handler answering 404 from inside itself would be
+/// compiled, wired, and one boolean from serving.
+#[cfg(not(feature = "honeypot_alert"))]
+#[test]
+fn the_honeypot_route_does_not_exist_without_the_entry() {
+    let harness = Harness::new();
+    let (status, _) = harness.get("/v1/honeypots", Some(&harness.auditor_token.clone()));
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+/// The administrative view of bait: both kinds, and the trips that are open.
+#[cfg(feature = "honeypot_alert")]
+#[test]
+fn the_honeypot_route_lists_bait_and_open_trips() {
+    let harness = Harness::new();
+    harness.mark_as_bait("infra/service-a/DB_PASSWORD");
+
+    // Take it, so there is a trip to report.
+    harness.get(
+        "/v1/secrets/infra/service-a/DB_PASSWORD",
+        Some(&harness.deploy_token.clone()),
+    );
+
+    let (status, body) = harness.get("/v1/honeypots", Some(&harness.auditor_token.clone()));
+    assert_eq!(status, StatusCode::OK);
+
+    let bait = body["honeypots"].as_array().expect("an array");
+    let secret = bait
+        .iter()
+        .find(|entry| entry["kind"] == "secret")
+        .expect("the marked secret");
+    assert_eq!(secret["path"], "infra/service-a/DB_PASSWORD");
+    assert_eq!(secret["tier"], "alert");
+    assert_eq!(secret["tripped"], true);
+
+    let token = bait
+        .iter()
+        .find(|entry| entry["kind"] == "token")
+        .expect("the planted token");
+    assert_eq!(token["identity"], "deploy");
+    assert_eq!(token["tripped"], false);
+    // The verifier never leaves the store, and neither does the token.
+    assert!(token["path"].is_null());
+
+    let trips = body["open_trips"].as_array().expect("an array");
+    assert_eq!(trips.len(), 1);
+    assert_eq!(trips[0]["path"], "infra/service-a/DB_PASSWORD");
+    assert_eq!(trips[0]["identity"], "deploy");
+}
+
+/// An identity without `read` on `sys/honeypots` cannot see the bait.
+///
+/// The flag's whole value depends on this: a caller who can enumerate the honeypots can
+/// avoid them.
+#[cfg(feature = "honeypot_alert")]
+#[test]
+fn the_honeypot_route_is_authorized_like_everything_else() {
+    let harness = Harness::new();
+    let (status, _) = harness.get("/v1/honeypots", Some(&harness.deploy_token.clone()));
+    assert_eq!(status, StatusCode::FORBIDDEN);
 }
 
 /// A honeypot *secret* trips on the value route, and does not trip on the routes that

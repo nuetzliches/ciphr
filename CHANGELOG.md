@@ -8,6 +8,49 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — `GET /v1/honeypots`, `GET /v1/surface`, and `ciphr surface show`
+
+`/v1/honeypots` was a *reserved* path returning `404` and is now implemented — as the first **optional
+route**, which is a third state `openapi.yaml` had to learn to express. It exists only in a build
+carrying `honeypot_alert`, so against a default binary it answers `404` from the router's fallback: off
+means absent, never dormant, because a handler answering `404` from inside itself is compiled, wired and
+one boolean from serving. `GET /v1/health` lists the entries an instance has, which is how a client
+learns this instead of inferring it from a status code.
+
+Authorized as `sys/honeypots` through the ordinary evaluator, and **the only place the honeypot flag is
+ever visible.** Not on a secret read, not in `/v1/list`, not in `/v1/versions` — bait that announces
+itself to a caller is not bait, and an operator who cannot tell bait from a real secret eventually
+rotates it or builds a service on it, which destroys it just as thoroughly. There is a test that an
+identity without the grant gets `403`: a caller who can enumerate the honeypots can avoid them.
+
+`/v1/surface` is always present, authorized as `sys/surface`, and returns the record behind each active
+entry — date, reason, and the cost sentence that ships with the binary. Empty is the ordinary answer,
+and the route does not disappear when the list is empty: that would make "this deployment turned nothing
+on" and "this build has no surface mechanism" the same answer. It is authenticated although the entry
+*names* are on `/v1/health`, which is plan section 10's split and is worth a test because the two
+endpoints deliberately disagree about what they will say.
+
+`ciphr surface show <config>` reads a server configuration's `[[surface]]` stanzas and prints each with
+its cost sentence. **It reads a file and not a binary**, which is the whole caveat and is printed: for a
+build entry a stanza is one half of being switched on and the compiled feature is the other, the server
+refuses to start when the two disagree, and nothing on the host can see the server's build. An earlier
+draft used `cfg!` in the CLI to claim "in this build" — meaningless, since the CLI never contains the
+honeypot behaviour at all, and the compiler said so.
+
+`ciphr-cli` gains a direct `toml` dependency for that. Nothing new in the graph: `ciphr-policy` is
+already a dependency and already takes `toml`, so this declares a crate that was compiled either way.
+
+### Fixed — two errors reported themselves as audit failures
+
+`CliError::Audit` prints "the audit trail could not be written", and an earlier draft of this work used
+it for a TOML parse error and for "that path holds nothing" — so an operator reading either would go
+looking at the wrong subsystem. There are now `Config { path, reason }` and `BaitNeedsASecret { path }`,
+the second of which explains what bait is rather than reporting a bare not-found. Found by running the
+commands, not by a test.
+
+**Noted, not fixed:** `ciphr dump` still reports a non-UTF-8 value through `CliError::Audit`. Same
+misuse, pre-existing, and out of this change's scope.
+
 ### Added — planting bait: `ciphr honeypot` and `token issue --honeypot`
 
 Phase 8 was unreachable without this: the store could hold bait and nothing could create any.
