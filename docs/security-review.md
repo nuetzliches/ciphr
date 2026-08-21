@@ -167,10 +167,14 @@ They are listed so nobody spends time on them:
    concrete inputs. The fastest way to check whether the semantics are what a reader expects.
 
 ```sh
-cargo test --workspace --all-features        # 244 tests
+cargo test --workspace --all-features
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo doc --no-deps --open                   # the reasoning is in the code, not only here
 ```
+
+The test count differs by platform — a set of them is `#[cfg(unix)]`, because the behaviour they
+check does not exist on Windows — so there is no single number to quote here. This line used to
+quote one, and it was three phases out of date.
 
 ## The claims, and what would falsify each
 

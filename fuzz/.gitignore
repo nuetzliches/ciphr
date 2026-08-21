@@ -3,3 +3,10 @@ target/
 corpus/
 artifacts/
 coverage/
+
+# This is a nested workspace of its own, so `cargo check` in here writes a second
+# lock file. It was never tracked, and it should not be: the root `Cargo.lock` is
+# tracked because it pins what ships, and nothing here ships. Left untracked and
+# unignored, `git add -A` collects it -- which happened on 2026-08-21 and nearly
+# put a machine-local dependency state into a commit about something else.
+Cargo.lock
