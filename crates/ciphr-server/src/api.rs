@@ -47,27 +47,58 @@ const AUDIT_LIMIT_DEFAULT: u32 = 100;
 
 /// Build the router.
 pub fn router(state: AppState) -> Router {
-    let router = Router::new()
+    // The routes every deployment gets. Everything below is a surface entry (ADR-20),
+    // registered only where the configuration named it -- so "off" is a route axum
+    // answers from the fallback rather than a handler that decides to refuse. An
+    // `if enabled { … } else { 404 }` inside a live handler leaves it compiled, wired
+    // and one boolean from serving, and makes the off state invisible to everything
+    // except whoever can read the configuration file.
+    let mut router = Router::new()
         .route("/v1/health", get(health))
         .route("/v1/secrets/{*path}", get(read_secret))
         .route("/v1/secrets/{*path}", put(write_secret))
         .route("/v1/secrets/{*path}", delete(delete_secret))
         .route("/v1/versions/{*path}", get(list_versions))
         .route("/v1/list/{*prefix}", get(list_paths))
-        .route("/v1/export", post(export))
-        .route("/v1/audit", get(read_audit))
-        .route("/v1/identities", get(read_identities))
-        .route("/v1/policies", get(read_policies))
+        // Always present, and deliberately not itself an entry: the mechanism is what
+        // lists the entries, and a route that vanished when the list was empty would
+        // make "nothing is on" and "this build has no surface mechanism" one answer.
         .route("/v1/surface", get(read_surface));
 
-    // `honeypot_alert` is a *build* entry, so its route is absent from the binary
-    // rather than registered and refusing. ADR-20: off means absent, never dormant --
-    // an `if enabled { … } else { 404 }` leaves the handler compiled, wired, and one
-    // boolean from serving, and it makes the off state invisible to anything but
-    // whoever can read the configuration. Here the absence is observable from outside,
-    // because axum answers from the fallback.
+    // `viewer_api` -- the three routes that exist for a component which is already
+    // optional (ADR-11). They put the policy structure and the identity inventory on
+    // the network for anyone holding any token, and a deployment without the viewer has
+    // been serving them to nobody. The CLI reads all three straight from the store, so
+    // turning this off costs the viewer and nothing else.
+    if state.surface().has("viewer_api") {
+        router = router
+            .route("/v1/audit", get(read_audit))
+            .route("/v1/identities", get(read_identities))
+            .route("/v1/policies", get(read_policies));
+    }
+
+    // `bulk_export` -- the route that reads the value of every path under a prefix, and
+    // therefore the one that decides whether a deployment has fetched prefixes for bait
+    // to stay out of (ADR-15's placement rule, and plan section 24 reads the two
+    // entries together for exactly that reason).
+    if state.surface().has("bulk_export") {
+        router = router.route("/v1/export", post(export));
+    }
+
+    // `honeypot_alert` is a *build* entry, so the route hangs on the `cfg` and not on the
+    // surface list. That asymmetry with the two above is the decision, not an oversight:
+    // for a build entry there is no configuration-level off. `resolve` refuses to start a
+    // service whose binary has the feature and whose configuration does not declare it, so
+    // `has("honeypot_alert")` cannot be false where it would matter -- and a check that is
+    // never false is worse than none, because a reader has to work out when it fires.
+    //
+    // The behaviour this route reports on is gated the same way, in
+    // `AppState::authorize_and_record`. One condition for both, or the route and the
+    // tripwire could disagree about whether bait is being watched.
     #[cfg(feature = "honeypot_alert")]
-    let router = router.route("/v1/honeypots", get(read_honeypots));
+    {
+        router = router.route("/v1/honeypots", get(read_honeypots));
+    }
 
     router.with_state(state)
 }

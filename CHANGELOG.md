@@ -8,6 +8,54 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Changed — **breaking:** the viewer routes and the bulk export are surface entries now
+
+`GET /v1/audit`, `/v1/identities`, `/v1/policies` and `POST /v1/export` were unconditional. They are
+now the `viewer_api` and `bulk_export` entries of ADR-20, off until a deployment names them:
+
+```toml
+[[surface]]
+entry    = "viewer_api"
+accepted = "2026-08-21"
+reason   = "the audit viewer runs beside the service"
+
+[[surface]]
+entry    = "bulk_export"
+accepted = "2026-08-21"
+reason   = "ciphr-run fetches whole prefixes on service start"
+```
+
+**Without those stanzas the four routes answer `404`.** The viewer stops working; `ciphr-run` refuses
+with exit code `125` rather than starting a service without its secrets. The CLI is unaffected — it
+reads the trail, the identities and the policies straight from the store, with no network hop.
+
+**Why in this release rather than the next one.** Plan section 24 always said these two should become
+entries, and doing it after the mechanism shipped would mean releasing the surface list twice with a
+deployment-visible break in between. One break, one upgrade note.
+
+**Why they were always optional in substance.** The three viewer routes exist for a component that is
+already an optional container (ADR-11), so a deployment without the viewer has been serving them to
+nobody — while putting the policy structure and the identity inventory on the network for anyone
+holding any token. And `bulk_export` is the route that reads the value of every path under a prefix,
+which is exactly what makes bait placement hard: a deployment whose consumers name their paths has no
+fetched prefixes for a honeypot to stay out of. ADR-20 asked for the two entries to be read together
+for that reason.
+
+`openapi.yaml` can now say "optional" as a third state beside "exists" and "reserved": five routes
+carry `x-surface-entry`, each says in prose that it answers `404` where the entry is not named, and the
+header lists the mapping in one place.
+
+**A check was removed as part of this, and the removal is the interesting half.** The `/v1/honeypots`
+route was gated on both the Cargo feature *and* the entry being named — but `resolve` refuses to start a
+service whose binary has a build feature its configuration does not declare, so the second condition
+could never be false where it mattered. A check that is never false is worse than none, because a reader
+has to work out when it fires. The route now hangs on the same single condition as the behaviour it
+reports on, so the two cannot disagree about whether bait is being watched.
+
+`surface::only` is new beside `surface::resolve`, for tests and for anything composing the router
+in-process: ADR-20 property 3 is a rule about a service *starting on a configuration*, and requiring a
+date and a reason from a test would mean inventing prose no operator wrote.
+
 ### Added — the honeypots runbook, and the review claims phase 8 owes
 
 `docs/operations/honeypots.md`: planting bait, where it must not go, what does not trip, and what to do

@@ -145,9 +145,12 @@ impl Live {
             root,
             "static".to_owned(),
             "supplied".to_owned(),
-            // The surface the default build has: nothing. A test that wants an entry
-            // resolves one explicitly, so no test inherits a shape it did not ask for.
-            ciphr_server::ActiveSurface::default(),
+            // `bulk_export` is a surface entry now (ADR-20), and a prefix fetch goes
+            // through `POST /v1/export` -- so an empty surface would test the router's
+            // fallback rather than this client. `only` rather than `resolve`: this
+            // composes a router in-process, which is not a deployment starting on a
+            // configuration, so the startup record ADR-20 requires does not apply.
+            ciphr_server::surface::only(&["bulk_export"]).expect("a known entry"),
         );
 
         let generated = rcgen::generate_simple_self_signed(vec![

@@ -55,12 +55,9 @@ pub enum Kind {
     /// A Cargo feature, absent from the default build. Off means the code is not in
     /// the binary.
     Build,
-    /// Composed at startup. Off means the route is never registered.
-    ///
-    /// No entry uses this yet: `viewer_api` and `bulk_export` are built and are not
-    /// entries, which plan section 24 says they should become. The variant exists so
-    /// that the change is a row in [`ENTRIES`] rather than an invention.
-    #[allow(dead_code)]
+    /// Composed at startup. Off means the route is never registered — axum answers from
+    /// the fallback, so the off state is observable from outside rather than only to
+    /// whoever can read the configuration file.
     Runtime,
 }
 
@@ -87,14 +84,36 @@ pub struct Entry {
 ///
 /// A closed list, in one place, so that "what can a deployment turn on" is a question
 /// with an answer rather than a search.
-pub const ENTRIES: &[Entry] = &[Entry {
-    name: "honeypot_alert",
-    kind: Kind::Build,
-    cost: "No detection of bait. A deployment that plants none pays nothing for the \
-           absence, and gets the strongest form of ADR-15's indistinguishability claim: \
-           code that is not compiled in has no timing to get wrong.",
-    compiled_in: cfg!(feature = "honeypot_alert"),
-}];
+pub const ENTRIES: &[Entry] = &[
+    Entry {
+        name: "viewer_api",
+        kind: Kind::Runtime,
+        cost: "The viewer stops working. The CLI does not: it reads the audit trail, the \
+               identities and the policies straight from the store with no network hop. \
+               A deployment without the viewer has been serving these three routes to \
+               nobody -- and serving the policy structure and the identity inventory to \
+               anyone holding any token.",
+        compiled_in: true,
+    },
+    Entry {
+        name: "bulk_export",
+        kind: Kind::Runtime,
+        cost: "Route B and route C fetch by named path instead of by prefix, one request \
+               each, and `ciphr-run` refuses with exit code 125 rather than starting a \
+               service without its secrets. The upside is the one ADR-15 cares about: a \
+               deployment whose consumers name their paths has no fetched prefixes for \
+               bait to stay out of.",
+        compiled_in: true,
+    },
+    Entry {
+        name: "honeypot_alert",
+        kind: Kind::Build,
+        cost: "No detection of bait. A deployment that plants none pays nothing for the \
+               absence, and gets the strongest form of ADR-15's indistinguishability \
+               claim: code that is not compiled in has no timing to get wrong.",
+        compiled_in: cfg!(feature = "honeypot_alert"),
+    },
+];
 
 /// Look an entry up by the name a configuration used.
 fn entry(name: &str) -> Option<&'static Entry> {
@@ -145,6 +164,16 @@ impl Active {
         self.entries.iter().map(|active| active.name).collect()
     }
 
+    /// Whether one entry is active.
+    ///
+    /// What the router asks before registering an optional route. A method rather than
+    /// the caller searching [`Active::names`], so "is this on" has one implementation —
+    /// and the name it is asked about was checked against [`ENTRIES`] by [`resolve`]
+    /// before it could get here.
+    pub fn has(&self, name: &str) -> bool {
+        self.entries.iter().any(|active| active.name == name)
+    }
+
     /// One line naming the active surface, for the startup audit entry.
     ///
     /// `none` rather than an empty string: a trail reader has to be able to tell "this
@@ -159,6 +188,50 @@ impl Active {
             .collect::<Vec<_>>()
             .join(",")
     }
+}
+
+/// An [`Active`] naming exactly these entries, without the startup rule.
+///
+/// For tests and for anything that composes [`crate::api::router`] in-process rather than
+/// going through [`crate::Server::prepare`].
+///
+/// **Why this exists beside [`resolve`], which is the one that enforces ADR-20.** Property
+/// 3 is a rule about *starting a service on a configuration*: a build entry the binary
+/// contains has to be declared there, or the deployment is running surface it never
+/// recorded a decision about. Composing a router in-process is not that — there is no
+/// deployment, no operator, and no configuration file — so requiring the record here would
+/// mean inventing a date and a reason nobody wrote, in every test that wants one route.
+///
+/// The date and reason are placeholders and say so, which is the honest form of a value
+/// that no operator authored.
+///
+/// # Errors
+///
+/// [`ConfigError::SurfaceUnknown`] if a name is not an entry. A typo here is a programmer
+/// error rather than a configuration mistake, and it should not be reported as an empty
+/// surface that silently loses a route.
+pub fn only(entries: &[&str]) -> Result<Active, ConfigError> {
+    let mut active = Vec::with_capacity(entries.len());
+    for name in entries {
+        let Some(known) = entry(name) else {
+            return Err(ConfigError::SurfaceUnknown {
+                name: (*name).to_owned(),
+                known: ENTRIES
+                    .iter()
+                    .map(|entry| entry.name)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            });
+        };
+        active.push(ActiveEntry {
+            name: known.name,
+            kind: known.kind,
+            accepted: "0000-00-00".to_owned(),
+            reason: "composed in-process; no operator recorded this".to_owned(),
+            cost: known.cost,
+        });
+    }
+    Ok(Active { entries: active })
 }
 
 /// Check a configuration's surface stanzas against what this binary contains.

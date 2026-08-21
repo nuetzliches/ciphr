@@ -1108,6 +1108,12 @@ fn parse_surface_stanzas(
 /// the moment to move the list into `ciphr-core` as data rather than to copy it twice.
 fn cost_of(entry: &str) -> Option<&'static str> {
     match entry {
+        "viewer_api" => Some(
+            "The viewer stops working. The CLI does not: it reads the audit trail, the              identities and the policies straight from the store with no network hop. A              deployment without the viewer has been serving these three routes to nobody              -- and serving the policy structure and the identity inventory to anyone              holding any token.",
+        ),
+        "bulk_export" => Some(
+            "Route B and route C fetch by named path instead of by prefix, one request              each, and `ciphr-run` refuses with exit code 125 rather than starting a              service without its secrets. The upside is the one ADR-15 cares about: a              deployment whose consumers name their paths has no fetched prefixes for bait              to stay out of.",
+        ),
         "honeypot_alert" => Some(
             "No detection of bait. A deployment that plants none pays nothing for the              absence, and gets the strongest form of ADR-15's indistinguishability claim:              code that is not compiled in has no timing to get wrong.",
         ),

@@ -11,13 +11,22 @@
 # the plan), and `POST /v1/report` with `GET /v1/leaks` for leak reports (section 23,
 # ADR-16).
 #
-# `GET /v1/honeypots` was the fourth until 2026-08-21 and is now implemented -- but as
-# an **optional** route, which is a third state this document has to be able to express
-# and previously did not. It exists only in a build with the `honeypot_alert` surface
-# entry (ADR-20), so against a default binary it answers 404 exactly as a reserved path
-# does, for a different reason. Every optional route says so in its own description and
-# names the entry it belongs to; `GET /v1/health` lists the entries a given instance has,
-# which is how a client finds out without guessing from a 404.
+# **Five routes are optional**, which is a third state beside "exists" and "reserved" and
+# one this document could not express before 2026-08-21. Each belongs to a surface entry
+# (ADR-20) and answers 404 where a deployment did not turn that entry on -- the same status
+# a reserved path gives, for a different reason. `GET /v1/health` lists the entries a given
+# instance has, which is how a client finds out rather than guessing from a status code.
+#
+#   `viewer_api`      GET /v1/audit, /v1/identities, /v1/policies
+#   `bulk_export`     POST /v1/export
+#   `honeypot_alert`  GET /v1/honeypots
+#
+# The first two were unconditional until 2026-08-21 and are a **breaking change** for a
+# deployment that does not name them: see `docs/operations/upgrade.md`. They became entries
+# because they were always optional in substance and not in mechanism -- the three viewer
+# routes exist for a component that is already an optional container (ADR-11), and a
+# deployment without the viewer was serving them to nobody while putting the policy
+# structure and the identity inventory on the network for anyone holding any token.
 #
 # `POST /v1/report` is the reservation that matters beyond tidiness: it is the only
 # route in the design that will ever be unauthenticated besides `/v1/health`.
@@ -247,9 +256,18 @@ paths:
 
   /v1/export:
     post:
+      x-surface-entry: bulk_export
       tags: [secrets]
       summary: Several secrets in one call.
       description: |
+        **Optional route**, belonging to the `bulk_export` surface entry (ADR-20). It
+        answers `404` from the router's fallback where a deployment did not name that
+        entry; `ciphr-run` then refuses with exit code 125 rather than starting a service
+        without its secrets, and route B and route C fetch by named path instead.
+
+        Turning it off is also what removes fetched prefixes, which is the placement
+        problem a honeypot secret has to stay out of (ADR-15).
+
         Requires `read` on **every** path requested, and produces **one audit entry per
         secret served** — never one per call. A collective entry for a bulk read is
         exactly the blind spot that disqualified other candidates during the evaluation.
@@ -277,9 +295,16 @@ paths:
 
   /v1/audit:
     get:
+      x-surface-entry: viewer_api
       tags: [administration]
       summary: Read the audit trail.
       description: |
+        **Optional route**, belonging to the `viewer_api` surface entry (ADR-20). It
+        answers `404` from the router's fallback where a deployment did not name that
+        entry, and `GET /v1/health` lists the entries a given instance has. The CLI reads
+        this from the store with no network hop, so turning the entry off costs the viewer
+        and nothing else.
+
         Authorized as the virtual path `sys/audit` through the ordinary policy
         evaluator. There is no `admin` capability and no second authorization
         mechanism.
@@ -329,13 +354,26 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: This deployment did not turn on the `viewer_api` entry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "503": { $ref: "#/components/responses/AuditUnavailable" }
 
   /v1/identities:
     get:
+      x-surface-entry: viewer_api
       tags: [administration]
       summary: Which identities exist and which policies they hold.
       description: |
+        **Optional route**, belonging to the `viewer_api` surface entry (ADR-20). It
+        answers `404` from the router's fallback where a deployment did not name that
+        entry, and `GET /v1/health` lists the entries a given instance has. The CLI reads
+        this from the store with no network hop, so turning the entry off costs the viewer
+        and nothing else.
+
         Authorized as `sys/identities`. Read-only: identities are defined in the policy
         file, which is authoritative (ADR-3). This endpoint makes misconfiguration
         visible without making it creatable.
@@ -348,13 +386,26 @@ paths:
                 $ref: "#/components/schemas/Identities"
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: This deployment did not turn on the `viewer_api` entry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "503": { $ref: "#/components/responses/AuditUnavailable" }
 
   /v1/policies:
     get:
+      x-surface-entry: viewer_api
       tags: [administration]
       summary: The rules, as loaded.
       description: |
+        **Optional route**, belonging to the `viewer_api` surface entry (ADR-20). It
+        answers `404` from the router's fallback where a deployment did not name that
+        entry, and `GET /v1/health` lists the entries a given instance has. The CLI reads
+        this from the store with no network hop, so turning the entry off costs the viewer
+        and nothing else.
+
         Authorized as `sys/policies`. Includes each rule's specificity — the number of
         literal segments — because that is what decides between two matching rules, and
         a reader working out why an access was refused needs it.
@@ -367,6 +418,12 @@ paths:
                 $ref: "#/components/schemas/Policies"
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: This deployment did not turn on the `viewer_api` entry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "503": { $ref: "#/components/responses/AuditUnavailable" }
 
   /v1/auth/oidc/login:
@@ -473,6 +530,7 @@ paths:
 
   /v1/honeypots:
     get:
+      x-surface-entry: honeypot_alert
       tags: [administration]
       summary: Which paths and tokens are bait, and what has been taken. Optional.
       description: |

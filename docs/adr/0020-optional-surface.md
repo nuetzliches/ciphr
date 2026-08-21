@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Accepted 2026-08-20.** Nothing is implemented; the first entry brings the gate with it |
+| **Status** | **Accepted 2026-08-20, built 2026-08-21.** All three of the first entries exist: `honeypot_alert` (build), and `viewer_api` and `bulk_export` (runtime, and a breaking change for a deployment that does not name them). The gate arrived with the first entry, as this record required. Every condition below is discharged |
 | **Date** | 2026-08-20 |
 | **Affects** | `ciphr-server`, `ciphr-store`, `ciphr-cli`, `openapi.yaml`, plan sections 12 and 24, ADR-11, ADR-15, ADR-16, ADR-21 |
 
@@ -171,11 +171,21 @@ an incident.
   every test asserting what a build *without* the entry does is `#[cfg(not(feature = …))]`, so those
   could not run at all. A green pipeline that never compiled the shipped build is the failure this rule
   exists to prevent, and it existed here for the length of one afternoon.
-- **`openapi.yaml` marks an optional route as optional.** A specification that describes routes no
-  deployment necessarily serves is a specification of a system nobody runs.
-- **Each entry's cost sentence ships with the binary.** `ciphr surface show` prints what the entry
-  costs, taken from the record that owns it, next to the operator's reason for accepting it. The
-  operator writes why they said yes; the software says what they said yes to.
+- ~~**`openapi.yaml` marks an optional route as optional.**~~ **Done 2026-08-21.** Five routes carry
+  `x-surface-entry` naming the entry they belong to, each says in prose that it answers `404` where the
+  entry is not named, and the file's header lists the mapping in one place. A reader who only has the
+  specification can now tell "this deployment does not serve it" from "this version does not have it",
+  which is the distinction a specification of routes no deployment necessarily serves has to make.
+- ~~**Each entry's cost sentence ships with the binary.**~~ **Done 2026-08-21.** `ciphr surface show
+  <config>` reads a server configuration's stanzas and prints each entry's cost next to the operator's
+  reason, and `GET /v1/surface` returns the same pair. The operator writes why they said yes; the
+  software says what they said yes to.
+
+  **One caveat, stated in the command's own output.** `surface show` reads a *file*, not a binary, so
+  for a build entry it reports what the deployment asked for rather than what it got. Nothing on the
+  host can see the service's build — that is what `GET /v1/health` is for. An earlier draft used a
+  compile-time check in the CLI to claim "in this build", which is meaningless: the CLI never contains
+  the server's optional code at all.
 
 ## Consequences
 

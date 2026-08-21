@@ -1556,7 +1556,10 @@ The project starts private. These points cost nothing now and would be expensive
 
 ## 22. Honeypots and Tripwires
 
-Decided 2026-08-20 and not built. ADR-15 carries the decision; this section carries the design.
+**Built 2026-08-21**, in the `alert` tier only, as the `honeypot_alert` surface entry. ADR-15 carries
+the decision and the four dated amendments the build produced; this section carries the design. The one
+part of the tier that is not built is the marker file, and ADR-15 says why and names the condition for
+building it. `docs/operations/honeypots.md` is the runbook.
 **The accepted scope is the `alert` tier only** — `disable-identity` and `freeze` are designed below
 and are not being implemented, and ADR-15 names the condition that would bring them back. The design
 here is left whole for that reason; read it against that record rather than as a build list. **Numbered after
@@ -1907,8 +1910,14 @@ Audit actions: `report`, `leak-marked`, and one for the aggregate refusal entry.
 
 ## 24. Optional Surface
 
-Planned, not built. [ADR-20](../../docs/adr/0020-optional-surface.md) carries the decision; this
-section carries the design and the first entries. **Numbered after section 23 because it generalizes
+**Built 2026-08-21.** [ADR-20](../../docs/adr/0020-optional-surface.md) carries the decision; this
+section carries the design and the first entries. All three of the entries in the table below exist —
+`honeypot_alert` as a build entry, `viewer_api` and `bulk_export` as runtime entries. `report` and the
+anonymous variant do not, because ADR-21 is Proposed and ADR-16 is Deferred.
+
+**Making the two built features into entries was a breaking change**, and taking it in the same release
+as the mechanism was deliberate: the alternative was releasing the surface list twice, with a
+deployment-visible break in between. **Numbered after section 23 because it generalizes
 what sections 22 and 23 each invented for themselves**, not because it comes later in time — the
 mechanism is a precondition for the way both of those get switched on.
 

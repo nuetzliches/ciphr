@@ -88,23 +88,34 @@ impl Harness {
     }
 
     fn with_audit(kind: AuditKind) -> Self {
-        Self::build_harness(kind, ciphr_server::ActiveSurface::default())
+        Self::build_harness(kind, Self::runtime_entries())
     }
 
-    /// A harness whose process reports the surface a deployment turned on.
+    /// The two runtime entries a deployment with a viewer and prefix-fetching consumers
+    /// turns on.
     ///
-    /// Resolved through the real `surface::resolve`, not hand-built: a test that
-    /// constructed an `ActiveSurface` directly could describe an entry this binary does
-    /// not contain, which is the one state startup exists to refuse.
-    #[cfg(feature = "honeypot_alert")]
-    fn with_surface(entry: &str, accepted: &str, reason: &str) -> Self {
-        let active = ciphr_server::surface::resolve(&[ciphr_server::surface::SurfaceConfig {
-            entry: entry.to_owned(),
-            accepted: accepted.to_owned(),
-            reason: reason.to_owned(),
-        }])
-        .expect("the entry is in this build");
-        Self::build_harness(AuditKind::Working, active)
+    /// The harness carries them because most tests here are about what those routes do,
+    /// and a harness whose surface was empty would be testing the fallback. The
+    /// *absence* has its own tests, which resolve their own surface rather than
+    /// inheriting one — see `an_entry_that_is_not_named_has_no_route`.
+    fn runtime_entries() -> ciphr_server::ActiveSurface {
+        Self::resolve(&["viewer_api", "bulk_export"])
+    }
+
+    /// A surface holding exactly these entries.
+    ///
+    /// `surface::only` rather than `surface::resolve`: this composes a router in-process,
+    /// which is not a deployment starting on a configuration, so ADR-20's rule that a
+    /// compiled-in build entry must be *declared* does not apply — and without that, an
+    /// all-features build would refuse to construct any harness that did not name
+    /// `honeypot_alert`, in every test file.
+    fn resolve(entries: &[&str]) -> ciphr_server::ActiveSurface {
+        ciphr_server::surface::only(entries).expect("the names are entries")
+    }
+
+    /// A harness whose surface is exactly the entries named, and nothing else.
+    fn with_surface(entries: &[&str]) -> Self {
+        Self::build_harness(AuditKind::Working, Self::resolve(entries))
     }
 
     fn build_harness(kind: AuditKind, surface: ciphr_server::ActiveSurface) -> Self {
@@ -476,13 +487,71 @@ fn bait_and_an_unknown_token_produce_identical_responses() {
     assert_eq!(responses[0], responses[1]);
 }
 
-/// The surface endpoint answers, and an empty list is the ordinary answer.
+/// An entry a deployment did not name has no route at all.
+///
+/// **Off is absent, not dormant.** The point of the assertion being on the status code is
+/// that the off state is observable from outside: a handler that answered `403` or a
+/// `404` of its own would be compiled, wired, and one boolean from serving, and nothing
+/// but reading the configuration file could tell you which.
+///
+/// This works in both configurations. `with_surface(&[])` yields an empty surface in a
+/// default build and one holding only `honeypot_alert` where the feature is compiled in —
+/// and neither names the two runtime entries, which is what this test is about.
 #[test]
-fn surface_is_empty_until_a_deployment_names_something() {
-    let harness = Harness::new();
-    let (status, body) = harness.get("/v1/surface", Some(&harness.auditor_token.clone()));
+fn an_entry_that_is_not_named_has_no_route() {
+    let harness = Harness::with_surface(&[]);
+    let token = harness.auditor_token.clone();
+
+    for route in ["/v1/audit", "/v1/identities", "/v1/policies"] {
+        let (status, _) = harness.get(route, Some(&token));
+        assert_eq!(status, StatusCode::NOT_FOUND, "{route} without viewer_api");
+    }
+
+    let export = Harness::build(
+        "POST",
+        "/v1/export",
+        Some(&harness.deploy_token),
+        Some(serde_json::json!({ "paths": ["infra/service-a/DB_PASSWORD"] })),
+    );
+    let (status, _) = harness.send(export);
+    assert_eq!(status, StatusCode::NOT_FOUND, "export without bulk_export");
+
+    // What every deployment keeps: health, the value path, listing, and the surface
+    // endpoint itself.
+    let (status, _) = harness.get("/v1/health", None);
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["entries"].as_array().map(Vec::len), Some(0));
+    let (status, _) = harness.get(
+        "/v1/secrets/infra/service-a/DB_PASSWORD",
+        Some(&harness.deploy_token.clone()),
+    );
+    assert_eq!(status, StatusCode::OK);
+    let (status, body) = harness.get("/v1/surface", Some(&token));
+    assert_eq!(status, StatusCode::OK);
+    let names = body["entries"].to_string();
+    assert!(!names.contains("viewer_api"));
+    assert!(!names.contains("bulk_export"));
+}
+
+/// Named, and the routes are there — the other half of the pair above.
+#[test]
+fn the_runtime_entries_bring_their_routes() {
+    let harness = Harness::new();
+    let (status, _) = harness.get("/v1/audit", Some(&harness.auditor_token.clone()));
+    assert_eq!(status, StatusCode::OK);
+
+    let export = Harness::build(
+        "POST",
+        "/v1/export",
+        Some(&harness.deploy_token),
+        Some(serde_json::json!({ "paths": ["infra/service-a/DB_PASSWORD"] })),
+    );
+    let (status, _) = harness.send(export);
+    assert_eq!(status, StatusCode::OK);
+
+    let (_, health) = harness.get("/v1/health", None);
+    let names = health["surface"].to_string();
+    assert!(names.contains("viewer_api"));
+    assert!(names.contains("bulk_export"));
 }
 
 /// An unauthenticated caller gets nothing from it, even though `/v1/health` lists the
@@ -505,22 +574,30 @@ fn surface_needs_a_token_although_health_does_not() {
 #[cfg(feature = "honeypot_alert")]
 #[test]
 fn surface_reports_the_record_behind_an_active_entry() {
-    let harness = Harness::with_surface(
-        "honeypot_alert",
-        "2026-08-21",
-        "bait under infra/_runner, which no consumer fetches",
-    );
+    let harness = Harness::with_surface(&["viewer_api", "honeypot_alert"]);
     let (status, body) = harness.get("/v1/surface", Some(&harness.auditor_token.clone()));
     assert_eq!(status, StatusCode::OK);
 
-    let entry = &body["entries"][0];
-    assert_eq!(entry["entry"], "honeypot_alert");
+    let entry = body["entries"]
+        .as_array()
+        .expect("an array")
+        .iter()
+        .find(|entry| entry["entry"] == "honeypot_alert")
+        .expect("the build entry");
     assert_eq!(entry["kind"], "build");
-    assert_eq!(entry["accepted"], "2026-08-21");
-    assert_eq!(
-        entry["reason"],
-        "bait under infra/_runner, which no consumer fetches"
+    assert!(
+        entry["accepted"].as_str().is_some(),
+        "a date is always reported"
     );
+    assert!(entry["reason"].as_str().is_some_and(|r| !r.is_empty()));
+    // A runtime entry beside it, so the two kinds are distinguishable on the wire.
+    let runtime = body["entries"]
+        .as_array()
+        .expect("an array")
+        .iter()
+        .find(|entry| entry["entry"] == "viewer_api")
+        .expect("the runtime entry");
+    assert_eq!(runtime["kind"], "runtime");
     // The operator wrote the reason; the software says what they said yes to.
     assert!(
         entry["cost"]
@@ -531,9 +608,16 @@ fn surface_reports_the_record_behind_an_active_entry() {
 
     // The same names, unauthenticated, and nothing else.
     let (_, health) = harness.get("/v1/health", None);
-    assert_eq!(health["surface"][0], "honeypot_alert");
+    let names: Vec<&str> = health["surface"]
+        .as_array()
+        .expect("an array")
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .collect();
+    assert!(names.contains(&"honeypot_alert"));
+    assert!(names.contains(&"viewer_api"));
     assert!(
-        !health.to_string().contains("infra/_runner"),
+        !health.to_string().contains("no operator recorded this"),
         "the reason must not reach an unauthenticated endpoint"
     );
 }
