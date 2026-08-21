@@ -76,7 +76,7 @@ The parts where a mistake is expensive, and where to read before making one.
 | [review-2026-08-18.md](review-2026-08-18.md) | The pre-review pass against the same list, from the model that co-authored the code — read for what it says it did *not* check |
 | [why-build-this.md](why-build-this.md) | The evaluation of existing tools and the exit condition |
 | [ui.md](ui.md) | The read-only viewer: the five views, the security properties and where each is enforced, and how it is deployed |
-| [operations/cli.md](operations/cli.md) | Every command, and the two rules that shape all of them |
+| [operations/cli.md](operations/cli.md) | Every command, and the two rules that shape all of them — including `ciphr state`, which derives the deployment's file set from its configuration |
 | [operations/backup.md](operations/backup.md) | What has to be in a backup, how to take one that is not torn, what a restore undoes, and how the store's own rotation classes decide what the backup is worth |
 | [operations/monitoring.md](operations/monitoring.md) | Every field on `/v1/health`, which of them change, the three ways to read it wrong, and why backup freshness is deliberately not there |
 | [operations/upgrade.md](operations/upgrade.md) | What to do about each version's breaking changes, and the rules that hold for every upgrade |

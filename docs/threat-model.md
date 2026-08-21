@@ -99,7 +99,11 @@ choice (ADR-1).
 **A secret in an error message.** Error types carry paths, identities, and error classes — never
 values.
 
-**A secret in a core dump or in swap.** `ZeroizeOnDrop` on key material, memory limit equal to swap
+**A secret in a core dump or in swap.** Both halves are now reported rather than assumed: the
+entrypoint disables core dumps itself, and it now reads the cgroup swap limit and says so when swap
+is available to the container — a warning and not a refusal, because a process
+cannot change its own swap limit and an unreadable cgroup file is not evidence that swap is on.
+`ZeroizeOnDrop` on key material, memory limit equal to swap
 limit in the container runtime, core dumps disabled. The language cannot solve this alone; part of
 it is an operational requirement.
 

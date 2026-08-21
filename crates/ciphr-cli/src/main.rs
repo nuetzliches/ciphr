@@ -180,6 +180,26 @@ enum Command {
         new_key_file: Option<PathBuf>,
     },
 
+    /// List every file this deployment's configuration implies, and whether it is there.
+    ///
+    /// The question this answers is "what do I have to keep", and before this command it
+    /// had no answer a machine could give: the file set lived in a documentation table,
+    /// in `config.rs` defaults, and in a `VOLUME` line. A list in a document drifts from
+    /// the configuration it describes; this one is derived from it, so it cannot.
+    ///
+    /// Reads the configuration and the filesystem and nothing else. **No store lock and
+    /// no master key** -- it checks whether the key file exists and never opens it, the
+    /// same distinction `/v1/health` draws when it names the key source without the key.
+    ///
+    /// What it cannot know is stated in its own output rather than left to be discovered:
+    /// the anchor file and the audit archive's rotated siblings are named by whoever runs
+    /// `audit anchor` and `audit cut`, not by this file, so no configuration mentions them.
+    State {
+        /// Path to the server's configuration file. The deployment's own answer about
+        /// where everything is, rather than this command's guess.
+        config: String,
+    },
+
     /// Copy the store to one consistent file, with the service running or stopped.
     ///
     /// `VACUUM INTO` and not a file copy: `cp` on a live database reads a file that is
@@ -741,9 +761,202 @@ fn run(cli: Cli) -> Result<(), CliError> {
             new_key_env,
             new_key_file,
         } => rotate_master_key(&cli, new_key_env.as_deref(), new_key_file.as_deref()),
+        Command::State { config } => state(&config),
         Command::Backup { destination } => backup(&cli, &destination),
         Command::Dump { format, force } => dump(&cli, &format, force),
     }
+}
+
+/// One row of the inventory: what the file is for, where it is, and what to do with it.
+struct Piece {
+    role: &'static str,
+    path: String,
+    /// What a backup should do about it. Not whether it exists -- that is looked up.
+    keep: &'static str,
+    /// Whether the deployment cannot run without it. Decides the exit code.
+    required: bool,
+}
+
+/// The audit devices' own files.
+///
+/// Separate from [`inventory`] because the list is a loop over an array of tables and
+/// the rest is not, and because the SQLite device's absence from the result is a
+/// decision worth stating in one place.
+fn audit_pieces(document: &toml::Value) -> Vec<Piece> {
+    let mut pieces = Vec::new();
+
+    for (index, device) in document
+        .get("audit")
+        .and_then(toml::Value::as_array)
+        .map_or(&[][..], Vec::as_slice)
+        .iter()
+        .enumerate()
+    {
+        match device.get("type").and_then(toml::Value::as_str) {
+            // The SQLite device writes into the database that is already listed, so
+            // naming it again would suggest a second file to keep.
+            Some("sqlite") => {}
+            // Not `required`, and the distinction is the whole reason to say so: the
+            // file device creates its file on the first record, so an absent archive on
+            // a service that has never started is correct. An absent archive on one that
+            // has is a finding, and nothing here can tell those two apart -- so this
+            // reports and does not fail, rather than crying wolf on a fresh deployment.
+            Some("file") => pieces.push(Piece {
+                role: "audit archive",
+                path: device
+                    .get("path")
+                    .and_then(toml::Value::as_str)
+                    .unwrap_or("(no path configured)")
+                    .to_owned(),
+                keep: "back up: the trail before the last cut is only here",
+                required: false,
+            }),
+            _ => pieces.push(Piece {
+                role: "audit device",
+                path: format!("(device {} is not a kind this CLI knows)", index + 1),
+                keep: "check the configuration",
+                required: false,
+            }),
+        }
+    }
+
+    pieces
+}
+
+/// Every piece of state this configuration implies.
+///
+/// Reads the configuration and nothing else -- whether a path is *there* is looked up by
+/// the caller, so this stays a pure function of the document and is the half worth
+/// reading to answer "what does this deployment consist of".
+fn inventory(config: &str, document: &toml::Value) -> Vec<Piece> {
+    let at = |keys: &[&str]| -> Option<String> {
+        let mut value = document;
+        for key in keys {
+            value = value.get(key)?;
+        }
+        value.as_str().map(str::to_owned)
+    };
+
+    let mut pieces = vec![Piece {
+        role: "configuration",
+        path: config.to_owned(),
+        keep: "back up: the [[surface]] stanzas exist nowhere else",
+        required: true,
+    }];
+
+    // The store, and the two files that live beside it. Defaults match `config.rs`, so a
+    // configuration that leaves a key out gets the same answer the server would use.
+    let store = at(&["storage", "path"]).unwrap_or_else(|| "/var/lib/ciphr/store.db".to_owned());
+    pieces.push(Piece {
+        role: "store",
+        path: store.clone(),
+        keep: "back up: everything the service holds",
+        required: true,
+    });
+    pieces.push(Piece {
+        role: "  write-ahead log",
+        path: format!("{store}-wal"),
+        keep: "back up with the store, or use `ciphr backup`",
+        required: false,
+    });
+    pieces.push(Piece {
+        role: "  store lock",
+        path: format!("{store}.lock"),
+        keep: "never back up: it names a process, not the store",
+        required: false,
+    });
+
+    pieces.push(Piece {
+        role: "policies",
+        path: at(&["policies"]).unwrap_or_else(|| "/etc/ciphr/policies.toml".to_owned()),
+        keep: "back up: the identities exist in no table",
+        required: true,
+    });
+
+    // The seal names either a file or a variable. Only one of them is a path, and the
+    // other is still worth printing: an operator reading this list needs to know the key
+    // is somewhere else on purpose.
+    match at(&["seal", "type"]).as_deref() {
+        Some("static_file") => pieces.push(Piece {
+            role: "master key",
+            path: at(&["seal", "path"]).unwrap_or_else(|| "(no path configured)".to_owned()),
+            keep: "NEVER in the same backup as the store",
+            required: true,
+        }),
+        _ => pieces.push(Piece {
+            role: "master key",
+            path: format!(
+                "${} (a variable, not a file)",
+                at(&["seal", "env"]).unwrap_or_else(|| "CIPHR_MASTER_KEY".to_owned())
+            ),
+            keep: "NEVER in the same backup as the store",
+            required: false,
+        }),
+    }
+
+    pieces.extend(audit_pieces(document));
+
+    for (role, keys) in [
+        ("tls certificate", ["server", "tls", "cert"]),
+        ("tls key", ["server", "tls", "key"]),
+    ] {
+        if let Some(path) = at(&keys) {
+            pieces.push(Piece {
+                role,
+                path,
+                keep: "reissue rather than restore",
+                required: true,
+            });
+        }
+    }
+
+    pieces
+}
+
+/// `ciphr state CONFIG` -- the file set this configuration implies.
+///
+/// Derived from the configuration on purpose. A deployment that has moved its store,
+/// added a second audit device or switched the key from a variable to a file gets an
+/// answer about *its* files, and nobody has to remember to update a list.
+fn state(config: &str) -> Result<(), CliError> {
+    let text = std::fs::read_to_string(config)?;
+    let document = toml::from_str::<toml::Value>(&text).map_err(|error| CliError::Config {
+        path: config.to_owned(),
+        reason: error.to_string(),
+    })?;
+
+    let mut missing = 0;
+    for piece in inventory(config, &document) {
+        // A variable is not a path and must not be reported as an absent file.
+        let present = if piece.path.starts_with(&['$', '('][..]) {
+            "-      "
+        } else if std::path::Path::new(&piece.path).exists() {
+            "present"
+        } else if piece.required {
+            missing += 1;
+            "MISSING"
+        } else {
+            "absent "
+        };
+        println!(
+            "{present}  {:<18}  {:<44}  {}",
+            piece.role, piece.path, piece.keep
+        );
+    }
+
+    eprintln!();
+    eprintln!("Two things no configuration names, so this command cannot list them: the");
+    eprintln!("anchor file (`audit anchor --out`) and the audit archive's rotated siblings.");
+    eprintln!("Both belong in the backup and both are chosen where they are written.");
+    eprintln!("`docs/operations/backup.md` has the rest, including what a restore undoes.");
+
+    if missing > 0 {
+        return Err(CliError::Config {
+            path: config.to_owned(),
+            reason: format!("{missing} file(s) this configuration requires are not there"),
+        });
+    }
+    Ok(())
 }
 
 /// `ciphr backup DESTINATION`.

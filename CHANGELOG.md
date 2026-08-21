@@ -13,6 +13,82 @@ This file is updated in the same commit as the change it describes.
 answered and the corrected `bulk_export` sentence accurate against the code it describes — read end
 to end, not taken from the changelog. Three things it asked for, and four smaller ones.
 
+### Added — `ciphr state`, so the file set is derived from the configuration instead of remembered
+
+*What do I have to keep* had no machine-readable answer. The file set lived in a table in
+`docs/operations/backup.md`, in the defaults in `config.rs`, and in a `VOLUME` line in the image —
+three places that agree until one of them is edited, and the table was written by hand two days ago
+from the other two. `ciphr state <config>` derives it from the deployment's own configuration, so a
+moved store, a second audit device or a key that changed from a variable to a file all produce an
+answer about *those* files without anybody remembering to update a document. `backup.md` now leads
+with the command and keeps its table as the explanation of why each row matters.
+
+**A non-zero exit means a file the configuration requires is not there**, which makes it a pre-flight
+check and not only a report: a store before `init`, a policy file that did not mount, TLS material
+that is not where the configuration says. Each of those is a service that will not start, found
+before the running one is stopped.
+
+**Two rows are deliberately not failures**, and saying which is the difference between a check and an
+alarm. The write-ahead log exists only between checkpoints. The audit archive is created by the file
+device on its first record, so an absent archive on a service that has never started is correct — and
+nothing here can tell that apart from an archive somebody deleted, so it reports and does not fail
+rather than crying wolf on every fresh deployment.
+
+**No store lock and no master key.** It checks whether the key file exists and never opens it, which
+is the same line `/v1/health` draws when it names the key source without the key — and a test asserts
+the key's value never reaches the output, because this command reads a configuration that says exactly
+where that value lives.
+
+Two things it cannot list, because no configuration names them: the anchor file, which is an argument
+to `audit anchor --out`, and the archive's rotated siblings. It says so in its own output rather than
+leaving a reader to discover the gap.
+
+### Added — `ci/check-doc-commands.sh`: a command a document tells you to run has to exist
+
+`docs/README.md` promises that operational procedures "name exact commands and exact file paths, and
+say which of them do not exist yet". Every other documentation discipline here is enforced by a
+script; that one was left to habit, which is the same argument `ci/check-changelog.sh` makes in its
+own header about the rule that eroded.
+
+**It is bounded on purpose, and the bound is worth stating because it does not cover the failure that
+prompted it.** ADR-7's `VACUUM INTO` claim was a sentence about a capability, and no script can judge
+one. What this refuses is the narrower and more common version: a code block handing somebody a
+subcommand that is not there.
+
+Measured before it was written, because the design question was whether it would be noise. Over prose,
+`ciphr <word>` yields 28 candidates of which 0 are real — "ciphr is", "ciphr keeps". Restricted to
+fenced code blocks it yields 2, both genuine: `ciphr run` in ADR-14, whose own text says twelve lines
+later that the built thing is `ciphr-run`, and `ciphr lockdown` in `freeze.md`, which declares itself
+unimplemented in its third line. ADRs are exempt for the reason `check-doc-dates.sh` exempts them —
+rewriting a proposal falsifies the record — and `freeze.md` is in an allowlist that requires a reason
+per entry.
+
+The subcommand list comes from the `Command` enum rather than from `--help`, so the gate needs no
+build, the way `check-surface-entries.sh` reads Rust source. It validates only the first word after
+`ciphr`: teaching a shell script clap's whole tree would catch a typo inside a command that exists,
+which is visible the first time anybody runs the line, and this catches a command that never existed,
+which is invisible until an incident.
+
+### Added — the entrypoint reports the swap limit it cannot set
+
+`docs/threat-model.md` lists one mitigation with two halves: "memory limit equal to swap limit, and
+core dumps disabled". The entrypoint has disabled core dumps since it existed, with the reasoning that
+"a limit belongs with the process it protects: a deployment that forgets a `ulimits:` entry would
+otherwise silently lose the protection". The other half had nothing but that sentence, and key
+material in swap outlives `ZeroizeOnDrop` exactly the way a core dump does.
+
+A process cannot change its own swap limit, so this reports: it reads `memory.swap.max` on cgroup v2,
+falls back to comparing `memsw` against the memory limit on v1, and prints what to put in the
+container definition when swap is available. Verified against real containers rather than reasoned
+about — `--memory-swap` equal to `--memory` yields `memory.swap.max` of 0 and silence, a larger value
+yields the warning.
+
+**A warning and not a refusal**, deliberately. The core-dump limit is one this script owns; this is an
+observation about someone else's container definition, and a refusal would stop the service on every
+host where those cgroup files are laid out differently, unreadable, or absent — a development machine,
+a CI runner — none of which is evidence that swap is on. Where it cannot tell, it says so, because "no
+warning" must not be readable as "checked and fine".
+
 ### Added — `ciphr backup`, so the backup this project has always asked for has a command
 
 ADR-7 chose SQLite in part because *"backup is `VACUUM INTO` plus an existing file-backup job"*. That

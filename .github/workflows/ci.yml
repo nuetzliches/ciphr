@@ -129,6 +129,13 @@ jobs:
       - name: Documentation carries dates
         run: sh ci/check-docs.sh
 
+      # The narrow, checkable half of "documentation is about what exists". A
+      # prose claim about a capability is beyond a script -- ADR-7 promised a
+      # `VACUUM INTO` backup for three releases with no command behind it -- but a
+      # code block handing somebody a subcommand that does not exist is not.
+      - name: Documented commands exist
+        run: sh ci/check-doc-commands.sh
+
       # The gates above are shell scripts, and until 2026-08-20 nothing checked
       # them. That is the wrong way round: they are what enforces every other
       # rule here, so a defect in one silently stops enforcing something. Two of

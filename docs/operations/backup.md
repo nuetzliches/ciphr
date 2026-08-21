@@ -84,8 +84,26 @@ value both directions are sharp at once. The two copies of the key that
 
 ## What has to be in the backup
 
-The database is not self-sufficient. Three of the rows below are things a restored database needs in
-order to serve a single request, and each has been a surprise to somebody.
+**Ask the deployment rather than this table:**
+
+```sh
+ciphr state /etc/ciphr/ciphr.toml
+```
+
+Every path is derived from that configuration, so a store that was moved, a second audit device or a
+key that changed from a variable to a file all produce an answer about *those* files. It reports what
+each piece is for, whether it is there, and what a backup should do with it — and it exits non-zero if
+something the configuration requires is absent, which makes it usable before an upgrade rather than
+only during one. It needs no store lock and no master key: it checks whether the key file exists and
+never opens it.
+
+Two things no configuration names, so the command says so instead of guessing: the anchor file, chosen
+by whoever runs `audit anchor --out`, and the audit archive's rotated siblings. Both belong in the
+backup.
+
+The table below is the *why*. The database is not self-sufficient, three of these rows are things a
+restored database needs in order to serve a single request, and each has been a surprise to
+somebody.
 
 | What | Where it lives by default | What a restore without it costs |
 |---|---|---|

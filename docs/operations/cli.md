@@ -66,7 +66,8 @@ the phone — and note what the second one means for an incident: the question "
 valid" has no answer from a live service today. The credential's state is not on `/v1/health`, and
 `/v1/identities` carries names, kinds and policies but no expiry, no revocation and no last use.
 
-The exceptions are `backup`, `audit anchor`, `audit verify` and `audit cut`, which need neither the
+The exceptions are `state`, `backup`, `audit anchor`, `audit verify` and `audit cut`, which need
+neither the
 lock nor the master key and are documented as such below — they exist to run against a live service.
 For `backup` that is the whole point: a copy of the store that could only be taken during a
 maintenance window is a copy that stops being taken.
@@ -309,6 +310,36 @@ consequence is worth planning around rather than discovering: the state of a cre
 revocation, last use) is readable only with the service down, which is the opposite of when the
 question gets asked. Nothing on the API answers it either — a refused request is `401` with no
 reason, deliberately, so that probing learns nothing.
+
+## What this deployment keeps
+
+```sh
+ciphr state /etc/ciphr/ciphr.toml
+```
+
+Every file the configuration implies, whether it is there, and what a backup should do with it. It
+opens the configuration and the filesystem and nothing else — **no store lock, no master key**, and it
+checks whether the key file exists without reading it.
+
+It exists because *what do I have to keep* had no machine-readable answer. The file set lived in a
+table in [backup.md](backup.md), in the defaults in `config.rs`, and in a `VOLUME` line in the image —
+three places that agree until one of them is edited. This is derived from the deployment's own
+configuration, so a moved store or a second audit device changes the answer without anybody
+remembering to update a document.
+
+**A non-zero exit means a file the configuration requires is not there**, which makes this a
+pre-flight check rather than only a report: a store before `init`, a policy file that did not mount,
+TLS material that is not where the configuration says. Each of those is a service that will not
+start, found before the old one is stopped.
+
+Two rows are deliberately *not* failures. The write-ahead log exists only between checkpoints, and the
+audit archive is created by the file device on its first record — so an absent archive on a service
+that has never started is correct, and a check that failed there would cry wolf on every fresh
+deployment.
+
+And two things it cannot list, because no configuration names them: the anchor file, which is an
+argument to `audit anchor --out`, and the archive's rotated siblings. It says so in its own output
+rather than leaving a reader to find out.
 
 ## Backing up
 
