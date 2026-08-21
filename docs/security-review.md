@@ -8,8 +8,8 @@ the code, and not the human practitioner the *Who fits* section sketches — the
 section states what that is worth, and a human review obtained later supersedes it. **The
 maintainer accepted that review as discharging the precondition on 2026-08-21**; what the
 acceptance covers, what it does not, and what would reverse it are in *The decision to accept it*
-below. Two claims below were falsified (B6, F1; D6, F2); both defects were fixed the same day and
-the rows say so. The design review of ADR-15 and ADR-16 on 2026-08-20 is a different document and
+below. Two claims below were falsified (B6, F1; D6, F2); both defects were fixed the same day,
+the other four findings were disposed of the same day, and the rows say so. The design review of ADR-15 and ADR-16 on 2026-08-20 is a different document and
 says of itself that it is not this one.
 
 ## What this document is, and is not
@@ -74,8 +74,14 @@ decision with it.
 heap buffers on every authenticated request) and F2 (the reserved-prefix refusal enforced in the
 HTTP layer alone) were fixed on 2026-08-21 — decided first, fixed the same day, and recorded here
 together. The honest order matters: for the hours between, the acceptance stood on a fitness
-statement whose conditions were open. F3 to F6 are precision and hardening rather than exposure, and
-are open at the project's pace.
+statement whose conditions were open.
+
+**All six findings are now disposed of**, also on 2026-08-21: F4 (the missing correcting audit entry
+on `delete`, `export`, and the version listing) fixed, F6 (a world-*writable* credential file
+started the process) fixed, and F3 and F5 answered as the review asked — as prose, because both were
+claims stronger than the code rather than defects in it. Every disposition is in the changelog and in
+the claim row it belongs to, per the review record's own rule that a dated review is not
+backfilled.
 
 **What it does not stretch to cover, and what would reverse it:**
 
