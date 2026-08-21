@@ -8,6 +8,19 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-08-21
+
+**The release that corrects `0.5.0` rather than adding to it**, and the first patch release here.
+Nothing breaks, nothing migrates, the schema stays at 6 and no interface moves — a rollback to `0.5.0`
+needs neither a restore nor a configuration edit.
+
+**One change reaches an operator only through a new artefact, and it is the reason to tag this.**
+`bulk_export`'s cost sentence ships compiled into the binary and `GET /v1/surface` serves it, so a
+running `0.5.0` keeps answering the question "what does turning this off cost me?" with a claim the
+handler does not support. That is the one artefact a deployment cannot correct locally. The new
+`--check-config` output is in the same position for a weaker reason: `docs/operations/upgrade.md`
+recommends the command, and only a new image can run it.
+
 **A field report on the `0.5.0` rollout, and four things it found.** Recorded in
 [`docs/field-report-2026-08-21-b.md`](docs/field-report-2026-08-21-b.md), written from the operating
 side of a private deployment after upgrading it. Two of the four are claims this project made about

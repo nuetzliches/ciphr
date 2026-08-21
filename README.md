@@ -4,7 +4,7 @@ A small secret manager for machine identities: key/value secrets, gap-free acces
 and path-based authorization. The name contains *CI* — the primary consumer is a build and
 deploy pipeline, not a human.
 
-> **Status: v0.5.0 released.** Usable end to end: envelope encryption with master key rotation,
+> **Status: v0.5.1 released.** Usable end to end: envelope encryption with master key rotation,
 > SQLite with migrations, the policy evaluator, the fail-closed hash-chained audit trail, the HTTPS
 > API with token authentication, and the `ciphr` CLI. Since v0.1.0: the audit anchor and the
 > retention cut that bounds the trail (`ciphr audit anchor`, `ciphr audit cut`), one rule for
@@ -16,6 +16,13 @@ deploy pipeline, not a human.
 > and revoking a credential is in the audit trail, and the six findings of the external review are
 > answered — two fixed as defects, two more found by the same reading, two answered as prose that
 > claimed more than the code did. Since v0.4.0: optional surface entries, and honeypots.
+>
+> **v0.5.1 is a correction release**, and the correction worth knowing about is a claim this project
+> made about itself: `bulk_export`'s recorded cost said that turning the entry off removes fetched
+> prefixes and so makes a honeypot secret easier to place. It does not — `POST /v1/export` reads the
+> paths a caller *names*, and whether a prefix is covered is a property of the fetching code. If you
+> decided about that entry on the old sentence, [`docs/operations/upgrade.md`](docs/operations/upgrade.md)
+> says what to re-read. Nothing breaks and nothing migrates.
 >
 > **v0.5.0 is a breaking release for a deployment's configuration.** Four routes — the three the
 > viewer reads and `POST /v1/export` — are now *surface entries* (ADR-20): off until a deployment

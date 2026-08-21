@@ -1,6 +1,6 @@
 # Upgrading
 
-**Status:** current as of 2026-08-21, covering every released version up to `0.5.0`.
+**Status:** current as of 2026-08-21, covering every released version up to `0.5.1`.
 
 The changelog says what changed. This says what to *do* about it, and it exists because the two are
 not the same document: a changelog entry sinks under the next release, while the person upgrading two
@@ -50,6 +50,38 @@ deployment and most deployments should have `viewer_api` off. What it prints is 
 the binary knows and the mark against the ones this file did not name, which is the only place that
 question is answered — an entry that is off is absent from the router, so its `404` is byte-identical
 to a typo'd path.
+
+## 0.5.1
+
+**Nothing to do, and a rollback is safe.** Schema stays at 6, no interface moves, and the
+`[[surface]]` stanzas `0.5.0` needs are the ones `0.5.1` needs — so going back to the
+`0.5.0` image needs neither a database restore nor a configuration edit. The general rule
+at the top of this document relaxes for this upgrade, as it did for `0.4.0`.
+
+**One thing to re-read, if you decided about `bulk_export` on what `0.5.0` told you.** That
+entry's cost sentence claimed that turning it off removes fetched prefixes, and therefore
+makes a honeypot secret easier to place. It does not, and the `0.5.0` section below has the
+correction in full. Short version: `POST /v1/export` reads the paths a caller *names*, and
+`GET /v1/list/{prefix}` is not a surface entry, so a caller that lists a prefix and then
+reads each path covers the same prefix either way. What turning the entry off actually costs
+is `ciphr-run` entirely — both `--prefix` and `--path` fetch through that route — and one
+request per path for an SDK consumer.
+
+A deployment that turned `bulk_export` off *for that reason* has paid a real cost for a
+property it did not get, and the fix is a decision rather than a command: either name the
+entry again, or keep it off on the grounds that actually apply. Where bait sits is settled
+by reading the fetching code, which is what [honeypots.md](honeypots.md) says.
+
+**`--check-config` says more than it did.** It now prints the resolved surface: the entries
+the configuration named, and the ones it did not with what each absence costs. Worth one run
+after the upgrade even though nothing requires it — on a `0.5.0` file it answers the question
+`0.5.0` could not, which is whether the file is the one you meant rather than merely a legal
+one. `ciphr surface show <config>` does the same from the host.
+
+**A consumer built on `ciphr-sdk` can drop its own `ciphr-core` dependency.** The types that
+forced it — `SecretPath`, `Plaintext`, `SecretVersion`, `EnvVarName`, `Rotation`, `PathError`,
+`EnvNameError` — are re-exported from `ciphr_sdk` now. Nothing breaks if it stays; the
+`ciphr_core::` paths still work.
 
 ## 0.5.0
 
