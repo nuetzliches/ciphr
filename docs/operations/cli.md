@@ -40,19 +40,30 @@ ciphr get infra/service-a/DB_PASSWORD --force > /tmp/x # deliberate
 `export --format actions-env` is exempt: writing into the runner's environment file *is* its
 purpose.
 
-**One process writes to a store at a time, and the running server is that process.** Every command
-that writes takes an exclusive lock on the store, and the server holds that lock for its whole
-lifetime. So while the service is up, a writing command does not run — it fails, and the message
-says what to do:
+**One process holds a store at a time, and the running server is that process.** Every command that
+opens a session takes an exclusive lock on the store, and the server holds that lock for its whole
+lifetime. So while the service is up, such a command does not run — it fails before it touches the
+database, and the message says what to do:
 
 ```
 the store is in use by process 4711; stop it, run this, start it again.
 Two writers collide on the audit sequence and leave the first one refusing every request.
 ```
 
-That includes `token issue`, which is the one that surprises people: **issuing a credential
-requires stopping the service.** Plan for it as a scheduled operation with a short outage, not as
-something done while someone waits on the phone.
+**"Opens a session" includes the commands that only read**, and the list below is the whole reason
+this paragraph is worth reading twice. The CLI audits what it does, reads included, so `get`, `list`,
+`rotation <path>` and `audit tail` each append to the trail and are writers by the time the lock is
+taken. Two of them surprise people:
+
+- `token issue` — **issuing a credential requires stopping the service.**
+- `token list` — **so does asking whether a credential is still valid**, when it expires, or when it
+  was last used. It changes nothing and, unlike the other reads, records nothing either; it takes the
+  lock all the same, because it opens a session to reach the store.
+
+Plan both as scheduled operations with a short outage, not as something done while someone waits on
+the phone — and note what the second one means for an incident: the question "is this token still
+valid" has no answer from a live service today. The credential's state is not on `/v1/health`, and
+`/v1/identities` carries names, kinds and policies but no expiry, no revocation and no last use.
 
 The exceptions are `audit anchor`, `audit verify` and `audit cut`, which need neither the lock nor
 the master key and are documented as such below — they exist to run against a live service.
@@ -273,6 +284,13 @@ afterwards is when *this* credential stopped working. What that buys, and what i
 
 `revoke-all` is what to reach for when an identity is compromised — one call, rather than listing
 tokens and hoping the list was complete.
+
+**All four need the service stopped, `list` included.** It is a read, it records nothing, and it
+still opens a session and therefore takes the lock — see the rule at the top of this page. The
+consequence is worth planning around rather than discovering: the state of a credential (expiry,
+revocation, last use) is readable only with the service down, which is the opposite of when the
+question gets asked. Nothing on the API answers it either — a refused request is `401` with no
+reason, deliberately, so that probing learns nothing.
 
 ## The audit trail
 
