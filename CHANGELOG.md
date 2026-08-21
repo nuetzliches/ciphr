@@ -8,6 +8,35 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — the viewer image never contained the favicon its own document asks for
+
+`ui/public/favicon.svg` has been committed, linked from `index.html`, and listed in `ui/README.md`'s
+layout since the viewer existed, and no image ever contained it. `ui/Dockerfile` copies named paths
+rather than the whole build context — deliberately, so that nothing lying in the directory rides into
+the image — and the list did not name `public/`. Vite skips a public directory it cannot find without
+saying so, so every viewer image through `ui-v0.3.0` built, type checked, carried its policy, and
+then answered `/favicon.svg` with the 404 `try_files` is configured to give. A browser shows its
+blank-document icon and reports the miss in a console nobody has open, which is how all four viewer
+tags went out with it.
+
+**That no gate had a chance of catching it is the part worth fixing.** The bundle CI builds is not the
+bundle the image serves: CI builds from the whole tree, the image from the COPY list, and nothing
+compared the two. Two checks now do, and they cover different halves on purpose:
+
+- `ci/check-ui-image-files.sh` — every tracked top-level path under `ui/` is either named by a COPY in
+  `ui/Dockerfile` or listed in the script as deliberately absent, with the reason next to it
+  (`Dockerfile`, `.dockerignore`, `README.md`). It runs beside the other source gates in the `build`
+  job rather than in the viewer's, because it needs neither Node nor a build. Run against the tree as
+  it was, it named `public/` and nothing else.
+- The built-document step in `.github/workflows/ci.yml` now also checks that every local `href` and
+  `src` in `dist/index.html` resolves to a file the bundle contains. A reference that 404s violates no
+  policy, so the CSP checks beside it could not see this; equally, that step cannot see a file missing
+  from the *image*, which is why the static gate above exists rather than replacing it.
+
+**For an operator: nothing to do.** The fix is in how the image is built, so it arrives with the next
+viewer tag; an icon is not a reason to cut one. The service image is untouched, and no deploy ordering
+changes.
+
 ### Fixed — five documents still said the external review was pending
 
 The review took place on 2026-08-21 and `docs/security-review.md`, `SECURITY.md`, `AGENTS.md`,

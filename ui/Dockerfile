@@ -25,6 +25,16 @@ COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts --no-audit --no-fund
 
 COPY tsconfig.json vite.config.ts index.html ./
+
+# The files the document references by path instead of importing — the favicon,
+# and anything else that ever joins it. This directory was missing from the list
+# until 2026-08-21, and nothing noticed: Vite skips a public directory it cannot
+# find without a word, so every image built before then served a 404 for the icon
+# `index.html` asks for. `ci/check-ui-image-files.sh` now fails if a tracked path
+# under ui/ is named by no COPY here.
+#
+# Before src/, because a component changes far more often than an icon does.
+COPY public/ public/
 COPY src/ src/
 
 # Type check and build. `vue-tsc` is part of the build script rather than a

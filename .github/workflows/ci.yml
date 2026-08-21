@@ -72,6 +72,14 @@ jobs:
       - name: No raw HTML injection in the UI
         run: sh ci/check-no-v-html.sh
 
+      # Static, and in this job rather than the viewer's, because it needs
+      # neither Node nor a build -- it compares the package against the image's
+      # COPY list. The bug it exists for shipped for three viewer releases: the
+      # favicon was committed and referenced and no image contained it, because
+      # CI builds from the whole tree and the image builds from the list.
+      - name: The viewer image contains what the package has
+        run: sh ci/check-ui-image-files.sh
+
       # Cannot check whether a document is accurate; can check that a reader is
       # able to judge how old it is.
       - name: Documentation carries dates
@@ -163,7 +171,29 @@ jobs:
             echo >&2 "an inline style in dist/index.html would need 'unsafe-inline' in the CSP"
             exit 1
           fi
-          echo "policy present, nothing inline"
+          # Every local reference in the document resolves to a file the bundle
+          # actually has. The checks above say the document is safe to serve;
+          # this says it is complete. A `href` that 404s violates no policy, so
+          # nothing above can see it, and the browser reports it only in a
+          # console nobody has open.
+          #
+          # This does not cover a file missing from the *image* -- the bundle
+          # here is built from the whole tree, the image from a COPY list, and
+          # comparing those two is what ci/check-ui-image-files.sh does.
+          refs=$(grep -oE '(href|src)="[^"]*"' dist/index.html |
+                   sed -e 's/^[^"]*"//' -e 's/"$//')
+          for ref in $refs; do
+            case "$ref" in
+              '' | http:* | https:* | //* | data:* | mailto:* | '#'*) continue ;;
+            esac
+            path=${ref%%\?*}
+            path=${path%%#*}
+            if [ ! -f "dist/${path#/}" ]; then
+              echo >&2 "dist/index.html references $ref, which the bundle does not contain"
+              exit 1
+            fi
+          done
+          echo "policy present, nothing inline, every reference resolves"
 
       # Advisories for the frontend tree, separate from cargo-audit. High and
       # above fails: the viewer runs in a tab that may hold a plaintext secret.
