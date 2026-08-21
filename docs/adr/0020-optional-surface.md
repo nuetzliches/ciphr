@@ -152,14 +152,25 @@ an incident.
 
 ## What must be true before an entry ships
 
-- **The gate arrives with the first entry.** A check that the three core crates declare no Cargo
-  features and reference no surface module, in the shape of `ci/check-no-print.sh`: mechanical,
-  blocking, and cheap to read. Written when there is something for it to check, and not before — a
-  gate with nothing to catch is a gate nobody trusts.
-- **The test rule is decided before the second entry, not after.** Default (everything off),
-  everything on, and each entry alone: n+2 configurations, which stays affordable while n is small and
-  stops being affordable exactly when the set has grown into a framework. **That is the signal to
-  stop, and it is written here so that it is recognized as a signal rather than as a CI problem.**
+- ~~**The gate arrives with the first entry.**~~ **Built 2026-08-21** as
+  `ci/check-core-no-features.sh`, with `honeypot_alert` as that entry. Four claims about the three core
+  crates: no `[features]` table, no `cfg(feature)` in the sources, no code reference to a surface
+  module, and no features handed to them by `[workspace.dependencies]` — the last one being the same
+  claim from the other side, since a crate that declares none can still be built with some if a
+  dependent asks. Comment lines are stripped before the surface check, because all three crates discuss
+  attack surface in prose and should keep doing so.
+- ~~**The test rule is decided before the second entry, not after.**~~ **Implemented 2026-08-21**, and
+  the rule is unchanged: default (everything off), everything on, and each entry alone — n+2
+  configurations, which stays affordable while n is small and stops being affordable exactly when the
+  set has grown into a framework. **That is the signal to stop, and it is written here so that it is
+  recognized as a signal rather than as a CI problem.**
+
+  While n is 1, "everything on" and "each entry alone" are the same build, so CI runs two: the default
+  and `--all-features`. **The default one had to be added.** `--all-features` was there first and was
+  the only one, which meant the configuration a deployment actually receives was the untested one — and
+  every test asserting what a build *without* the entry does is `#[cfg(not(feature = …))]`, so those
+  could not run at all. A green pipeline that never compiled the shipped build is the failure this rule
+  exists to prevent, and it existed here for the length of one afternoon.
 - **`openapi.yaml` marks an optional route as optional.** A specification that describes routes no
   deployment necessarily serves is a specification of a system nobody runs.
 - **Each entry's cost sentence ships with the binary.** `ciphr surface show` prints what the entry

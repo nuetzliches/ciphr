@@ -55,10 +55,28 @@ jobs:
       - name: cargo fmt
         run: cargo fmt --all --check
 
-      - name: cargo clippy
+      # Two configurations, and ADR-20 says which two: everything off, and everything
+      # on. With one surface entry those are the whole matrix -- "each entry alone" and
+      # "everything on" are the same build while n is 1, and the rule is written down so
+      # that the second entry does not have to invent it.
+      #
+      # `--all-features` came first here and was, until 2026-08-21, the only one. That
+      # left the configuration a deployment actually receives untested: the default
+      # build is what ships, and `honeypot_alert` is absent from it. The tests that
+      # assert what a build *without* the entry does -- that bait is recorded as an
+      # ordinary rejected credential, that `/v1/health` omits the tripwire fields
+      # rather than reporting `false` -- are `#[cfg(not(feature = ...))]` and could not
+      # run at all.
+      - name: cargo clippy (default build, no surface entries)
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: cargo test (default build, no surface entries)
+        run: cargo test --workspace --locked
+
+      - name: cargo clippy (every surface entry on)
         run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
-      - name: cargo test
+      - name: cargo test (every surface entry on)
         run: cargo test --workspace --all-features --locked
 
       # Source rules from the security guidelines. They are gates rather than
