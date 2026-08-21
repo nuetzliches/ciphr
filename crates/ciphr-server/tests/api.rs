@@ -277,6 +277,20 @@ impl Harness {
         }
     }
 
+    /// Mark an existing secret as bait, the way `ciphr honeypot add` will.
+    ///
+    /// Through the store rather than through the API, because marking bait is not an API
+    /// operation: it happens on the host, for the same reason ADR-3 keeps policies off
+    /// the network.
+    #[cfg(feature = "honeypot_alert")]
+    fn mark_as_bait(&self, path: &str) {
+        let mut store = SqliteStore::open(&self.database).expect("reopen");
+        let parsed = SecretPath::parse(path).expect("a valid path");
+        store
+            .set_honeypot(&parsed, Some(ciphr_store::HoneypotTier::Alert))
+            .expect("mark as bait");
+    }
+
     /// Read the audit log directly, as an operator would.
     fn audit_entries(&self) -> Vec<serde_json::Value> {
         let store = SqliteStore::open(&self.database).expect("reopen");
@@ -432,6 +446,194 @@ fn bait_and_an_unknown_token_produce_identical_responses() {
         .collect();
 
     assert_eq!(responses[0], responses[1]);
+}
+
+/// A honeypot *secret* trips on the value route, and does not trip on the routes that
+/// only name it.
+///
+/// The list/versions half is the one worth pinning: ADR-15 says enumerating a name is not
+/// taking the bait, and a honeypot that fires on `list` fires on every inventory an
+/// operator runs.
+#[cfg(feature = "honeypot_alert")]
+#[test]
+fn a_honeypot_secret_trips_on_a_read_and_not_on_a_listing() {
+    let harness = Harness::new();
+    harness.mark_as_bait("infra/service-a/DB_PASSWORD");
+
+    // Naming it is not taking it.
+    let (status, _) = harness.get("/v1/list/infra", Some(&harness.deploy_token.clone()));
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = harness.get(
+        "/v1/versions/infra/service-a/DB_PASSWORD",
+        Some(&harness.deploy_token.clone()),
+    );
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        !harness
+            .audit_entries()
+            .iter()
+            .any(|entry| entry["entry"]["action"] == "honeypot-triggered"),
+        "enumerating a name must not trip"
+    );
+
+    // Reading its value is.
+    let (status, body) = harness.get(
+        "/v1/secrets/infra/service-a/DB_PASSWORD",
+        Some(&harness.deploy_token.clone()),
+    );
+    assert_eq!(status, StatusCode::OK, "bait answers like any other secret");
+    assert_eq!(body["value"], "seeded");
+    // No extra field anywhere on the value path.
+    assert!(body.get("honeypot").is_none());
+    assert!(body.get("tier").is_none());
+
+    let entries = harness.audit_entries();
+    let trip = entries
+        .iter()
+        .find(|entry| entry["entry"]["action"] == "honeypot-triggered")
+        .expect("the read must be recorded as a trip");
+    assert_eq!(trip["entry"]["principal"]["name"], "deploy");
+    assert_eq!(trip["entry"]["path"], "infra/service-a/DB_PASSWORD");
+    assert_eq!(trip["entry"]["detail"], "attempted: read");
+    assert_eq!(trip["entry"]["allowed"], true);
+    // The rule that allowed it is still there: the trip replaced the action, not the
+    // decision the entry records.
+    assert!(trip["entry"]["rule"]["policy"].is_string());
+}
+
+/// A refused read of bait trips nothing.
+///
+/// ADR-15 is explicit: bait outside an identity's grants produces a denial, and a denial
+/// trips nothing. Without this an identity scoped away from the bait would page somebody
+/// every time it probed.
+#[cfg(feature = "honeypot_alert")]
+#[test]
+fn a_denied_read_of_bait_trips_nothing() {
+    let harness = Harness::new();
+    harness.mark_as_bait("infra/service-a/DB_PASSWORD");
+
+    let (status, _) = harness.get(
+        "/v1/secrets/infra/service-a/DB_PASSWORD",
+        Some(&harness.auditor_token.clone()),
+    );
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    assert!(
+        !harness
+            .audit_entries()
+            .iter()
+            .any(|entry| entry["entry"]["action"] == "honeypot-triggered"),
+        "a denial is not a trip"
+    );
+}
+
+/// `/v1/health` says a tripwire is open, and never which bait.
+#[cfg(feature = "honeypot_alert")]
+#[test]
+fn health_reports_that_something_fired_and_not_what() {
+    let harness = Harness::new();
+    harness.mark_as_bait("infra/service-a/DB_PASSWORD");
+
+    let (_, before) = harness.get("/v1/health", None);
+    assert_eq!(before["tripped"], false);
+    assert_eq!(before["open_tripwires"], 0);
+
+    harness.get(
+        "/v1/secrets/infra/service-a/DB_PASSWORD",
+        Some(&harness.deploy_token.clone()),
+    );
+
+    let (_, after) = harness.get("/v1/health", None);
+    assert_eq!(after["tripped"], true);
+    assert_eq!(after["open_tripwires"], 1);
+    // Nothing about which path, and no identity.
+    let rendered = after.to_string();
+    assert!(
+        !rendered.contains("DB_PASSWORD"),
+        "health must not name bait"
+    );
+    assert!(
+        !rendered.contains("deploy"),
+        "health must not name an identity"
+    );
+}
+
+/// A build without the entry says nothing about tripwires at all.
+///
+/// Absent rather than `false`: "this build cannot detect bait" and "nothing has been
+/// taken" are different facts, and a monitor that conflates them reports a working
+/// tripwire on a service that has none.
+#[cfg(not(feature = "honeypot_alert"))]
+#[test]
+fn health_omits_the_tripwire_fields_without_the_entry() {
+    let harness = Harness::new();
+    let (_, body) = harness.get("/v1/health", None);
+    assert!(body.get("tripped").is_none());
+    assert!(body.get("open_tripwires").is_none());
+}
+
+/// The latch: a second read of the same bait does not open a second trip.
+///
+/// **Why this is not racy, since the latch write is deliberately off the request path.**
+/// `Harness::send` builds a runtime per call and drops it when the response is in hand,
+/// and dropping a tokio runtime waits for its blocking tasks. So each request here drains
+/// its own latch write before the next line runs. In a real deployment the runtime
+/// outlives the request and the write is genuinely concurrent, which is the point — this
+/// test can be exact about the outcome only because of how it drives the router, and that
+/// is worth knowing before somebody adds a sleep to "fix" a test that does not need one.
+#[cfg(feature = "honeypot_alert")]
+#[test]
+fn the_second_read_of_the_same_bait_does_not_latch_again() {
+    let harness = Harness::new();
+    harness.mark_as_bait("infra/service-a/DB_PASSWORD");
+
+    for _ in 0..3 {
+        harness.get(
+            "/v1/secrets/infra/service-a/DB_PASSWORD",
+            Some(&harness.deploy_token.clone()),
+        );
+    }
+
+    let (_, health) = harness.get("/v1/health", None);
+    assert_eq!(health["open_tripwires"], 1, "one latch, three reads");
+
+    // Every read is still in the trail, though: the latch bounds the paging, not the
+    // record.
+    let trips = harness
+        .audit_entries()
+        .iter()
+        .filter(|entry| entry["entry"]["action"] == "honeypot-triggered")
+        .count();
+    assert_eq!(trips, 3, "the trail records each read");
+}
+
+/// A bulk export of a prefix containing bait trips on the bait and on nothing else.
+///
+/// This is the case ADR-15's placement rule exists for, and it is worth a test rather
+/// than a sentence: `POST /v1/export` is a value route, so bait under a fetched prefix
+/// trips on every service start.
+#[cfg(feature = "honeypot_alert")]
+#[test]
+fn an_export_that_includes_bait_trips_on_that_path_only() {
+    let harness = Harness::new();
+    harness.mark_as_bait("infra/service-a/DB_PASSWORD");
+
+    let export = Harness::build(
+        "POST",
+        "/v1/export",
+        Some(&harness.deploy_token),
+        Some(serde_json::json!({ "paths": ["infra/service-a/DB_PASSWORD"] })),
+    );
+    let (status, _) = harness.send(export);
+    assert_eq!(status, StatusCode::OK);
+
+    let entries = harness.audit_entries();
+    let trip = entries
+        .iter()
+        .find(|entry| entry["entry"]["action"] == "honeypot-triggered")
+        .expect("an export of bait is a trip");
+    assert_eq!(trip["entry"]["detail"], "attempted: read");
+    assert_eq!(trip["entry"]["path"], "infra/service-a/DB_PASSWORD");
 }
 
 /// The trail says bait was taken, and says which bait and what was attempted.

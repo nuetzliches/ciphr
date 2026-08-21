@@ -8,6 +8,47 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — a honeypot secret trips on the value route, and `/v1/health` says so
+
+The second kind of bait: a path holding a real-looking value nobody legitimately reads.
+Reading its value through the API is a trip; naming it is not.
+
+**The trigger lives in `authorize_and_record`, so no handler can forget it.** It fires only for an
+allowed `Capability::Read`, which is exactly "this route serves a value" here — `list` and
+`/v1/versions` authorize as `Capability::List` and so cannot trip, which is what ADR-15 means by
+"enumerating a name is not taking the bait". A **denial** trips nothing either: bait outside an
+identity's grants produces a `403`, and paging somebody for that would make every scoped-away probe an
+incident. There is no honeypot branch in `ciphr-policy` and no new capability; the evaluator is asked
+the same question it always is, and the answer is consulted afterwards.
+
+**The lookup costs one indexed row on every allowed read, bait or not, and that is the design.**
+Property 1's second sanctioned option is that the path absorbs the same cost either way, and this is
+that option taken deliberately rather than a cost that slipped in. A build without the entry performs
+no lookup at all.
+
+**The trip replaces the entry's action; the decision it records is untouched.** `honeypot-triggered`,
+with the path, the principal and the deciding rule still on it, and `attempted: read` in `detail`. One
+entry, exactly as before — a second would be work an ordinary read does not do.
+
+**`/v1/health` gains `tripped` and `open_tripwires`, and they are absent rather than `false` in a
+build without the entry.** "This build cannot detect bait" and "nothing has been taken" are different
+facts, and a monitor that conflates them reports a working tripwire on a service that has none. A
+boolean and a count, never a name: plan section 10 lets an unauthenticated endpoint say what the
+process is doing, and *which* bait was taken is stored rather than enforced.
+
+**The latch write is off the request path**, in a blocking task, because a row is work an ordinary read
+does not do and must not sit where the caller can time it. The claim is stated at its real strength in
+the code: axum offers no post-flush hook here, so what is guaranteed is that the request does not wait
+for the write — not that the write happens afterwards. The residue is one lock acquisition's worth of
+contention against a millisecond-scale insert. A failed latch is recorded in the trail as
+`latch-failed` rather than failing the request, per ADR-15's dated fail-closed decision: the
+authoritative record is already stored, and refusing a request because a *derived* row could not be
+written is precisely the observable difference property 1 forbids.
+
+Six tests, including the two negatives that matter — a listing does not trip, a denial does not trip —
+and one that reads the same bait three times and finds one open trip and three trail entries: the latch
+bounds the paging, not the record.
+
 ### Added — the store side of bait: a tier, a latch, and a history
 
 `set_honeypot`, `honeypot_tier`, `honeypots`, `latch_trip`, `open_trips` and `clear_trips`. General

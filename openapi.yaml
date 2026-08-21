@@ -632,6 +632,28 @@ components:
             type: string
             enum: [honeypot_alert]
           examples: [[], ["honeypot_alert"]]
+        tripped:
+          type: boolean
+          description: |
+            Whether any tripwire is currently open (ADR-15). **Absent** in a build
+            without the `honeypot_alert` entry, rather than `false`: "this build cannot
+            detect bait" and "nothing has been taken" are different facts, and a monitor
+            that conflates them reports a working tripwire on a service that has none.
+
+            A boolean and never a name. Plan section 10 lets an unauthenticated endpoint
+            say what the process is doing, which is *that* something fired; *which* bait
+            was taken is stored, and stays behind the administrative read and the trail.
+
+            It does not clear itself. A trip is cleared on the host, deliberately -- a
+            tripwire that resets on a timer has, in effect, not fired.
+        open_tripwires:
+          type: integer
+          minimum: 0
+          description: |
+            How many trips are open. Absent under the same condition as `tripped`.
+
+            More than one means more than one piece of bait, not more than one read of
+            the same one: a trip latches per piece of bait until it is cleared.
         api_version: { type: string, examples: ["v1"] }
 
     SecretInput:
@@ -862,6 +884,7 @@ components:
                   issue-token,
                   revoke-token,
                   surface-active,
+                  honeypot-triggered,
                 ]
             subject:
               type: [object, "null"]
@@ -886,6 +909,12 @@ components:
                 Stable labels, except for `audit-device-failed` entries, whose reason is
                 `device-refused: <device name>` so a later reader can tell which copy of
                 the trail has a gap.
+
+                `honeypot-triggered` carries `unauthenticated` when the bait was a token
+                and no reason at all when it was a secret -- reading bait an identity was
+                authorized to read is not a denial. `latch-failed` marks the one case
+                where a trip was recorded and its latch was not, which means
+                `/v1/health` may not show it.
 
                 `not-found`, `write-failed`, `delete-failed`, `not-listed`, and
                 `not-served` mark a **correcting second entry**: the decision above them
@@ -916,8 +945,10 @@ components:
               description: |
                 What an informational entry is about, when no path and no identity say
                 it. Set by `surface-active`, which carries the comma-separated names of
-                the active surface entries or the literal `none`, and null everywhere
-                else.
+                the active surface entries or the literal `none`, and by
+                `honeypot-triggered`, which carries `attempted: <action>` -- the action
+                the entry would have had if the credential or the path had not been bait.
+                Null everywhere else.
 
                 **Not a second `deny_reason`.** A `surface-active` entry refuses
                 nothing, so `deny_reason` there would make the trail claim a denial that

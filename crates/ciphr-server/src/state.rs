@@ -368,7 +368,41 @@ impl AppState {
     ) -> Result<(), ApiError> {
         let decision = self.authorize(caller, capability, path);
 
+        // Bait, asked about *after* the decision and never inside it (ADR-15 property
+        // 2). The evaluator was handed the same question it always gets; there is no
+        // honeypot branch in `ciphr-policy`, no new capability, and nothing here can
+        // change what the policy decided.
+        //
+        // Only for an allowed read. A denial means nobody reached the bait, and ADR-15
+        // is explicit that a denial trips nothing; a write or a delete reads no value.
+        // `Capability::Read` is exactly "this route serves a value" in this system,
+        // since listing and version history authorize as `Capability::List`.
+        //
+        // The lookup costs one indexed row for every allowed read, bait or not, which
+        // is the point rather than an accident: property 1's second sanctioned option is
+        // that the path absorbs the same cost either way. In a build without the entry
+        // there is no lookup at all, which is what "a deployment that plants none pays
+        // nothing" means.
+        #[cfg(feature = "honeypot_alert")]
+        let bait = if decision.is_allowed() && capability == Capability::Read {
+            self.with_store(|store| store.honeypot_tier(path).map_err(ApiError::from))?
+        } else {
+            None
+        };
+
         let mut entry = if decision.is_allowed() {
+            #[cfg(feature = "honeypot_alert")]
+            match bait {
+                // The trip *replaces* this entry's action rather than adding a second
+                // entry, so a request that takes bait writes exactly what any other
+                // request writes. The attempted action moves into `detail`, because
+                // "they read" and "they exported" are different facts about a
+                // compromise and the action field can only hold one of them.
+                Some(_) => Entry::allowed(Action::HoneypotTriggered)
+                    .with_detail(format!("attempted: {action}")),
+                None => Entry::allowed(action),
+            }
+            #[cfg(not(feature = "honeypot_alert"))]
             Entry::allowed(action)
         } else {
             Entry::denied(
@@ -391,11 +425,102 @@ impl AppState {
 
         self.record(&entry)?;
 
+        // The derived state, and only after the record is stored. If the trail refused
+        // the entry the request is about to fail, and latching a trip nobody can read
+        // about would leave `/v1/health` claiming something the trail cannot confirm.
+        #[cfg(feature = "honeypot_alert")]
+        if let Some(tier) = bait {
+            self.latch_off_the_request_path(
+                ciphr_store::BaitKind::Secret,
+                path.as_str().to_owned(),
+                Some(caller.identity.clone()),
+                tier,
+            );
+        }
+
         if decision.is_allowed() {
             Ok(())
         } else {
             Err(ApiError::Forbidden)
         }
+    }
+
+    /// Open a trip on one piece of bait without making the request wait for it.
+    ///
+    /// ADR-15's property 1 covers what follows the decision as well as the decision
+    /// itself: a row is work an ordinary read does not do, so it must not sit on the path
+    /// the caller can time. The write therefore moves to a blocking task and the handler
+    /// returns without it.
+    ///
+    /// **A weaker claim than "after the response is flushed", stated rather than
+    /// implied.** axum offers no post-flush hook here, so what is guaranteed is that the
+    /// request no longer waits for the write — not that the write happens afterwards. The
+    /// residue is contention: a caller who immediately issues a second request could in
+    /// principle meet the store mutex held by this task. That is one lock acquisition
+    /// against a millisecond-scale insert, and it is the honest limit of this approach.
+    ///
+    /// Failures are swallowed here and visible in the trail instead. This is outside the
+    /// fail-closed contract by the dated decision in ADR-15: the authoritative record is
+    /// the entry that was already stored above, and refusing the request because a
+    /// *derived* row could not be written would make bait and non-bait answer
+    /// differently — the one thing property 1 forbids.
+    #[cfg(feature = "honeypot_alert")]
+    fn latch_off_the_request_path(
+        &self,
+        kind: ciphr_store::BaitKind,
+        reference: String,
+        identity: Option<String>,
+        tier: ciphr_store::HoneypotTier,
+    ) {
+        let state = self.clone();
+        let work = move || {
+            let latched = state.with_store(|store| {
+                store
+                    .latch_trip(kind, &reference, identity.as_deref(), tier)
+                    .map_err(ApiError::from)
+            });
+            // `Ok(false)` -- already open -- is not an error and needs no branch. It is
+            // the latch doing its job, which ADR-15 asked for so that one piece of bait
+            // cannot page somebody on a schedule.
+            //
+            // A failure does get one: the trail says the latch is missing rather than
+            // the state going quietly wrong, which is the same shape as the entry a
+            // refusing audit device produces.
+            if latched.is_err() {
+                let entry = Entry::denied(Action::HoneypotTriggered, "latch-failed")
+                    .with_detail("the trip was recorded and the latch was not");
+                let _ = state.record(&entry);
+            }
+        };
+
+        // No runtime means no request path to keep clear, so the work is done inline.
+        // That is the case in a test that drives the state directly rather than through
+        // the router, and doing it inline there is what makes such a test able to see
+        // the result at all.
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                handle.spawn_blocking(work);
+            }
+            Err(_) => work(),
+        }
+    }
+
+    /// Whether any tripwire is currently open, for `/v1/health`.
+    ///
+    /// A boolean and a count, never which bait: plan section 10 lets an unauthenticated
+    /// endpoint say what the process is doing and not what is stored. *That* a tripwire
+    /// fired is the first; *which* bait was taken is the second, and it stays behind the
+    /// administrative read and the audit trail.
+    ///
+    /// Answers `false` if the store cannot be asked, because health is the endpoint an
+    /// operator reaches for when something is wrong and it answers as much as it can. The
+    /// trail is where a trip is authoritative; this field is a convenience over it.
+    #[cfg(feature = "honeypot_alert")]
+    pub fn tripwire_state(&self) -> (bool, usize) {
+        let open = self
+            .with_store(|store| store.open_trips().map_err(ApiError::from))
+            .unwrap_or_default();
+        (!open.is_empty(), open.len())
     }
 
     /// Record that an authenticated caller's completed read had a different outcome

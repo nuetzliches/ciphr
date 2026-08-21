@@ -90,6 +90,20 @@ struct Health {
     /// Empty is the ordinary answer, and a monitor that cannot see the shape of the
     /// thing it monitors is watching a different system.
     surface: Vec<&'static str>,
+    /// Whether a tripwire is open, and how many (ADR-15).
+    ///
+    /// `None` in a build without the `honeypot_alert` entry — absent rather than
+    /// `false`, because "this build cannot detect bait" and "nothing has been taken" are
+    /// different facts and a monitor that conflates them reports a working tripwire on a
+    /// service that has none.
+    ///
+    /// A count and never a name. Plan section 10 lets an unauthenticated endpoint report
+    /// what the process is doing, which is *that* something fired; *which* bait was taken
+    /// is stored, and stays behind the administrative read and the trail.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tripped: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    open_tripwires: Option<usize>,
     api_version: &'static str,
 }
 
@@ -279,6 +293,14 @@ struct RuleResponse {
 /// Returns seal and audit state, because an HTTP 200 alone cannot distinguish a
 /// healthy service from a sealed one that answers but can serve nothing.
 async fn health(State(state): State<AppState>) -> Json<Health> {
+    // Asked once. Two calls would be two store queries on a route something polls every
+    // few seconds, which is the kind of cost that is invisible until it is the only
+    // thing holding the store's mutex.
+    #[cfg(feature = "honeypot_alert")]
+    let tripwire = Some(state.tripwire_state());
+    #[cfg(not(feature = "honeypot_alert"))]
+    let tripwire: Option<(bool, usize)> = None;
+
     Json(Health {
         status: "ok",
         // v1 unseals at startup or refuses to start, so a reachable server is an
@@ -289,6 +311,8 @@ async fn health(State(state): State<AppState>) -> Json<Health> {
         key_source: state.key_source().to_owned(),
         audit_devices: state.audit_devices(),
         surface: state.surface().names(),
+        tripped: tripwire.map(|(any, _)| any),
+        open_tripwires: tripwire.map(|(_, count)| count),
         api_version: "v1",
     })
 }
