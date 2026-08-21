@@ -449,7 +449,53 @@ capability and not a command this project shipped — and the runtime image cont
 above, closes that; the record now says what was missing and what the command adds over the raw
 statement. The decision itself is unchanged.
 
-## [0.5.1] — 2026-08-21
+### Changed — the metadata listings run read-only, so credential state is readable during the incident that asks about it
+
+Issue #14 named the cost: the only way to ask "is this token still valid, when was it last used" was
+`ciphr token list`, which opened a session, took the exclusive store lock the running server holds,
+and therefore required stopping the secrets service — the opposite of when the question gets asked.
+It paid the lock and the master key while recording nothing, which was simultaneously the outage and
+the outlier against "the CLI audits what it does".
+
+The resolution is [ADR-22](docs/adr/0022-the-trail-records-what-consumed-an-authority.md): **the
+trail records what consumed an authority.** `get` spends the master key, so its entry measures
+something nobody affected can route around, and it stays audited and session-bound, as does every
+mutation. The plaintext-metadata listings — `list` (including `--rotation unclassified`),
+`versions`, `rotation <path>` without a class, and `token list` — consume nothing: their columns are
+plaintext in the database file, and whoever can run them could read the same rows with `sqlite3` and
+leave no entry at all. An entry only the polite reader writes measures politeness, not access. All
+four now take `SqliteStore::open_read_only`, the path `backup` and the `audit` maintenance commands
+already use: **no lock, no master key, no audit entry — and they answer while the service runs.**
+The two goals genuinely exclude each other, which the ADR states plainly: recording advances the
+chain, advancing the chain needs the lock, and the lock is the outage. The API's `list` entries are
+untouched — an API caller cannot read the file, so there the entry still measures an authorization
+that cannot be routed around. The audited, authenticated answer to "is this token valid" remains
+issue #3's proposed `GET /v1/tokens`; the CLI listing is the unaudited host-side fallback, not the
+replacement.
+
+### Changed — a lock refusal names the live route, for the commands the running service can answer
+
+`get`, `put`, `delete` and `export` refused under the lock used to say only *"stop it, run this,
+start it again"* — correct for the host-only commands, and the wrong first advice for the four the
+API serves live. The refusal now also names the equivalent request (`GET /v1/secrets/{path}`,
+`PUT /v1/secrets/{path}`, `DELETE /v1/secrets/{path}`, `POST /v1/export`) and says out loud that the
+CLI will not make the call itself. That last part is deliberate and issue #14 argued it: a CLI that
+silently routed to the API when it found a lock file would make one command mean two identities —
+the operator with the master key here, an authenticated token there — decided by whether a file
+exists. The hint announces; it never routes. `token revoke` and the other host-only commands keep
+the plain message, because for them it is the truth.
+
+### Fixed — the honeypot runbook now says that revoking stops the service
+
+`docs/operations/honeypots.md` step 3 said *"Revoke. `ciphr token revoke <id>`"* with no mention
+that the command opens a session, takes the lock the running server holds, and therefore stops the
+secrets service. Whoever followed the runbook during a trip — the one moment it runs — discovered
+the outage mid-incident. The step now says it where it is needed: stop, revoke, start, planned as
+part of the sequence, with the one consolation stated too (a stopped service answers the stolen
+credential nothing either). Step 2 gains the counterpart: `token list` is read-only now, so *which*
+credential to revoke is established before the outage begins, not during it. Whether revocation
+should ever work against a running service is issue #14's remaining question and is deliberately not
+answered here — it waits on the capability split in issue #5.
 
 **The release that corrects `0.5.0` rather than adding to it**, and the first patch release here.
 Nothing breaks, nothing migrates, the schema stays at 6 and no interface moves — a rollback to `0.5.0`

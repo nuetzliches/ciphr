@@ -195,12 +195,21 @@ finding was fixed before this shipped.
 1. **Do not clear it yet.** The latch is what stops the page repeating; clearing it before
    you have read the trail loses nothing recorded but does lose the "is this still
    happening" signal.
-2. **Work out which credential or which place.** The trail says which, above.
-3. **Revoke.** `ciphr token revoke <id>` for one credential, `ciphr token revoke-all
-   <identity>` for all of an identity's. There is no automatic revocation: ADR-15 designed
-   `disable-identity` and deliberately did not build it, because where one machine identity
-   serves every deploy target, revoking it stops every deploy — an availability lever whose
-   trigger condition is "somebody read a path".
+2. **Work out which credential or which place.** The trail says which, above. `ciphr token
+   list` runs read-only against the live service (ADR-22) — expiry, revocation state and
+   last use are readable now, before anything is stopped — so the decision of *which* token
+   to revoke is made with the service up.
+3. **Revoke — and this step stops the service.** `ciphr token revoke <id>` for one
+   credential, `ciphr token revoke-all <identity>` for all of an identity's. Both write a
+   row and an audit entry, so both open a session and take the store lock the running
+   server holds: **stop the service, revoke, start it again.** The outage is part of this
+   runbook, not an accident of it — plan the sequence so everything else here is done
+   first, and know that while the service is stopped, the stolen credential is answered
+   nothing either. There is no revocation over the API (issue #14 tracks whether there
+   should be), and no automatic revocation: ADR-15 designed `disable-identity` and
+   deliberately did not build it, because where one machine identity serves every deploy
+   target, revoking it stops every deploy — an availability lever whose trigger condition
+   is "somebody read a path".
 4. **Then clear, so the bait can fire again:**
 
    ```sh

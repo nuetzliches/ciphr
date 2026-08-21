@@ -47,6 +47,19 @@ pub(crate) enum CliError {
     ChainBroken(ciphr_audit::ChainBreak),
     /// The store said no.
     Store(ciphr_store::StoreError),
+    /// The store is locked — normally by the running service — and for this command
+    /// the service itself answers while it runs.
+    ///
+    /// The hint announces the alternative and never takes it. Routing to the API
+    /// when a lock file exists would make the same command mean two identities:
+    /// the operator with the master key here, an authenticated token there. If the
+    /// operator wants the API path, they choose it, and the trail names who acted.
+    LockedButServed {
+        /// The store's own refusal, shown first and unchanged.
+        locked: ciphr_store::StoreError,
+        /// The equivalent request against the running service.
+        request: String,
+    },
     /// A cryptographic operation failed.
     Crypto(ciphr_crypto::CryptoError),
     /// A policy file could not be loaded.
@@ -115,6 +128,17 @@ impl fmt::Display for CliError {
             ),
             Self::ChainBroken(reason) => write!(f, "{reason}"),
             Self::Store(error) => write!(f, "{error}"),
+            Self::LockedButServed { locked, request } => write!(
+                f,
+                "{locked}\n\
+                 \n\
+                 If the holder is the running ciphr-server, no outage is needed for this \
+                 one: it serves the same operation as `{request}` (see openapi.yaml), \
+                 authenticated with a token whose policy allows it. The CLI does not make \
+                 that call for you — there the trail names an authenticated identity, here \
+                 it names the operator, and which of the two acted must not depend on a \
+                 lock file."
+            ),
             Self::Crypto(error) => write!(f, "{error}"),
             Self::Policy(error) => write!(f, "{error}"),
             Self::Path(error) => write!(f, "{error}"),
@@ -210,6 +234,21 @@ mod tests {
         for bad in ["", "0d", "-1d", "d", "1w", "1.5d", "999999999999999d"] {
             assert!(parse_duration_millis(bad).is_err(), "{bad} must be refused");
         }
+    }
+
+    #[test]
+    fn the_served_hint_keeps_the_refusal_and_adds_the_route() {
+        // The store's own message must survive unchanged -- it is the one that says
+        // why two writers cannot coexist -- and the hint must name the live request
+        // without pretending the CLI will make it.
+        let message = CliError::LockedButServed {
+            locked: ciphr_store::StoreError::Locked { holder: Some(4711) },
+            request: "GET /v1/secrets/infra/service-a/DB_PASSWORD".to_owned(),
+        }
+        .to_string();
+        assert!(message.contains("in use by process 4711"));
+        assert!(message.contains("GET /v1/secrets/infra/service-a/DB_PASSWORD"));
+        assert!(message.contains("does not make that call"));
     }
 
     #[test]

@@ -110,9 +110,10 @@ configuration changes. Rolling back is safe.
 
 Worth knowing rather than doing: *what has nobody classified yet?* is now answerable against a
 running service — `GET /v1/list/{prefix}?rotation=unclassified` — where before it needed
-`ciphr list --rotation unclassified` on the host with the service **stopped**, because the CLI takes
+`ciphr list --rotation unclassified` on the host with the service **stopped**, because the CLI took
 the exclusive store lock. If a rotation review was scheduled around a maintenance window for that
-reason, it no longer has to be.
+reason, it no longer has to be. (Since 2026-08-22 the CLI listing itself runs read-only and answers
+live as well — ADR-22.)
 
 ### The `ciphr-run` release asset has a new name
 

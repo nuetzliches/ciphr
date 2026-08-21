@@ -1,6 +1,6 @@
 # Architecture decision records
 
-**Status:** current as of 2026-08-21. Twenty-one records: nineteen accepted — one of them in one
+**Status:** current as of 2026-08-22. Twenty-two records: twenty accepted — one of them in one
 tier only — one deferred, and one proposed. Each file carries its own date and status.
 
 One file per decision. Each records what was decided, why, and what was rejected — the rejected
@@ -34,6 +34,7 @@ parts that later turned out to be wrong.
 | [ADR-19](0019-sdk-transport-blocking-ureq.md) | The SDK's transport: blocking, and unable to trust the public CA set | Accepted |
 | [ADR-20](0020-optional-surface.md) | Optional surface, and the core it may not reach | Accepted; nothing implemented |
 | [ADR-21](0021-a-scanner-is-a-sender-with-a-token.md) | A scanner is a sender with a token: leak reports arrive authenticated | **Proposed**; gives the leak machinery its first sender — ADR-16 stays deferred and anonymous |
+| [ADR-22](0022-the-trail-records-what-consumed-an-authority.md) | The trail records what consumed an authority | Accepted; the metadata listings run read-only — no lock, no master key, no entry |
 
 Two of these carry more weight than the rest, because they describe the properties the project
 exists for: ADR-1 (secrets cannot be logged) and ADR-9 (one path normalizer, shared by router and

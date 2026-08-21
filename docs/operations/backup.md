@@ -63,7 +63,8 @@ GET /v1/list/{prefix}?rotation=volume-bound
 GET /v1/list/{prefix}?rotation=unclassified
 ```
 
-or on the host with the service stopped, `ciphr list --rotation breaks-data`. That link between the
+or on the host, `ciphr list --rotation breaks-data` — read-only since 2026-08-22 (ADR-22), so it
+runs with the service up or down. That link between the
 two documents is worth making explicit: the classification was added to answer *may I rotate this*,
 and it answers *what does losing this cost* on the same data. The two are different axes —
 `seed-only` and `invalidates-sessions` sit differently on each — so read the table above rather than

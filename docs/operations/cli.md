@@ -1,6 +1,6 @@
 # The `ciphr` command
 
-**Status:** implemented and tested as of 2026-08-21. Every command below works, `backup` included —
+**Status:** implemented and tested as of 2026-08-22. Every command below works, `backup` included —
 it is implemented and tested but not yet in a release. Deployment
 — containers, reverse proxy, certificates — is documented in `docs/operations/` and in the
 deployment's own repository, not here.
@@ -51,26 +51,38 @@ the store is in use by process 4711; stop it, run this, start it again.
 Two writers collide on the audit sequence and leave the first one refusing every request.
 ```
 
-**"Opens a session" includes the commands that only read**, and the list below is the whole reason
-this paragraph is worth reading twice. The CLI audits what it does, reads included, so `get`, `list`,
-`rotation <path>` and `audit tail` each append to the trail and are writers by the time the lock is
-taken. Two of them surprise people:
+**"Opens a session" includes `get`**, because the CLI audits every access that consumes an
+authority: reading a value spends the master key, so its entry is recorded before the value is
+printed, and recording advances the audit chain — which is what needs the lock. Every mutation is a
+session command for the same reason: `put`, `delete`, `undelete`, `destroy`, setting a rotation
+class, `import`, `dump`, `rotate-master-key`, and the token commands that change anything —
+**`token issue`, `token revoke` and `token revoke-all` all require stopping the service.** Plan
+issuing as a scheduled operation with a short outage; for what revocation's outage means during an
+incident, [honeypots.md](honeypots.md) now says it where it is needed.
 
-- `token issue` — **issuing a credential requires stopping the service.**
-- `token list` — **so does asking whether a credential is still valid**, when it expires, or when it
-  was last used. It changes nothing and, unlike the other reads, records nothing either; it takes the
-  lock all the same, because it opens a session to reach the store.
+**The metadata listings are not session commands** (ADR-22, since 2026-08-22): `list`, `versions`,
+`rotation <path>` without a class, and `token list` open the store read-only — no lock, no master
+key, no audit entry. Path, class, version history and token records are plaintext columns in the
+database file, so an entry only the polite reader writes would measure politeness rather than
+access; what the read-only path buys instead is that these questions answer **while the service
+runs**, which is when they get asked. In particular: "is this token still valid, when does it
+expire, when was it last used" no longer needs an outage. The API-side `list` entries are
+unaffected — an API caller cannot read the file, so there the entry still measures real
+authorization.
 
-Plan both as scheduled operations with a short outage, not as something done while someone waits on
-the phone — and note what the second one means for an incident: the question "is this token still
-valid" has no answer from a live service today. The credential's state is not on `/v1/health`, and
-`/v1/identities` carries names, kinds and policies but no expiry, no revocation and no last use.
+The other lock-free commands are `state`, `backup`, `audit anchor`, `audit verify` and
+`audit cut`, which
+need neither the lock nor the master key and are documented as such below — they exist to run
+against a live service. For `backup` that is the whole point: a copy of the store that could only be
+taken during a maintenance window is a copy that stops being taken. The one read still left in a
+session is `audit tail`: it records nothing, and ADR-22 names it as the open application of the same
+principle rather than pretending the list above is finished.
 
-The exceptions are `state`, `backup`, `audit anchor`, `audit verify` and `audit cut`, which need
-neither the
-lock nor the master key and are documented as such below — they exist to run against a live service.
-For `backup` that is the whole point: a copy of the store that could only be taken during a
-maintenance window is a copy that stops being taken.
+For the session commands the running service can answer itself — `get`, `put`, `delete`, `export` —
+the `Locked` refusal names the live route (`GET /v1/secrets/{path}` and so on) alongside the
+stop-run-start advice. It announces the alternative and never takes it: through the API an
+authenticated identity acts and is recorded, on the host the operator does, and which of the two
+acted must not depend on whether a lock file existed.
 
 The rule is not bureaucracy, and the alternative is worse than an outage. The audit chain's head
 lives in the writing process's memory: a second writer moves the head, the first does not notice,
@@ -128,9 +140,12 @@ A secret written without `--rotation` is `unclassified`, not `rotatable`: the de
 of an answer rather than a claim that rotating it is safe. See
 [rotating-secrets.md](rotating-secrets.md).
 
-All three forms here need the service stopped, like every other session command. Since 2026-08-21
-`PUT /v1/secrets/{path}` takes an optional `rotation` alongside the value, which is the way to
-classify an import that runs against a live service — the case the CLI cannot serve.
+`put`, `get`, and `rotation <path> <class>` need the service stopped, like every session command.
+The listings do not: `list`, `versions` and the read form `rotation <path>` run read-only against a
+live service, without the master key (ADR-22) — so "what has nobody looked at yet" is answerable
+exactly when a rotation review wants it. Since 2026-08-21 `PUT /v1/secrets/{path}` takes an optional
+`rotation` alongside the value, which is the way to classify an import that runs against a live
+service — the case the CLI cannot serve.
 
 **`sys/` is refused.** `put` and `delete` under that prefix fail, because `sys/audit`,
 `sys/identities`, and `sys/policies` are the virtual paths administrative access is authorized
@@ -138,11 +153,12 @@ against — a real secret there would make one policy rule mean two things. Stor
 the CLI cannot get around it; until 2026-08-21 only the HTTP API did, and `ciphr put sys/audit`
 worked.
 
-Every one of these is audited, including the metadata ones. Setting a class writes a `classify`
-entry — its own action, because it produces no version and would otherwise be invisible among the
-value writes. The trail says the same thing whether an
-access came through the API or from the host — a channel that records less is a channel someone will
-use for that reason.
+`get` and every mutation are audited. Setting a class writes a `classify` entry — its own action,
+because it produces no version and would otherwise be invisible among the value writes. The listings
+are deliberately not: their columns are plaintext in the database file, so whoever can run them
+could read the same rows with `sqlite3` and leave nothing — the entry would measure politeness, not
+access (ADR-22). For a value the rule stands in both directions: the trail says the same thing
+whether the read came through the API or from the host.
 
 ## Deleting, and destroying
 
@@ -304,12 +320,15 @@ afterwards is when *this* credential stopped working. What that buys, and what i
 `revoke-all` is what to reach for when an identity is compromised — one call, rather than listing
 tokens and hoping the list was complete.
 
-**All four need the service stopped, `list` included.** It is a read, it records nothing, and it
-still opens a session and therefore takes the lock — see the rule at the top of this page. The
-consequence is worth planning around rather than discovering: the state of a credential (expiry,
-revocation, last use) is readable only with the service down, which is the opposite of when the
-question gets asked. Nothing on the API answers it either — a refused request is `401` with no
-reason, deliberately, so that probing learns nothing.
+**`issue`, `revoke` and `revoke-all` need the service stopped; `list` does not.** The three that
+write open a session and take the lock — see the rule at the top of this page — and for revocation
+that outage is part of the incident runbook, said plainly in [honeypots.md](honeypots.md). Since
+2026-08-22 `token list` runs read-only (ADR-22): no lock, no master key, no entry. The state of a
+credential — expiry, revocation, last use — is therefore readable **while the service runs**, which
+is when the question gets asked; establish *which* token to revoke before the outage begins, not
+during it. Nothing on the API answers it — a refused request is `401` with no reason, deliberately,
+so that probing learns nothing — and the audited, authenticated form of this listing is issue #3's
+proposed `GET /v1/tokens`, not this command.
 
 ## What this deployment keeps
 

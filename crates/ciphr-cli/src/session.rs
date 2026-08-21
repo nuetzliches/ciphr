@@ -44,7 +44,9 @@ impl Session {
         // server -- would collide on a sequence number and leave the first process
         // refusing every request until it restarts. Taken here rather than only
         // around the write, because the CLI audits what it does including reads, so
-        // every command that opens a session is a writer.
+        // every command that opens a session is a writer. The plaintext-metadata
+        // listings do not open one at all -- they take the read-only path, and what
+        // they may skip is bounded by ADR-22.
         let lock = StoreLock::acquire(database)?;
         let store = SqliteStore::open(database)?;
         let state = store
@@ -70,7 +72,10 @@ impl Session {
     ///
     /// The CLI audits its own actions for the same reason the server does: an
     /// operator reading a secret from the host is an access, and the trail that omits
-    /// it is a trail that answers "who read this" incorrectly.
+    /// it is a trail that answers "who read this" incorrectly. The boundary of that
+    /// rule is ADR-22: an entry is written where the action consumed an authority --
+    /// `get` spends the master key -- and not for the plaintext-metadata listings,
+    /// whose entry anyone affected could route around with `sqlite3` on the same file.
     ///
     /// # Errors
     ///

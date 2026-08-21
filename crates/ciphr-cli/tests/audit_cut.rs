@@ -7,21 +7,45 @@
 //! whether a retention job is schedulable at all, because the other process is normally
 //! the running server.
 
+use std::io::Write as _;
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 
 /// Sixty-four hexadecimal characters, so the test needs nothing from its environment.
 const MASTER_KEY: &str = "1111111111111111111111111111111111111111111111111111111111111111";
 
 /// A trail with the store's own creation plus `extra` further entries.
 ///
-/// `list` audits its own read, which is the cheapest way to grow a trail without putting
-/// anything in the store.
+/// One `put` per entry. It used to be `list`, which audited its own read; the
+/// listings are read-only now and record nothing (ADR-22), so a write is the
+/// cheapest command that still grows the trail.
 fn trail_of(store: &Path, archive: &Path, extra: usize) {
     assert!(audited(store, archive, &["init"]).status.success(), "init");
-    for _ in 0..extra {
-        assert!(audited(store, archive, &["list"]).status.success(), "list");
+    for n in 0..extra {
+        audited_put(store, archive, &format!("grow/entry-{n}"));
     }
+}
+
+/// Write a secret with the audit file attached, appending one `write` entry.
+fn audited_put(store: &Path, archive: &Path, path: &str) {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ciphr"))
+        .arg("-d")
+        .arg(store)
+        .arg("--audit-file")
+        .arg(archive)
+        .args(["put", path])
+        .env("CIPHR_MASTER_KEY", MASTER_KEY)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()
+        .expect("run ciphr put");
+    child
+        .stdin
+        .as_mut()
+        .expect("stdin")
+        .write_all(b"value")
+        .expect("write the value");
+    assert!(child.wait().expect("wait").success(), "put");
 }
 
 fn audited(store: &Path, archive: &Path, args: &[&str]) -> Output {
@@ -271,10 +295,17 @@ fn cutting_works_while_another_process_holds_the_store_lock() {
     // downtime, and a retention policy that needs downtime does not get scheduled.
     let lock = ciphr_store::StoreLock::acquire(&store).expect("take the lock");
 
-    let listed = ciphr(&store, &["list"]);
+    // `get` and not `list`: the listings take the read-only path and run fine under
+    // the lock (ADR-22), so only a command that opens a session shows the contrast.
+    let refused = ciphr(&store, &["get", "grow/entry-0", "--force"]);
     assert!(
-        !listed.status.success(),
+        !refused.status.success(),
         "a command that opens a session must still be refused while the lock is held"
+    );
+    assert!(
+        stderr(&refused).contains("in use by process"),
+        "and refused because of the lock, not for another reason: {}",
+        stderr(&refused)
     );
 
     let done = cut(&store, &anchors, &archive, "2", &[]);

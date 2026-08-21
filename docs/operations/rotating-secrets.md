@@ -55,9 +55,9 @@ ciphr list --rotation unclassified          # what has nobody looked at yet
 ciphr rotation infra/service-a/DB_PASSWORD  # what does this one say, and why
 ```
 
-**Both of those need the service stopped**, because the CLI takes the exclusive store lock. The same
-question against a running service goes over the API, which is the form a rotation review actually
-wants — the answer is needed while everything is up, not during a maintenance window:
+**Both of those run against a live service**: since 2026-08-22 the listings are read-only — no store
+lock, no master key, no audit entry (ADR-22) — so a rotation review no longer waits for a
+maintenance window. The same question also goes over the API, authorized per path and audited there:
 
 ```
 GET /v1/list/infra?rotation=unclassified

@@ -91,7 +91,8 @@ enum Command {
         force: bool,
     },
 
-    /// List paths under a prefix.
+    /// List paths under a prefix. Read-only: runs with the service up, and without
+    /// the master key.
     List {
         /// The prefix. Everything if omitted.
         prefix: Option<String>,
@@ -103,7 +104,8 @@ enum Command {
         rotation: Option<String>,
     },
 
-    /// Show the version history of a secret.
+    /// Show the version history of a secret. Read-only: runs with the service up,
+    /// and without the master key.
     Versions {
         /// Which secret.
         path: String,
@@ -139,7 +141,8 @@ enum Command {
         yes: bool,
     },
 
-    /// Show or set how safe a secret is to rotate.
+    /// Show or set how safe a secret is to rotate. Showing is read-only and runs
+    /// with the service up; setting opens a session and needs it stopped.
     Rotation {
         /// Which secret.
         path: String,
@@ -359,7 +362,9 @@ enum TokenCommand {
         #[arg(long)]
         honeypot: bool,
     },
-    /// List tokens, without their verifiers.
+    /// List tokens, without their verifiers. Read-only: runs with the service up,
+    /// and without the master key -- expiry, revocation and last use are readable
+    /// during the incident that asks about them.
     List {
         /// Only this identity's tokens.
         #[arg(long)]
@@ -543,7 +548,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
             let value = read_value_from_stdin()?;
             let rotation = rotation.as_deref().map(Rotation::parse).transpose()?;
 
-            let mut session = open(&cli)?;
+            let mut session = open_or_served(&cli, format!("PUT /v1/secrets/{path}"))?;
             // Audited before the write, so a failure to record leaves the store
             // unchanged — the same ordering the server uses.
             session.record(&Session::operator_entry(Action::Write, true, None).with_path(&path))?;
@@ -569,7 +574,13 @@ fn run(cli: Cli) -> Result<(), CliError> {
             let path = SecretPath::parse(&path)?;
             guard_secret_output(force)?;
 
-            let mut session = open(&cli)?;
+            let mut session = open_or_served(
+                &cli,
+                match version {
+                    Some(version) => format!("GET /v1/secrets/{path}?version={version}"),
+                    None => format!("GET /v1/secrets/{path}"),
+                },
+            )?;
             let wanted = version.and_then(SecretVersion::new);
 
             let stored = match session.store.get(&path, wanted) {
@@ -603,16 +614,15 @@ fn run(cli: Cli) -> Result<(), CliError> {
         Command::List { prefix, rotation } => {
             let prefix = prefix.as_deref().map(SecretPath::parse).transpose()?;
             let wanted = rotation.as_deref().map(Rotation::parse).transpose()?;
-            let mut session = open(&cli)?;
 
-            // Audited like every other access. The trail should say the same thing
-            // whether a listing came through the API or from the host: a channel that
-            // records less is a channel someone will use for that reason.
-            let mut entry = Session::operator_entry(Action::List, true, None);
-            if let Some(prefix) = prefix.as_ref() {
-                entry = entry.with_path(prefix);
-            }
-            session.record(&entry)?;
+            // Read-only, unaudited (ADR-22): path and class are plaintext columns,
+            // so this reveals nothing `sqlite3` on the same file would not, and an
+            // entry only the polite reader writes measures politeness. What running
+            // without the session buys is that the corpus question the class exists
+            // for -- `--rotation unclassified` -- answers while the service is up.
+            // The API listing still records one, because there the entry measures an
+            // authorization that cannot be routed around.
+            let store = open_metadata(&cli)?;
 
             // One query, class included. This used to call `metadata` per path, which
             // is two more statements per secret for a column the listing row already
@@ -620,7 +630,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
             // through one store method rather than agreeing by coincidence. Metadata
             // is not a value either way: nothing is decrypted and the master key is
             // not involved.
-            for secret in session.store.list_with_rotation(prefix.as_ref())? {
+            for secret in store.list_with_rotation(prefix.as_ref())? {
                 if wanted.is_some_and(|wanted| secret.rotation != wanted) {
                     continue;
                 }
@@ -631,10 +641,11 @@ fn run(cli: Cli) -> Result<(), CliError> {
 
         Command::Versions { path } => {
             let path = SecretPath::parse(&path)?;
-            let mut session = open(&cli)?;
-            session.record(&Session::operator_entry(Action::List, true, None).with_path(&path))?;
+            // Read-only, unaudited, like `list` (ADR-22): a version history is
+            // plaintext metadata, and nothing here decrypts.
+            let store = open_metadata(&cli)?;
 
-            for summary in session.store.versions(&path)? {
+            for summary in store.versions(&path)? {
                 let state = if summary.destroyed_at.is_some() {
                     "destroyed"
                 } else if summary.deleted_at.is_some() {
@@ -656,7 +667,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
         Command::Delete { path, version } => {
             let path = SecretPath::parse(&path)?;
             ciphr_store::reject_reserved(&path)?;
-            let mut session = open(&cli)?;
+            let mut session = open_or_served(&cli, format!("DELETE /v1/secrets/{path}"))?;
             let version = match version.and_then(SecretVersion::new) {
                 Some(version) => version,
                 None => session
@@ -722,22 +733,19 @@ fn run(cli: Cli) -> Result<(), CliError> {
 
         Command::Rotation { path, class } => {
             let path = SecretPath::parse(&path)?;
-            let mut session = open(&cli)?;
 
             let class = match class {
-                // Reading a class is a metadata listing, like `versions`.
-                None => {
-                    session.record(
-                        &Session::operator_entry(Action::List, true, None).with_path(&path),
-                    )?;
-                    session.store.metadata(&path)?.rotation
-                }
-                // Changing one gets its own action. A reclassification produces no
-                // version, so folding it into `write` would hide it among the
-                // value writes -- and a downgrade to `rotatable` is the step that
-                // comes immediately before a rotation that destroys data.
+                // Reading a class is a metadata listing, like `versions`: read-only,
+                // unaudited, live (ADR-22).
+                None => open_metadata(&cli)?.metadata(&path)?.rotation,
+                // Changing one is a write and gets its own action. A
+                // reclassification produces no version, so folding it into `write`
+                // would hide it among the value writes -- and a downgrade to
+                // `rotatable` is the step that comes immediately before a rotation
+                // that destroys data.
                 Some(class) => {
                     let class = Rotation::parse(&class)?;
+                    let mut session = open(&cli)?;
                     classify(&mut session, &path, class)?;
                     class
                 }
@@ -986,6 +994,34 @@ fn open(cli: &Context) -> Result<Session, CliError> {
     Session::open(&cli.database, &cli.seal()?)?.with_audit(cli.audit_file.as_deref())
 }
 
+/// Open the store read-only: no lock, no master key, no audit entry.
+///
+/// For the metadata listings — paths, rotation classes, version histories, token
+/// records. Their columns are plaintext in the database file, so whoever can run
+/// these can read the same rows with `sqlite3` and leave nothing behind; an entry
+/// only the polite reader writes measures politeness, not access (ADR-22). Not
+/// opening a session is also the property that matters operationally: these
+/// questions answer while the service is up, which is when they get asked.
+fn open_metadata(cli: &Context) -> Result<SqliteStore, CliError> {
+    Ok(SqliteStore::open_read_only(&cli.database)?)
+}
+
+/// Open a session for a command the running service can also answer.
+///
+/// The plain `Locked` refusal says "stop it, run this, start it again" — the only
+/// advice for the host-only commands, and the wrong first advice for the ones the
+/// API serves live. The hint announces the alternative rather than taking it: the
+/// CLI never calls the API on its own, because which identity acted must not be
+/// decided by whether a lock file existed.
+fn open_or_served(cli: &Context, request: String) -> Result<Session, CliError> {
+    open(cli).map_err(|error| match error {
+        CliError::Store(locked @ ciphr_store::StoreError::Locked { .. }) => {
+            CliError::LockedButServed { locked, request }
+        }
+        other => other,
+    })
+}
+
 /// `ciphr init` — generate a root key and seal it.
 fn init(cli: &Context) -> Result<(), CliError> {
     let database = cli.database.as_path();
@@ -1049,7 +1085,10 @@ fn export(cli: &Context, args: &ExportArgs) -> Result<(), CliError> {
         guard_secret_output(args.force)?;
     }
 
-    let mut session = open(cli)?;
+    let mut session = open_or_served(
+        cli,
+        "POST /v1/export (the bulk_export surface entry)".to_owned(),
+    )?;
 
     let paths: Vec<SecretPath> = if let Some(prefix) = args.prefix.as_deref() {
         let prefix = SecretPath::parse(prefix)?;
@@ -1575,8 +1614,12 @@ fn token(cli: &Context, command: TokenCommand) -> Result<(), CliError> {
             honeypot,
         } => issue_token(cli, identity, ttl.as_deref(), force, honeypot),
         TokenCommand::List { identity } => {
-            let session = open(cli)?;
-            for record in session.store.tokens(identity.as_deref())? {
+            // Read-only, unaudited (ADR-22). This is the incident question -- "is
+            // this credential still valid, when was it last used" -- and it is asked
+            // exactly when the service must stay up. `tokens()` returns metadata
+            // only; no verifier leaves the store.
+            let store = open_metadata(cli)?;
+            for record in store.tokens(identity.as_deref())? {
                 let state = if record.revoked_at.is_some() {
                     "revoked"
                 } else if record.expires_at.is_some_and(|at| at <= now_millis()) {

@@ -5,8 +5,9 @@
 //! verification, and that both commands work while another process holds the store lock —
 //! the case that matters, because the other process is normally the running server.
 
+use std::io::Write as _;
 use std::path::Path;
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 
 /// Sixty-four hexadecimal characters, so the test needs nothing from its environment.
 const MASTER_KEY: &str = "2222222222222222222222222222222222222222222222222222222222222222";
@@ -19,6 +20,26 @@ fn ciphr(store: &Path, args: &[&str]) -> Output {
         .env("CIPHR_MASTER_KEY", MASTER_KEY)
         .output()
         .expect("run ciphr")
+}
+
+/// Write a secret, which appends a `write` entry and moves the chain's head.
+fn put(store: &Path, path: &str) {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_ciphr"))
+        .arg("-d")
+        .arg(store)
+        .args(["put", path])
+        .env("CIPHR_MASTER_KEY", MASTER_KEY)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()
+        .expect("run ciphr put");
+    child
+        .stdin
+        .as_mut()
+        .expect("stdin")
+        .write_all(b"value")
+        .expect("write the value");
+    assert!(child.wait().expect("wait").success(), "put");
 }
 
 fn stdout(output: &Output) -> String {
@@ -143,10 +164,17 @@ fn anchoring_and_verifying_work_while_another_process_holds_the_lock() {
     // the lock that enforces it.
     let lock = ciphr_store::StoreLock::acquire(&store).expect("take the lock");
 
-    let listed = ciphr(&store, &["list"]);
+    // `get` and not `list`: the listings take the read-only path and run fine under
+    // the lock (ADR-22), so only a command that opens a session shows the contrast.
+    let refused = ciphr(&store, &["get", "some/secret", "--force"]);
     assert!(
-        !listed.status.success(),
+        !refused.status.success(),
         "a command that opens a session must still be refused while the lock is held"
+    );
+    assert!(
+        stderr(&refused).contains("in use by process"),
+        "and refused because of the lock, not for another reason: {}",
+        stderr(&refused)
     );
 
     let taken = ciphr(
@@ -184,8 +212,9 @@ fn a_second_anchor_records_growth_and_confirms_the_first() {
         "first anchor"
     );
 
-    // Anything that writes to the trail moves the head. `list` audits its own read.
-    assert!(ciphr(&store, &["list"]).status.success(), "list");
+    // Anything that writes to the trail moves the head. A `put` records its write;
+    // `list` no longer would, because the listings are read-only (ADR-22).
+    put(&store, "grow/entry");
 
     let second = ciphr(&store, &["audit", "anchor", "--out", out]);
     assert!(
