@@ -8,6 +8,36 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — the honeypots runbook, and the review claims phase 8 owes
+
+`docs/operations/honeypots.md`: planting bait, where it must not go, what does not trip, and what to do
+when it fires. It leads with the three things that have to be true before any of it works — the service
+built with the entry, the configuration naming it, and **something that polls `/v1/health` and pages a
+human**. That last one is the step this software cannot perform and cannot check, so a tripwire whose
+whole output is a field nobody reads is decoration, and the runbook says so before it says anything
+about planting.
+
+**`docs/security-review.md` gains C11, C12 and D10**, the obligation ADR-15 wrote down when the review
+gate fell: the acceptance covers the code it read, and the authentication path it read had no bait in
+it. The claims are marked as newer than the acceptance where they stand, so a later reader is not left
+to infer which parts of this document the accepted review actually covered. Two of them carry the same
+caveat as C2 — timing is behaviour-tested and not asserted, so it is a place where a human should look
+at the code.
+
+**ADR-15 records that the marker file is not built**, with its reasons rather than as an omission
+somebody discovers while writing an alert rule. A marker needs a path, and a path is deployment
+configuration the record says honeypots do not have; the obvious location, beside the database, puts it
+on the volume the conceded denial-of-service fills, so the channel meant to survive a full volume would
+be the one that does not. And for the deployment this was built for it buys nothing, because the
+monitoring polls HTTP. The condition for building it is named: monitoring that reads filesystems rather
+than endpoints.
+
+Also struck through in ADR-15: the timing-property condition, now a test with an expired *and* revoked
+honeypot token in it, and the false-positive enumeration, three entries of which are tests rather than
+sentences. `AGENTS.md`, `docs/README.md`, `docs/threat-model.md` and `docs/operations/freeze.md` now say
+phase 8 is built — and `freeze.md` says the two things that changed nothing on its own page, since a
+cleared gate is permission for the work behind it and not for the work dropped in front of it.
+
 ### Added — `GET /v1/honeypots`, `GET /v1/surface`, and `ciphr surface show`
 
 `/v1/honeypots` was a *reserved* path returning `404` and is now implemented — as the first **optional

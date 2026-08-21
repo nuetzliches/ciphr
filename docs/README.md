@@ -4,6 +4,10 @@
 in it; the viewer (phase 5) ships as its own image on its own cadence. Describes what is built, and
 says so where something is not.
 
+**Phase 8 is built and unreleased.** The `alert` tier of ADR-15, behind the `honeypot_alert` surface
+entry (ADR-20) and therefore absent from a default build. The surface added by it is *newer than the
+accepted review* — [security-review.md](security-review.md) marks the three claims that describe it.
+
 ## The rules this documentation is held to
 
 They are written down because documentation decays quietly, and a secret manager whose manual is
@@ -47,6 +51,8 @@ The parts where a mistake is expensive, and where to read before making one.
 | **A full audit volume** | Fail-closed means it is a total outage, not a logging gap. That is intended and needs monitoring. | [operations/audit-trail.md](operations/audit-trail.md) |
 | **A secret in a CI job log** | No forge masks a value fetched at runtime. Only the `actions-env` export does, and only if the masks are emitted first. | [operations/cli.md](operations/cli.md) |
 | **A secret in shell history** | A value passed as an argument is readable by every process on the host while the command runs. | [operations/cli.md](operations/cli.md) |
+| **A tripwire nobody polls** | The alert is a field on `/v1/health` and an entry in the trail. Nothing here can page a human, and bait whose output nobody reads is decoration. | [operations/honeypots.md](operations/honeypots.md) |
+| **Bait under a prefix something fetches** | A prefix fetch reads the value of every path under it, so misplaced bait trips on every service start — and gets switched off in week two. | [operations/honeypots.md](operations/honeypots.md) |
 | **Trusting the wrong boundary** | Assuming the container network is private, or that root on the host is excluded. | [threat-model.md](threat-model.md) |
 | **Revealing a secret in a browser** | Plaintext in a DOM has its own class of failure: an XSS finding, a cached response, a value left on a screen. What the viewer does about each, and what it refuses to do at all. | [ui.md](ui.md) |
 | **Going to production unreviewed** | Three crates decide every access, and their failures are silent. The external review happened on 2026-08-21 and was accepted — by an AI model, not the human practitioner the working paper asks for, and only for what it says it read. | [security-review.md](security-review.md), [review-2026-08-21.md](review-2026-08-21.md) |
@@ -69,6 +75,7 @@ The parts where a mistake is expensive, and where to read before making one.
 | [operations/cli.md](operations/cli.md) | Every command, and the two rules that shape all of them |
 | [operations/upgrade.md](operations/upgrade.md) | What to do about each version's breaking changes, and the rules that hold for every upgrade |
 | [operations/wrapper.md](operations/wrapper.md) | `ciphr-run`: where the file comes from, what its exit codes mean, and what route B does not solve |
+| [operations/honeypots.md](operations/honeypots.md) | Planting bait, where it must not go, and what to do when it fires |
 | [operations/](operations/) | Procedures for the things that are hard to undo: the master key, rotating secrets, the audit trail, and the freeze a tripwire can engage |
 | [`../openapi.yaml`](../openapi.yaml) | The HTTP API, maintained in the same commit as the code |
 | [`../AGENTS.md`](../AGENTS.md) | Working rules for contributors and the gates that enforce them |

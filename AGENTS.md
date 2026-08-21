@@ -58,15 +58,24 @@ documented, and that does not change a line here.
 
 Two phases are planned and not built, and as of 2026-08-20 they are in different states.
 
-**Phase 8**, honeypots and tripwires, is **decided and still not built**: ADR-15 is accepted in the
-`alert` tier only, and `disable-identity` and `freeze` are designed and deliberately absent, because
-the severe tiers are worth their cost only once one machine identity no longer serves every deploy
-target. **The review that gated it has now happened**, so what stood in front of phase 8 is the work
-itself; what does not come with it is coverage — the review read the authentication path as it is,
-not as a tripwire would leave it, so the behaviour phase 8 adds is reviewed when it exists, against
-`docs/security-review.md`. Two things in that record are easy to lose and expensive to relearn: bait
-belongs outside every prefix any consumer fetches, and whether a prefix is fetched is a question
-about the code that fetches rather than about the policy that permits it.
+**Phase 8**, honeypots and tripwires, is **built and unreleased as of 2026-08-21**, in the `alert`
+tier only. `disable-identity` and `freeze` remain designed and deliberately absent, because the severe
+tiers are worth their cost only once one machine identity no longer serves every deploy target. It
+ships behind the `honeypot_alert` surface entry (ADR-20) and is therefore **absent from a default
+build**, which is what makes ADR-15's indistinguishability claim strongest: code that is not compiled
+in has no timing to get wrong.
+
+**The coverage debt is open and is the thing to remember about it.** The accepted review read the
+authentication path before bait existed, and says in its own words that new surface there does not
+inherit the acceptance. `docs/security-review.md` carries three claims — C11, C12, D10 — marked as
+newer than the acceptance; they are what a reviewer of this phase should attack. The core crates are
+untouched, and `ci/check-core-no-features.sh` enforces that rather than a sentence claiming it.
+
+Two things about it are easy to lose and expensive to relearn. Bait belongs outside every prefix any
+consumer fetches, and whether a prefix is fetched is a question about the code that fetches rather
+than about the policy that permits it. And the last step of the mechanism is not in this repository:
+the alert is a field on `/v1/health` and an entry in the trail, so a deployment whose monitoring does
+not page on it has bait and no tripwire. `docs/operations/honeypots.md` leads with that.
 
 **Phase 9**, the unauthenticated leak-report endpoint, is **deferred** (ADR-16). The condition that
 decides its worth is whether anyone without a token can reach the endpoint at all; where every

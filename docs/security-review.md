@@ -10,7 +10,10 @@ maintainer accepted that review as discharging the precondition on 2026-08-21**;
 acceptance covers, what it does not, and what would reverse it are in *The decision to accept it*
 below. Two claims below were falsified (B6, F1; D6, F2); both defects were fixed the same day,
 the other four findings were disposed of the same day, and the rows say so. The design review of ADR-15 and ADR-16 on 2026-08-20 is a different document and
-says of itself that it is not this one.
+says of itself that it is not this one. **Three claims are newer than the acceptance** — C11, C12 and
+D10, added on 2026-08-21 with the `honeypot_alert` entry — and are marked as such where they stand:
+the acceptance says new surface on the authentication path does not inherit it, and named this phase
+as the example.
 
 ## What this document is, and is not
 
@@ -63,6 +66,15 @@ asks of an operator who proceeds on an accepted risk.
 second-tier files its coverage section names. It does not extend to what that section lists as
 skimmed or taken on trust — `ciphr-audit`, most of `ciphr-store`, the server's configuration and TLS
 code, `ui/`. Those are unreviewed, and this decision does not make them otherwise.
+
+**Added 2026-08-21, after the acceptance: the `honeypot_alert` surface entry.** Claims C11, C12 and
+D10 describe it, and they are marked as new for a reason the acceptance states in its own words — new
+surface in the reviewed crates or on the authentication path does not inherit it. This is the case
+that acceptance named in advance, so the entry in this document is written rather than left for a
+later reader to infer. What changed: bait recognition inside `ciphr-store`'s token verification, a
+tier lookup and a latch in `ciphr-server`, two audit actions, and two routes. What did **not** change:
+`ciphr-crypto`, `ciphr-policy`, and the path, pattern and secret code in `ciphr-core` — enforced by
+`ci/check-core-no-features.sh` rather than asserted here.
 
 **What it is not.** A review by a human practitioner. The reviewer was an AI model, a different one
 from the model that co-authored the code — which is why it falsified two claims the same-model pass
@@ -230,6 +242,8 @@ which parts do *not* need their attention.
 | C7 | The master key may be read from a file as well as a variable, and the source is not part of the key: a store sealed through one opens through the other. | A source that changes the key, or a path where the two disagree. |
 | C8 | Both key sources cannot be active at once, so there is no precedence rule to get wrong. | A configuration or command line that accepts both. |
 | C9 | A key file the world can read **or write** stops the process; group bits are accepted deliberately. | A permissive file that starts, or a legitimate group arrangement that is refused. Windows has no check, by documented omission. *Widened 2026-08-21 (finding F6): the check tested `0o004` only, so mode `0602` started. The rule now has one definition (`ciphr_core::WorldAccess`) shared with the token-file check in `ciphr-run`, which had the same half of it.* |
+| C11 | **A honeypot token is indistinguishable from any other invalid credential to the caller.** New surface, added 2026-08-21 with the `honeypot_alert` entry, and *not covered* by the review of 2026-08-21 — that review read this crate and `ciphr-store` before bait existed. Same `cph_` prefix, same length and alphabet, same `401` with the same body and the same `WWW-Authenticate`. Recognition is a flag read from the row the constant-time comparison already fetched, *after* that comparison, so no work is added on either branch and no query is added at all. | A response that differs in any observable way — status, body, header, or work done. Two tests pin the first three (`every_kind_of_invalid_token_looks_the_same`, and a whole-response comparison against an unknown token), and the same caveat as C2 applies: **timing is not asserted, so this is a place where a human should look at the code.** Also worth attacking: bait is checked *before* expiry and revocation, so an expired honeypot token is still recognized as bait rather than falling through to the ordinary expired path. Verify that is what the code does and that it introduces no branch before the comparison. |
+| C12 | **Taking bait writes nothing extra.** The trip replaces the action on the audit entry the request writes anyway, rather than adding an entry, a row, or a file to the request path. The latch row and the `/v1/health` flag are derived state written off the request path, and a failure there is recorded rather than surfaced. | A second write on the bait path, or any ordering where the caller waits for the latch. The `honeypot_alert` build is the one to read; a default build has none of this code, which is the strongest form of the claim and also why the *other* configuration needs reading. |
 | C10 | *What else.* | |
 
 ### D. The authorization decision — `ciphr-policy`
@@ -244,6 +258,7 @@ which parts do *not* need their attention.
 | D6 | A real secret can never shadow a virtual `sys/` path: writes and deletes under that prefix are refused **by storage**, so the refusal holds for every caller and not only for requests that arrive over HTTP. | A way to create `sys/audit` as a secret, through any interface. *Falsified 2026-08-21 (finding F2): the refusal lived only in the HTTP layer, and `ciphr put sys/audit` through the CLI created it. **Fixed the same day**: `ciphr-store` refuses it, the prefix has one definition in `ciphr-core`, and the HTTP and CLI checks are now early errors rather than the enforcement.* |
 | D7 | A policy file loads completely or not at all: unknown keys, dangling policy references, duplicate names, and duplicate patterns refuse the whole file. | A file that half-loads. A partially loaded policy set is a set of permissions nobody wrote. |
 | D8 | Listings authorize **per returned path** rather than on the prefix, so a caller sees exactly the names they hold `list` on. | An information leak through listing — a way to learn of a path one may not list. Also worth challenging as a design choice: the alternative was a special case in the evaluator, which was rejected. |
+| D10 | **A honeypot secret is authorized exactly like any other path, and a denial trips nothing.** New surface, added 2026-08-21, and *not covered* by the review of 2026-08-21. There is no honeypot branch in this crate, no new capability, and nothing about bait reaches the evaluator: the tier is looked up in `ciphr-server` after `evaluate` returned an allow, and only for `Capability::Read`. | Anything in `ciphr-policy` that mentions bait. Then, in `ciphr-server`: a trip on a denied read (which would make every scoped-away probe an incident), a trip on `list` or `/v1/versions` (enumerating a name is not taking the bait), or a trip reachable from a host operation. Each of those is a test; the question for a reviewer is whether the *set* is complete. |
 | D9 | *What else.* | |
 
 ### E. The audit trail — second tier

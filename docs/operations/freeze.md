@@ -11,6 +11,12 @@ target, so revoking it and stopping everything are the same event, and the sever
 until that stops being true. A cleared gate is permission for the work that was behind it, not for the
 work that was dropped in front of it.
 
+**And phase 8 itself was built on 2026-08-21, which also changes nothing here.** The `alert` tier
+exists — bait, a trip, a latch, `/v1/health`, `ciphr honeypot` — and `freeze` is still not one of its
+tiers. `docs/operations/honeypots.md` is the runbook for what *was* built; this page stays the record
+of what a severe tier would close, for whoever revisits the condition above. The store refuses to
+hold a tier other than `alert`, so a database cannot claim this page's subject is switched on.
+
 **Why this document survives the decision that dropped its subject.** ADR-15 requires the runbook
 before the code, and the condition under which `freeze` returns is named rather than closed — it
 becomes worth its cost once the identity set is granular enough that revoking one identity is not the

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Accepted 2026-08-20, in the `alert` tier only.** Nothing is implemented. The external review that gated the build took place on 2026-08-21 and was accepted, so the order this record insisted on is satisfied — what is left is that the surface *this* record adds does not inherit that acceptance and needs its own pass (see the conditions at the end) |
+| **Status** | **Accepted 2026-08-20 in the `alert` tier only, and built on 2026-08-21** as the `honeypot_alert` surface entry (ADR-20) — bait recognition on the authentication path, the trip on the value path, the latch, `/v1/honeypots`, and the CLI to plant it. **The marker file is the one part of the tier that is not built; see below.** The review that gated the build happened on 2026-08-21, and the obligation that replaced it is open: the surface added here does not inherit that acceptance and needs its own pass |
 | **Date** | 2026-08-19 |
 | **Affects** | `ciphr-store`, `ciphr-server`, `ciphr-audit`, `ciphr-cli`, plan section 22, phase 8 |
 
@@ -112,6 +112,32 @@ stops being read. So one piece of bait trips at most once until it is cleared on
 `freeze` already behaves — and further reports of already-tripped bait fall into the aggregate entry
 that refused reports use. Plan section 23 makes `leaked_at` monotonic for the same reason; this is
 that reasoning applied to the tripwire.
+
+## The marker file is not built (decided 2026-08-21)
+
+The `alert` tier was specified as three channels: a distinct audit action, a flag on
+`/v1/health`, and a marker file the deployment's monitoring can watch. Two are built. The
+third is not, for two reasons that are worth separating because only one of them is about
+this repository.
+
+**A marker file needs a path, and a path is deployment configuration** — which this record
+says honeypots do not have. "Configuration: none. A honeypot is data" was written about the
+bait, and the marker is not bait; but inventing a location to avoid inventing a setting is
+the worse of the two. The obvious location, beside the database, puts the marker on the
+volume the conceded denial-of-service fills, so the channel that is supposed to survive a
+full volume would be the one that does not.
+
+**And for the deployment this was built for it buys nothing.** The monitoring here polls
+`/v1/health` over HTTP; a file on the service's volume is not something it can see. The
+marker exists for monitoring that watches a filesystem instead — a node agent, a
+`textfile` collector — and that is a real shape, just not this one.
+
+**The condition for building it** is therefore a deployment whose monitoring reads
+filesystems rather than endpoints, and the design question it has to answer first is where
+the file lives such that it is visible to that monitoring and not on the volume an
+adversary can fill. Until then the trail is the authoritative record and `/v1/health` is
+the channel, and this paragraph is here so the gap is a decision rather than an omission
+somebody discovers while writing an alert rule.
 
 ## Which side effects are inside the fail-closed contract (decided 2026-08-21)
 
@@ -224,14 +250,22 @@ exactly one of them has moved — the first, which was also the only one nobody 
   document covering the token path get an entry for bait rather than a reader inferring one. And the
   Cargo feature above is what keeps the gap honest in the meantime: a deployment that plants no bait is
   still running exactly the code the accepted review read.
-- **The timing property is a test, not a claim.** `every_kind_of_invalid_token_looks_the_same` in
-  `crates/ciphr-store/src/tokens.rs` is where the honeypot case belongs — inside that test, not
-  beside it.
+- ~~**The timing property is a test, not a claim.**~~ **Met 2026-08-21.** The honeypot case is inside
+  `every_kind_of_invalid_token_looks_the_same` in `crates/ciphr-store/src/tokens.rs`, not beside it,
+  together with an expired *and* revoked honeypot token — because the dates must not be able to route
+  bait back into an ordinary rejection, which is the one way a honeypot stops being one without
+  anybody noticing. The server has the matching test in
+  `every_kind_of_bad_token_gets_the_same_answer`, plus one that compares the whole response including
+  headers against an unknown token.
 - **`freeze` has an operations document before it has code.** What it closes, what stays open, how it
   is cleared, and what it looks like when it fires on a false positive. `docs/operations/` is for
   anything hard to undo, and a service that refuses to serve is exactly that. Written on 2026-08-20:
   [`../operations/freeze.md`](../operations/freeze.md).
-- **The false-positive surface is enumerated first.** Host-side operations that decrypt everything by
+- ~~**The false-positive surface is enumerated first.**~~ **Enumerated here, and three of the entries
+  are now tests rather than sentences:** a listing does not trip, a version history does not trip, and
+  a denial does not trip. A host read does not trip either, by construction — the trigger is in
+  `ciphr-server`, so `ciphr dump` and `ciphr get` cannot reach it — and that was checked against a
+  real store rather than assumed. The original text follows. Host-side operations that decrypt everything by
   design — `dump --format portable`, `export` on the host — must not trip anything, and neither must
   `list` or `versions`. A honeypot that fires on the nightly backup is a honeypot that gets disabled
   in week two. **The entry this list was missing is the one that matters most:** a consumer that

@@ -1,7 +1,10 @@
 # Threat model
 
-**Status:** current as of 2026-08-21, `v0.4.0` released, phases 0-3 and 7 in it. The adversaries and
-boundaries are settled. The cryptographic, storage, authorization, audit and transport defences
+**Status:** current as of 2026-08-21, `v0.4.0` released, phases 0-3 and 7 in it, and phase 8 built and
+unreleased. The adversaries and boundaries are settled. **A3 gains an optional detection** rather than
+a new defence: the `honeypot_alert` entry (ADR-15, ADR-20) is absent from a default build, and where a
+deployment turns it on, taking bait is a signal that needs no interpretation. The boundary itself does
+not move — a compromised runner still holds a valid token and still reads what its policy allows. The cryptographic, storage, authorization, audit and transport defences
 exist. **A7 now describes a component that is built:** every countermeasure in that row is
 implemented in `ui/` and the ones that can be gated are gated — see [ui.md](ui.md). **A8 still
 describes one that is not:** the MCP server is post-v1, and its row is a design commitment rather
@@ -34,7 +37,7 @@ database, the CLI, the optional read-only UI, and the optional MCP server.
 |---|---|---|---|
 | A1 | Network participant on the local network | HTTP requests to the listener | Authentication required, deny by default, no anonymous endpoint except `/v1/health` |
 | A2 | Compromised container on the same bridge network | Network access, possible traffic capture | TLS terminated at the listener (ADR-8), token authentication |
-| A3 | Compromised deploy runner | Holds a valid deploy token | Policy limited to that runner's paths; every access audited |
+| A3 | Compromised deploy runner | Holds a valid deploy token | Policy limited to that runner's paths; every access audited. **Detection is optional and off by default:** the `honeypot_alert` entry turns a read of bait into a signal that needs no interpretation (ADR-15). It catches enumeration and a credential tried everywhere; it does not catch a runner that reads only what it came for, which is what the audit trail is still for. |
 | A4 | Reader of the database file (backup, stolen disk) | Full ciphertext | Envelope encryption; the database is worthless without the master key |
 | A5 | Root on the host | Everything: process memory, the environment file, the database | **Not defended against.** Deliberate boundary, see below |
 | A6 | Internal user with partial access | A valid identity with a limited policy | Policy evaluation, audit, no escalation path through the API |
