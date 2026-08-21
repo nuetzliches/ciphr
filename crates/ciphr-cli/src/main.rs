@@ -158,6 +158,10 @@ enum Command {
     #[command(subcommand)]
     Token(TokenCommand),
 
+    /// Bait, and the trips it has produced (ADR-15).
+    #[command(subcommand)]
+    Honeypot(HoneypotCommand),
+
     /// The audit trail.
     #[command(subcommand)]
     Audit(AuditCommand),
@@ -225,6 +229,47 @@ struct ImportArgs {
     rotation: Option<String>,
 }
 
+/// `ciphr honeypot …` — bait, and the trips it has produced (ADR-15).
+///
+/// On the host and nowhere else. There is no route that marks bait and none that clears
+/// a trip, for the reason ADR-3 gives policies and ADR-15 gives its own clearing: a
+/// guard reachable through the door it guards is not a guard.
+#[derive(Debug, Subcommand)]
+enum HoneypotCommand {
+    /// Mark an existing secret as bait.
+    ///
+    /// The path must already hold a real-looking value. A tier on an empty path is bait
+    /// that answers 404 to whoever takes it.
+    ///
+    /// **Where it goes matters more than that it exists.** Bait belongs outside every
+    /// prefix any consumer fetches -- `ciphr-run --prefix`, `client.environment(prefix)`
+    /// and anything built on `POST /v1/export` read the *value* of every path under a
+    /// prefix, so bait under one trips on every service start. Under a
+    /// `infra/<host>/<service>/<KEY>` scheme that means a `<service>` level nobody
+    /// deploys, and never beside the real secrets of a real service.
+    Add {
+        /// The path to mark.
+        path: String,
+    },
+    /// Remove the mark, leaving the secret in place.
+    Remove {
+        /// The path to unmark.
+        path: String,
+    },
+    /// Show every piece of bait and whether it has been taken.
+    ///
+    /// The only place bait is visible. It never appears in `list`, in `versions`, or on
+    /// any value path: an operator has to be able to tell bait from a real secret, and a
+    /// caller must not.
+    List,
+    /// Clear every open trip, so the bait can fire again.
+    ///
+    /// Sets a cleared timestamp rather than deleting anything: what an investigation
+    /// wants is exactly the part a delete would remove. Never on a timer and never
+    /// through the API -- a tripwire that resets quietly has, in effect, not fired.
+    Clear,
+}
+
 #[derive(Debug, Subcommand)]
 enum TokenCommand {
     /// Issue a token for an identity from the policy file.
@@ -237,6 +282,17 @@ enum TokenCommand {
         /// Print the token even though output is not a terminal.
         #[arg(long)]
         force: bool,
+        /// Plant bait instead of a credential (ADR-15).
+        ///
+        /// The token is generated, stored and printed exactly as a real one, and
+        /// authenticates nothing. Plant it where a credential should not be but often
+        /// is -- an old `.env` on a host, a job log, a wiki page. Presenting it proves
+        /// somebody read something they should not have.
+        ///
+        /// The identity is still required and still has to exist: it is what names
+        /// *which* bait was taken in the audit trail. Nothing is granted by it.
+        #[arg(long)]
+        honeypot: bool,
     },
     /// List tokens, without their verifiers.
     List {
@@ -632,6 +688,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
         Command::Export(args) => export(&cli, &args),
         Command::Import(args) => import(&cli, &args),
         Command::Token(command) => token(&cli, command),
+        Command::Honeypot(command) => honeypot(&cli, command),
         Command::Audit(command) => audit(&cli, &command),
         Command::RotateMasterKey {
             new_key_env,
@@ -860,6 +917,7 @@ fn issue_token(
     identity: String,
     ttl: Option<&str>,
     force: bool,
+    honeypot: bool,
 ) -> Result<(), CliError> {
     // The identity must exist in the policy file. Issuing a token for a name
     // nobody granted anything would produce a credential that authenticates and
@@ -907,7 +965,11 @@ fn issue_token(
         &pepper,
         "cli",
         expires_at,
-        ciphr_store::TokenPurpose::Credential,
+        if honeypot {
+            ciphr_store::TokenPurpose::Honeypot
+        } else {
+            ciphr_store::TokenPurpose::Credential
+        },
     )?;
 
     // Printed once, here, and never recoverable afterwards: what the database
@@ -920,6 +982,107 @@ fn issue_token(
         None => eprintln!("No expiry. Consider --ttl for anything held by CI."),
     }
     eprintln!("This is the only time the token is shown.");
+    if honeypot {
+        eprintln!();
+        eprintln!("This is bait. It authenticates nothing, and presenting it is recorded");
+        eprintln!("as honeypot-triggered. Plant it where a credential should not be but");
+        eprintln!("often is -- and not where a consumer might pick it up by mistake.");
+        eprintln!();
+        eprintln!("Detection needs the service built with --features honeypot_alert and a");
+        eprintln!("[[surface]] stanza naming it. Without both, taking this bait is recorded");
+        eprintln!("as an ordinary rejected credential and nothing pages.");
+    }
+    Ok(())
+}
+
+/// `ciphr honeypot …`.
+fn honeypot(cli: &Context, command: HoneypotCommand) -> Result<(), CliError> {
+    match command {
+        HoneypotCommand::Add { path } => set_bait(cli, &path, true),
+        HoneypotCommand::Remove { path } => set_bait(cli, &path, false),
+        HoneypotCommand::List => {
+            let session = open(cli)?;
+            let bait = session.store.honeypots()?;
+            if bait.is_empty() {
+                eprintln!("No bait planted.");
+                return Ok(());
+            }
+            for entry in bait {
+                let what = match (&entry.path, &entry.token_id) {
+                    (Some(path), _) => format!("secret {path}"),
+                    (None, Some(id)) => format!(
+                        "token  {id} for {}",
+                        entry.identity.as_deref().unwrap_or("?")
+                    ),
+                    (None, None) => "?".to_owned(),
+                };
+                let state = if entry.tripped { "TAKEN" } else { "quiet" };
+                println!("{state:<6} {:<6} {what}", entry.tier.as_str());
+            }
+            Ok(())
+        }
+        HoneypotCommand::Clear => {
+            let mut session = open(cli)?;
+            // Recorded before the change, like every other mutation here. A cleared
+            // tripwire is an operational decision and the trail is where it belongs --
+            // clearing without a record is how an incident becomes a blip in a graph
+            // nobody kept.
+            session.record(&Session::operator_entry(
+                Action::HoneypotCleared,
+                true,
+                None,
+            ))?;
+            let cleared = session.store.clear_trips()?;
+            match cleared {
+                0 => eprintln!("Nothing was tripped."),
+                1 => eprintln!("One trip cleared. The bait can fire again."),
+                many => eprintln!("{many} trips cleared. The bait can fire again."),
+            }
+            Ok(())
+        }
+    }
+}
+
+/// Mark a secret as bait, or remove the mark.
+fn set_bait(cli: &Context, path: &str, bait: bool) -> Result<(), CliError> {
+    let parsed = SecretPath::parse(path)?;
+    let mut session = open(cli)?;
+
+    // The secret has to exist first, and the message says why rather than reporting a
+    // bare "not found": a tier on an empty path is the one mistake that produces bait
+    // nobody can take.
+    if session.store.metadata(&parsed).is_err() {
+        return Err(CliError::Audit(format!(
+            "{path} does not exist. Bait is a real secret holding a real-looking              value -- write one first, then mark it."
+        )));
+    }
+
+    session.record(
+        &Session::operator_entry(Action::HoneypotMarked, true, None)
+            .with_path(&parsed)
+            .with_detail(if bait { "marked" } else { "unmarked" }),
+    )?;
+    session.store.set_honeypot(
+        &parsed,
+        if bait {
+            Some(ciphr_store::HoneypotTier::Alert)
+        } else {
+            None
+        },
+    )?;
+
+    if bait {
+        eprintln!("{path} is bait, tier alert.");
+        eprintln!();
+        eprintln!("It must sit outside every prefix a consumer fetches. A prefix fetch reads");
+        eprintln!("the value of every path under it, so bait under one trips on every service");
+        eprintln!("start -- see `ciphr honeypot add --help`.");
+        eprintln!();
+        eprintln!("Detection needs the service built with --features honeypot_alert and a");
+        eprintln!("[[surface]] stanza naming it.");
+    } else {
+        eprintln!("{path} is no longer bait. The secret itself is unchanged.");
+    }
     Ok(())
 }
 
@@ -930,7 +1093,8 @@ fn token(cli: &Context, command: TokenCommand) -> Result<(), CliError> {
             identity,
             ttl,
             force,
-        } => issue_token(cli, identity, ttl.as_deref(), force),
+            honeypot,
+        } => issue_token(cli, identity, ttl.as_deref(), force, honeypot),
         TokenCommand::List { identity } => {
             let session = open(cli)?;
             for record in session.store.tokens(identity.as_deref())? {

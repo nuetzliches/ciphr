@@ -885,6 +885,8 @@ components:
                   revoke-token,
                   surface-active,
                   honeypot-triggered,
+                  honeypot-marked,
+                  honeypot-cleared,
                 ]
             subject:
               type: [object, "null"]
@@ -948,6 +950,10 @@ components:
                 the active surface entries or the literal `none`, and by
                 `honeypot-triggered`, which carries `attempted: <action>` -- the action
                 the entry would have had if the credential or the path had not been bait.
+
+                `honeypot-marked` carries `marked` or `unmarked`. Both directions share
+                one action because both are the same event seen from either side, and the
+                trail has to be able to answer "was this bait on the day it was read".
                 Null everywhere else.
 
                 **Not a second `deny_reason`.** A `surface-active` entry refuses

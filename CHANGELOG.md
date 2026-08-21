@@ -8,6 +8,34 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — planting bait: `ciphr honeypot` and `token issue --honeypot`
+
+Phase 8 was unreachable without this: the store could hold bait and nothing could create any.
+
+`ciphr honeypot add <path>` marks an existing secret, `remove` unmarks it, `list` shows every piece of
+bait with whether it has been taken, and `clear` frees the latches so bait can fire again. On the host
+and nowhere else — there is no route that marks bait and none that clears a trip, for the reason ADR-3
+gives policies: a guard reachable through the door it guards is not a guard.
+
+`add` refuses a path that does not exist, and says why rather than reporting a bare "not found": a tier
+on an empty path is bait that answers `404` to whoever takes it. Both `add` and `token issue
+--honeypot` print the two things that decide whether the bait works at all — that it must sit outside
+every prefix a consumer fetches, and that detection needs the service built with the feature *and* a
+`[[surface]]` stanza naming it. Without both, taking the bait is recorded as an ordinary rejected
+credential and nothing pages.
+
+**Two audit actions were wrong and are now their own**, found by running the commands rather than by a
+test. `honeypot clear` recorded `honeypot-triggered`, so the trail claimed bait had been taken every
+time an operator tidied up after a trip — and the count of trips became the number nobody can use. And
+`honeypot add` recorded `classify`, whose documented meaning is how safe a secret is to rotate; two
+questions sharing one label would leave "when did this path become bait" answerable only from a field
+the entry did not carry. There are now `honeypot-marked`, with `marked` or `unmarked` in `detail`, and
+`honeypot-cleared`.
+
+Verified end to end against a real store: a marked secret still reads exactly as before through the
+CLI, `ciphr list` does not reveal it, and a host read does **not** trip — which is ADR-15's rule that
+`dump` and `export` on the host decrypt by design and a backup must not fire every honeypot nightly.
+
 ### Added — a honeypot secret trips on the value route, and `/v1/health` says so
 
 The second kind of bait: a path holding a real-looking value nobody legitimately reads.

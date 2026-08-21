@@ -109,6 +109,23 @@ pub enum Action {
     /// decision in ADR-15 for why the split falls here: an audit device and the store
     /// hold separate connections, so a row and a record cannot be made to fail together.
     HoneypotTriggered,
+    /// Bait was marked, or the mark was removed, on the host.
+    ///
+    /// Its own action rather than a [`Action::Classify`], although both attach a word to
+    /// a secret without producing a version. `classify` answers "how safe is this to
+    /// rotate", and folding bait into it would make two questions share one label — so
+    /// "when did this path become bait?" would be answerable only by reading the value
+    /// of a field the entry does not carry.
+    ///
+    /// [`Entry::detail`] says which direction: `marked` or `unmarked`.
+    HoneypotMarked,
+    /// An operator cleared the open trips, so bait can fire again.
+    ///
+    /// Distinct from [`Action::HoneypotTriggered`] for the reason that makes the
+    /// distinction matter rather than for tidiness: a trail where clearing looks like
+    /// firing reports an incident every time somebody tidies up after one, and the
+    /// resulting count is the number nobody can use.
+    HoneypotCleared,
 }
 
 impl Action {
@@ -129,6 +146,8 @@ impl Action {
             Self::AuditDeviceFailed => "audit-device-failed",
             Self::SurfaceActive => "surface-active",
             Self::HoneypotTriggered => "honeypot-triggered",
+            Self::HoneypotMarked => "honeypot-marked",
+            Self::HoneypotCleared => "honeypot-cleared",
         }
     }
 }
