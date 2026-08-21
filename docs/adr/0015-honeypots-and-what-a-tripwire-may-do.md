@@ -113,6 +113,50 @@ stops being read. So one piece of bait trips at most once until it is cleared on
 that refused reports use. Plan section 23 makes `leaked_at` monotonic for the same reason; this is
 that reasoning applied to the tripwire.
 
+## Which side effects are inside the fail-closed contract (decided 2026-08-21)
+
+The condition list below asked for this to be *decided rather than discovered*, and reading the code
+turned out to force the answer rather than leave it open. Two facts about what exists:
+
+- **`AppState::record` is "at least one device accepted" fail-closed**, not "all devices". A device
+  that refuses is noted and produces an `audit-device-failed` entry; the request proceeds.
+- **`SqliteAuditDevice` opens the same file as the store, on its own connection.** So an audit record
+  and a row written by the store are two transactions, not one. They cannot be made atomic with each
+  other, and with a `file` device configured the audit record survives a full or locked database that
+  a store write would fail on.
+
+Together those say a `tripwire` row **can** fail while the request's audit record succeeds. That is
+exactly the state property 1 forbids from being observable, and it is reachable by the named
+denial-of-service lever. So the split is drawn where fate is already shared:
+
+**The authoritative record of a trip is the request's own audit entry, and there is no second write.**
+A read that takes bait, or a presented honeypot token, records the entry it was going to record
+anyway — with `honeypot-triggered` as its action instead of the ordinary one. One entry either way,
+the same size, through the same devices, under the same fail-closed rule. This is property 1's second
+sanctioned option rather than its first: the path *absorbs the same cost either way*, so nothing needs
+to be deferred past the flush to stay indistinguishable, and a trip cannot be suppressed without
+refusing the request — which is what fail-closed already does for every request.
+
+**The `tripwire` row, the `/v1/health` flag it feeds, and the marker file are outside the contract, and
+they happen after the response is flushed.** They are conveniences over the authoritative entry: the
+row carries the latch, the flag is derived from it, and the marker file exists for monitoring that
+watches a filesystem rather than an endpoint. Each failure is recorded the way a refusing audit device
+already is — the trail says the latch is missing rather than the state going quietly wrong.
+
+**What that costs, stated rather than discovered.** An adversary who fills the volume can lose the
+latch and the flag: the page may repeat, or `/v1/health` may not carry `tripped` although bait was
+taken. What they cannot do is make a value read succeed where another would fail, or suppress the
+record — the entry is inside the contract, and where the store is too full for the row it is usually
+too full for the ordinary entry as well, at which point the request is refused rather than served
+quietly.
+
+**And a deviation from plan section 22's data model, which said the row is the record.** It is not:
+the entry is the record and the row is derived state. The reason is the second fact above — a table in
+the store cannot share a transaction with an audit device that holds its own connection, so a design
+resting on the row resting on the audit contract does not hold. The row keeps its place for the one
+thing the trail cannot do: survive `ciphr audit cut`, which bounds the trail and would otherwise
+un-latch a trip by retention.
+
 ## Why alerting does not mean an outbound connection
 
 The obvious shape for an alert is an email or a webhook. Both are rejected.
@@ -224,12 +268,13 @@ exactly one of them has moved — the first, which was also the only one nobody 
   denial, and a denial trips nothing. Scoping exactly and planting honeypot secrets are therefore
   alternatives rather than complements — honeypot tokens are unaffected either way, and the trade is
   written out in [`../authorization.md`](../authorization.md).
-- **Which of the tripwire's side effects are inside the fail-closed contract is decided rather than
-  discovered.** Auditing is fail-closed, so a full audit volume already refuses requests. If the
-  tripwire's row, marker file, or distinct entry can fail *independently* of the ordinary audit
-  entry, there is a state — one an adversary can help bring about, since filling the volume is a
-  named denial-of-service lever — in which bait and non-bait answer differently. Whatever the answer
-  is, it must not be observable on the value path.
+- ~~**Which of the tripwire's side effects are inside the fail-closed contract is decided rather than
+  discovered.**~~ **Decided 2026-08-21**, above. The reasoning that put it here is unchanged: auditing
+  is fail-closed, so a full audit volume already refuses requests, and if the tripwire's row, marker
+  file, or distinct entry can fail *independently* of the ordinary audit entry, there is a state — one
+  an adversary can help bring about, since filling the volume is a named denial-of-service lever — in
+  which bait and non-bait answer differently. Reading the code showed that the row *can* fail
+  independently, which is why the record moved onto the entry instead.
 
 ## Review
 

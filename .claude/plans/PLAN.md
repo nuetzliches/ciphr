@@ -1678,6 +1678,17 @@ Data model, additively: `secrets.honeypot_tier TEXT NULL`, `tokens.honeypot INTE
 0`, and a `tripwire` table recording each trip (`ts`, `kind`, `path` or `token_id`, `identity`,
 `tier`, `cleared_at`), so that the freeze state and its cause survive a restart.
 
+**Amended 2026-08-21: the row is not the record.** ADR-15 decided which side effects sit inside the
+fail-closed contract, and the answer moved the authoritative record onto the request's own audit
+entry — one write either way, with `honeypot-triggered` as its action. `SqliteAuditDevice` holds its
+own connection to the same file the store uses, so a row and an audit record are two transactions and
+cannot be made to fail together; with a `file` device configured the record survives a database the
+row would fail on. The `tripwire` row therefore keeps its place as **derived state** — the latch, and
+what `/v1/health` reads `tripped` from — written after the response is flushed, outside the contract,
+with its own failure recorded. It earns that place for the one thing the trail cannot do: survive
+`ciphr audit cut`, which would otherwise un-latch a trip by retention. The dated reasoning is in
+ADR-15.
+
 Audit actions: `honeypot-triggered`, `lockdown-engaged`, `lockdown-cleared`. Additive variants of
 `Action`; verification hashes the stored payload text, so adding them does not disturb an existing
 chain.
@@ -1971,6 +1982,17 @@ that a condition written in a record becomes something an operator can see:
   nothing here can check the last step. The necessary half is checkable — the process knows when its
   health endpoint was last fetched — and `ciphr surface enable honeypot_alert` refuses on a host where
   nothing has asked in days. It remains a necessary condition and not a sufficient one.
+
+  **Decided 2026-08-21, when `honeypot_alert` was built: the refusal is not implemented, and the
+  condition is an operations requirement instead.** The blocking reason is that the fact is process
+  state: a container that has just started has never been polled, so a refusal keyed on it fires on
+  every fresh deployment and on every restart — exactly the deployments where nothing is wrong. Making
+  it durable would mean persisting a monitoring observation in the store, which is a second thing that
+  ages, and refusing on a stale one is the same failure with more steps. The condition keeps its force
+  where it is checkable by the party who can act on it: the upgrade and operations documents say the
+  entry is worth enabling only once something pages on `/v1/health`, and the entry's own `reason` field
+  is where a deployment writes down that it did. This is a deviation from the bullet above and is
+  recorded here rather than argued again later.
 - **Whether the retention cut is running**, which is what ADR-16's property 4 assumes when it bounds an
   anonymous write path against a finite store.
 
