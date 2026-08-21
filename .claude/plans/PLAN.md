@@ -587,7 +587,19 @@ unreadable — the classification belongs in the data model:
 `rotation` is pure metadata and does **not** influence authorization — it drives warnings in
 the CLI and the UI. Both reach it the same way since 2026-08-20: `GET /v1/versions/{path}`
 returns the class, a `needs_care` flag and the advice text alongside the versions, so the viewer
-shows the words the CLI prints instead of a second copy that drifts. It is in v1 deliberately, because classifying an existing corpus after the
+shows the words the CLI prints instead of a second copy that drifts.
+
+**Since 2026-08-21 it can also be *set* through the API**, as an optional `rotation` on
+`SecretInput`. The reason is finding 3 of the field report of that date: `PUT` works against a
+running service and the three CLI forms take the store lock, so a no-downtime import produced an
+estate in which every value said `unclassified` and making it honest cost exactly the downtime the
+API path had avoided. Absent means unchanged, so the pessimistic default above is untouched; an
+unknown class is `400` and never a default; and it writes a `classify` entry beside the `write`,
+because a class that moves inside a `write` entry is the `breaks-data` downgraded to `rotatable`
+that nobody sees. **This is not a hole in ADR-3.** What that record keeps out of the API is
+identities and policies — the configuration that decides access. A rotation class decides nothing:
+it is metadata about a secret, written with the same `write` capability as the secret's value, and
+the evaluator never reads it. It is in v1 deliberately, because classifying an existing corpus after the
 fact is far more tedious than carrying the field from the start.
 
 **The default was `rotatable` until 2026-08-20, and that was a defect in this table.** A default
@@ -682,6 +694,13 @@ so an operator can check it from outside rather than trusting a claim in a READM
 The constraint from the paragraph above still binds: this endpoint is unauthenticated, so it may
 report *what is enforced* and never *what is stored*. A device name, a boolean, and an expiry
 date are properties of the process. A count of secrets, a path, or an identity is not.
+
+**`PUT /v1/secrets/*path` carries an optional `rotation`, since 2026-08-21.** The class travels
+with the value so that an estate can be migrated into a *running* service without leaving every
+path `unclassified` — section 8 has the reasoning and the rules (absent means unchanged, unknown is
+`400`, a second `classify` entry, no capability beyond `write`). It is the only metadata an API
+write may set, and the boundary is worth stating: metadata that decides nothing may travel with the
+value it describes, while anything an authorization decision reads stays in configuration (ADR-3).
 
 **Administrative read endpoints run through the same policy evaluator:** `/v1/audit`,
 `/v1/identities` and `/v1/policies` are authorized as the virtual paths `sys/audit`,

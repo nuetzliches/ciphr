@@ -32,7 +32,7 @@ use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use ciphr_audit::{Action, RequestContext};
 use ciphr_core::path::RESERVED_PREFIX;
-use ciphr_core::{Capability, Plaintext, SecretPath, SecretVersion};
+use ciphr_core::{Capability, Plaintext, Rotation, SecretPath, SecretVersion};
 use ciphr_policy::IdentityKind;
 use ciphr_store::{AuditFilter, Store};
 use serde::{Deserialize, Serialize};
@@ -98,6 +98,18 @@ struct Health {
 struct SecretBody {
     /// The value, as UTF-8 text.
     value: String,
+    /// The rotation class to record, if the caller names one.
+    ///
+    /// `None` means unchanged, and that is the whole point of it being optional: a new
+    /// path written without this field still lands `unclassified`, so the pessimistic
+    /// default of section 8 is untouched by the existence of this field.
+    ///
+    /// A `String` rather than a `Rotation`, because rejecting an unknown class has to
+    /// produce a `400` that names it rather than serde's own message about an untagged
+    /// enum — and because the parse belongs beside the other request checks, before
+    /// anything is recorded.
+    #[serde(default)]
+    rotation: Option<String>,
 }
 
 /// What `GET /v1/secrets/{path}` returns.
@@ -354,11 +366,31 @@ async fn read_secret(
     }))
 }
 
-/// `PUT /v1/secrets/{path}` — write a new version.
+/// `PUT /v1/secrets/{path}` — write a new version, and optionally record its class.
 ///
 /// The audit entry is written **before** the store changes. Mutating first and
 /// discovering afterwards that nothing could be logged would be exactly the unlogged
 /// access this project exists to prevent.
+///
+/// # Why the class may be set here
+///
+/// `PUT` works against a running service; `ciphr rotation` needs the store lock and
+/// therefore the service stopped. Without this field a no-downtime import lands an
+/// estate in which every path says `unclassified` — nobody has looked at this — and
+/// making that honest costs exactly the downtime the API path avoided. The two features
+/// pulled against each other, and the pessimistic default is what made it visible.
+///
+/// It is not a wider privilege. `write` on the path is the capability for both, because
+/// naming what a value is safe for is not more than setting the value, and the class
+/// never reaches an authorization decision (section 8).
+///
+/// # Why it is a second audit entry
+///
+/// `classify`, beside the `write`, exactly as the CLI records it — see `classify` in
+/// `ciphr-cli`, which exists because this drifted once already in the direction that
+/// matters: a class that moves inside a `write` entry is a `breaks-data` downgraded to
+/// `rotatable` with nothing in the trail saying so, immediately before the rotation that
+/// destroys the data.
 async fn write_secret(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -370,6 +402,11 @@ async fn write_secret(
     let caller = authenticate(&state, &headers, Action::Write, &request)?;
     let path = parse_path(&path)?;
     reject_reserved(&path)?;
+    // Parsed here, with the other request checks: an unknown class is a fault in the
+    // request, and refusing it before the authorization entry keeps the trail from
+    // carrying an allowed write that was never going to happen. Unknown is never
+    // defaulted -- defaulting to `rotatable` would turn a typo into "safe to rotate".
+    let rotation = parse_rotation(body.rotation.as_deref())?;
 
     state.authorize_and_record(&caller, Action::Write, Capability::Write, &path, &request)?;
 
@@ -383,11 +420,8 @@ async fn write_secret(
             .map_err(ApiError::from)
     });
 
-    match outcome {
-        Ok(version) => Ok(Json(WriteResponse {
-            path: path.as_str().to_owned(),
-            version: version.get(),
-        })),
+    let version = match outcome {
+        Ok(version) => version,
         Err(error) => {
             // The trail already says the write was authorized; this says it did not
             // happen. Two entries rather than one that over-claims.
@@ -399,9 +433,40 @@ async fn write_secret(
                 error.status().as_u16(),
                 Some("write-failed"),
             )?;
-            Err(error)
+            return Err(error);
         }
+    };
+
+    // After the value, because a class cannot be recorded for a path that does not
+    // exist yet -- the store answers `NotFound` for one. The consequence is worth
+    // stating: if the classification fails, the version is already there and the
+    // response is an error, so a caller that retries writes a second version of the
+    // same value. That is the same ordering `ciphr put --rotation` has, and the
+    // alternative -- classifying first -- cannot work for a new path.
+    if let Some(class) = rotation {
+        // Through the same evaluator, so the entry carries its own decision and the
+        // rule that allowed it. `write` again: this is the capability the field costs.
+        state.authorize_and_record(
+            &caller,
+            Action::Classify,
+            Capability::Write,
+            &path,
+            &request,
+        )?;
+        state.complete_or_record(
+            &caller,
+            Action::Classify,
+            &path,
+            &request,
+            "classify-failed",
+            || state.with_store(|store| store.set_rotation(&path, class).map_err(ApiError::from)),
+        )?;
     }
+
+    Ok(Json(WriteResponse {
+        path: path.as_str().to_owned(),
+        version: version.get(),
+    }))
 }
 
 /// `DELETE /v1/secrets/{path}` — soft-delete the current version.
@@ -978,6 +1043,26 @@ fn parse_path(raw: &str) -> Result<SecretPath, ApiError> {
     SecretPath::parse(raw).map_err(|error| ApiError::BadRequest {
         reason: error.to_string(),
     })
+}
+
+/// Parse an optional rotation class from a request body.
+///
+/// Absent stays absent — "unchanged" and not "the default", which is what keeps a write
+/// without this field landing `unclassified` on a new path and leaving an existing class
+/// alone. An unknown class is a `400` naming what was sent and what the classes are:
+/// the error describes the request, so it is safe to return.
+///
+/// Note the asymmetry with the way out, which is deliberate. `Classification.class` is
+/// an open string in every response, so a client is never broken by a class a later
+/// service added; an input is closed, because accepting a class this build cannot
+/// interpret would store a word that means nothing here.
+fn parse_rotation(raw: Option<&str>) -> Result<Option<Rotation>, ApiError> {
+    raw.map(|class| {
+        Rotation::parse(class).map_err(|error| ApiError::BadRequest {
+            reason: error.to_string(),
+        })
+    })
+    .transpose()
 }
 
 /// Refuse writes and deletes under the reserved prefix.

@@ -807,6 +807,128 @@ fn the_version_history_carries_the_rotation_class() {
 }
 
 #[test]
+fn a_write_can_carry_its_rotation_class_and_is_audited_as_two_things() {
+    // The migration case: an estate imported over the running service, one path at a
+    // time, without leaving every value saying "nobody has looked at this" until
+    // somebody stops the service to say otherwise.
+    let harness = Harness::new();
+    let (status, body) = harness.send(Harness::build(
+        "PUT",
+        "/v1/secrets/infra/service-d/DB_KEY",
+        Some(&harness.deploy_token),
+        Some(serde_json::json!({ "value": "imported", "rotation": "breaks-data" })),
+    ));
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["version"], 1);
+
+    let (status, body) = harness.get(
+        "/v1/versions/infra/service-d/DB_KEY",
+        Some(&harness.deploy_token),
+    );
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["rotation"]["class"], "breaks-data");
+    assert_eq!(body["rotation"]["needs_care"], true);
+
+    // Two entries, not one. A class that moved inside a `write` entry is a
+    // `breaks-data` downgraded to `rotatable` with nothing in the trail saying so --
+    // the exact drift the CLI's `classify` was funnelled into one function to prevent.
+    let entries = harness.audit_entries();
+    let classify: Vec<&serde_json::Value> = entries
+        .iter()
+        .filter(|entry| {
+            entry["entry"]["action"] == "classify"
+                && entry["entry"]["path"] == "infra/service-d/DB_KEY"
+        })
+        .collect();
+    assert_eq!(classify.len(), 1, "one classify entry, got {entries:#?}");
+    assert_eq!(classify[0]["entry"]["allowed"], true);
+    assert_eq!(classify[0]["entry"]["principal"]["name"], "deploy");
+    assert!(
+        entries.iter().any(|entry| {
+            entry["entry"]["action"] == "write"
+                && entry["entry"]["path"] == "infra/service-d/DB_KEY"
+        }),
+        "the value write is still recorded as a write"
+    );
+}
+
+#[test]
+fn a_write_without_a_class_changes_no_class() {
+    // "Absent means unchanged" in both directions: a new path still lands on the
+    // pessimistic default, and a value written over an existing classification does not
+    // silently reset it to `unclassified`.
+    let harness = Harness::new();
+    let path = "/v1/secrets/infra/service-e/TOKEN";
+
+    harness.send(Harness::build(
+        "PUT",
+        path,
+        Some(&harness.deploy_token),
+        Some(serde_json::json!({ "value": "one", "rotation": "invalidates-sessions" })),
+    ));
+    harness.send(Harness::build(
+        "PUT",
+        path,
+        Some(&harness.deploy_token),
+        Some(serde_json::json!({ "value": "two" })),
+    ));
+
+    let (_, body) = harness.get(
+        "/v1/versions/infra/service-e/TOKEN",
+        Some(&harness.deploy_token),
+    );
+    assert_eq!(body["versions"].as_array().expect("versions").len(), 2);
+    assert_eq!(body["rotation"]["class"], "invalidates-sessions");
+
+    // And the second write recorded no classification, because none happened.
+    let classifications = harness
+        .audit_entries()
+        .into_iter()
+        .filter(|entry| {
+            entry["entry"]["action"] == "classify"
+                && entry["entry"]["path"] == "infra/service-e/TOKEN"
+        })
+        .count();
+    assert_eq!(classifications, 1, "only the write that named a class");
+}
+
+#[test]
+fn an_unknown_rotation_class_is_refused_before_anything_happens() {
+    // Never defaulted. Defaulting a typo would turn it into "safe to rotate", which is
+    // the one claim that destroys data if it is wrong -- and the refusal comes before
+    // the authorization entry, so the trail carries no allowed write that never was.
+    let harness = Harness::new();
+    let before = harness.audit_entries().len();
+
+    let (status, body) = harness.send(Harness::build(
+        "PUT",
+        "/v1/secrets/infra/service-f/VALUE",
+        Some(&harness.deploy_token),
+        Some(serde_json::json!({ "value": "v", "rotation": "rotateable" })),
+    ));
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let detail = body["detail"].as_str().unwrap_or_default();
+    assert!(detail.contains("rotateable"), "got {body}");
+    assert!(
+        detail.contains("rotatable"),
+        "the error should name the classes that do exist: {body}"
+    );
+    assert_eq!(
+        harness.audit_entries().len(),
+        before,
+        "a malformed request produces no entry"
+    );
+
+    let store = SqliteStore::open(&harness.database).expect("reopen");
+    let path = SecretPath::parse("infra/service-f/VALUE").expect("valid");
+    assert!(
+        store.metadata(&path).is_err(),
+        "nothing may be written when the request was refused"
+    );
+}
+
+#[test]
 fn listing_shows_only_what_the_caller_may_list() {
     let harness = Harness::new();
 

@@ -8,6 +8,51 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — a value written over the API can carry its rotation class
+
+`SecretInput` grows an optional `rotation`, `PUT /v1/secrets/{path}` applies it, and
+`Client::put_classified` is the SDK method for it. From the field report of 2026-08-21, finding 3.
+
+**The two features pulled against each other.** `PUT` works against a running service, which is the
+whole reason the API path is attractive for migrating an existing estate one service at a time.
+Setting the class needed `ciphr rotation`, `ciphr put --rotation` or `ciphr import --rotation` — all
+CLI, all taking the store lock, therefore all requiring the service stopped. So a no-downtime import
+produced a store in which every imported value said `unclassified` — *nobody has looked at this* —
+and making that honest cost exactly the downtime the API path had just avoided. The pessimistic
+default was working as intended: it made the gap visible instead of quietly writing "safe to rotate"
+across an estate nobody had examined.
+
+**Absent means unchanged, in both directions.** A path written for the first time without the field
+still lands `unclassified`, so nothing about the default moves; a value written over an existing
+classification does not reset it. There is no way to say it with `null` — the field means unchanged
+by being missing.
+
+**An unknown class is `400`, never a default.** Parsed with the other request checks, before the
+authorization entry, so a typo leaves no allowed write in the trail that was never going to happen.
+The asymmetry with the way out is deliberate: `Classification.class` stays an open string in every
+response, because a client must not break on a class a later service added, while an input is closed,
+because storing a word this build cannot interpret would be a claim nobody made.
+
+**It produces a second audit entry, `classify`, beside the `write`.** Not a detail. The CLI funnels
+its three classifying paths through one function precisely because they drifted once, and the
+direction of the drift is what matters: a class that moves inside a `write` entry is a `breaks-data`
+downgraded to `rotatable` with nothing in the trail saying so, immediately before the rotation that
+destroys the data. The capability is `write` on the path and nothing more — naming what a value is
+safe for is not a broader privilege than setting the value, and the class reaches no authorization
+decision.
+
+**Applied after the version exists**, because a class cannot be recorded for a path that is not there
+yet. The consequence is worth knowing: if the classification fails, the value is already written and
+the response is an error, so a caller that retries writes a second version of the same value. That is
+the ordering `ciphr put --rotation` has had all along, and classifying first cannot work for a new
+path.
+
+**Deliberately not changed: the write response.** The class belongs to the secret rather than to the
+version just written, and `GET /v1/versions/{path}` is where it is read; a second copy in a write
+response is a copy that drifts. That matters against a service older than this field, which ignores
+an unknown property in silence — one version listing after the first import confirms the field
+arrived, rather than a whole estate quietly staying `unclassified`.
+
 ### Added — a honeypot token is recognized, and the trail says so
 
 ADR-15's first kind of bait: a credential in the documented format that authenticates nothing. It is

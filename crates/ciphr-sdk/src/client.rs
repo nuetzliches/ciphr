@@ -24,7 +24,7 @@
 use core::time::Duration;
 use std::sync::Arc;
 
-use ciphr_core::{EnvVarName, Plaintext, SecretPath, SecretVersion};
+use ciphr_core::{EnvVarName, Plaintext, Rotation, SecretPath, SecretVersion};
 use secrecy::{ExposeSecret, SecretString};
 
 use crate::environment::Environment;
@@ -116,11 +116,57 @@ impl Client {
     /// client for the API and the API has the operation; the expected caller is not a
     /// service fetching its own secrets but a tool that provisions them.
     ///
+    /// Leaves the rotation class alone — `unclassified` on a path that is new. Use
+    /// [`Client::put_classified`] where the caller knows what the value is safe for.
+    ///
     /// # Errors
     ///
     /// [`SdkError::BadRequest`] for a reserved path (`sys/**` cannot hold secrets), and
     /// see [`SdkError`].
     pub fn put(&self, path: &SecretPath, value: &Plaintext) -> Result<Written, SdkError> {
+        self.write(path, value, None)
+    }
+
+    /// Write a value and record how safe it is to rotate, in one call.
+    ///
+    /// The method the migration of an existing estate wants. `ciphr rotation` needs the
+    /// store lock and therefore the service stopped, so classifying an import through
+    /// the CLI costs exactly the downtime this client exists to avoid; the class travels
+    /// with the value instead. Requires `write` and nothing more — the class is metadata
+    /// and reaches no authorization decision.
+    ///
+    /// A [`Rotation`] rather than a string, so a typo is a compile error rather than a
+    /// `400` in the middle of a migration. The asymmetry with [`Classification::class`],
+    /// which stays an open string on the way out, is deliberate: reading has to tolerate
+    /// a class this build does not know, writing must never invent one.
+    ///
+    /// # Errors
+    ///
+    /// [`SdkError::BadRequest`] for a reserved path, or if the service does not know the
+    /// class — which is also what a service older than the field looks like, except that
+    /// it accepts the write and ignores the class in silence. Confirm with
+    /// [`Client::versions`] once when migrating against a service you do not deploy.
+    /// See [`SdkError`].
+    pub fn put_classified(
+        &self,
+        path: &SecretPath,
+        value: &Plaintext,
+        rotation: Rotation,
+    ) -> Result<Written, SdkError> {
+        self.write(path, value, Some(rotation))
+    }
+
+    /// One request builder for both write methods.
+    ///
+    /// Not two, deliberately. In the CLI the same pair drifted — the standalone
+    /// classification recorded what it did and the one folded into a write did not —
+    /// and the fix there was also to funnel both through one function.
+    fn write(
+        &self,
+        path: &SecretPath,
+        value: &Plaintext,
+        rotation: Option<Rotation>,
+    ) -> Result<Written, SdkError> {
         // The body is built by hand rather than through `serde_json::to_string` on a
         // struct holding the value: this way the only owned copy of the plaintext in
         // this function is the one inside the body, and `serde_json` never holds a
@@ -128,7 +174,14 @@ impl Client {
         let text = core::str::from_utf8(value.expose()).map_err(|_| SdkError::BadRequest {
             detail: "the value is not valid UTF-8; the API carries values as text".to_owned(),
         })?;
-        let body = serde_json::json!({ "value": text }).to_string();
+        let body = match rotation {
+            // Absent rather than `null`: the field means "unchanged" by being missing,
+            // and a client that sends an explicit null for it is stating something the
+            // API does not define.
+            None => serde_json::json!({ "value": text }),
+            Some(class) => serde_json::json!({ "value": text, "rotation": class.as_str() }),
+        }
+        .to_string();
 
         let url = self.url(&["secrets", path.as_str()], None);
         let response = self

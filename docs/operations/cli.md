@@ -124,6 +124,10 @@ A secret written without `--rotation` is `unclassified`, not `rotatable`: the de
 of an answer rather than a claim that rotating it is safe. See
 [rotating-secrets.md](rotating-secrets.md).
 
+All three forms here need the service stopped, like every other session command. Since 2026-08-21
+`PUT /v1/secrets/{path}` takes an optional `rotation` alongside the value, which is the way to
+classify an import that runs against a live service — the case the CLI cannot serve.
+
 **`sys/` is refused.** `put` and `delete` under that prefix fail, because `sys/audit`,
 `sys/identities`, and `sys/policies` are the virtual paths administrative access is authorized
 against — a real secret there would make one policy rule mean two things. Storage enforces this, so
@@ -232,6 +236,12 @@ never the reverse: a wrong `rotatable` reads as "safe to rotate" and invites the
 destroys data. Importing without `--rotation` leaves everything `unclassified`, which is also safe —
 it warns rather than reassuring — and `ciphr list --rotation unclassified` then says what is left to
 do.
+
+Where the estate is migrated service by service against a **running** instance, the per-path class
+travels with the value instead: `PUT /v1/secrets/{path}` takes an optional `rotation`, so the
+downgrade loop does not have to wait for a window in which the service is down. That is the shape to
+prefer for a live migration; this command remains the one for a corpus moved with the service
+stopped.
 
 ### What no import can do, and what to do instead
 

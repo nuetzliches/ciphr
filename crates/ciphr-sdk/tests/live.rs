@@ -328,6 +328,33 @@ fn the_client_and_the_service_agree() {
         Err(other) => panic!("expected a 404 after a delete, got {other}"),
         Ok(_) => panic!("a deleted secret was still served"),
     }
+
+    // -- write with a class, which is what a migration needs ----------------------------
+    // The reason this method exists: `ciphr rotation` takes the store lock, so
+    // classifying an import through the CLI costs the downtime this client avoids. Read
+    // back from the running service, because the field being *accepted* and the field
+    // being *stored* are two different claims -- an older service ignores it in silence.
+    let imported = SecretPath::parse("infra/service-a/LEGACY_KEY").expect("valid");
+    client
+        .put_classified(
+            &imported,
+            &Plaintext::from(&b"from the old estate"[..]),
+            ciphr_core::Rotation::BreaksData,
+        )
+        .expect("write with a class");
+    let classified = client.versions(&imported).expect("versions");
+    assert_eq!(classified.rotation.class, "breaks-data");
+    assert!(classified.rotation.needs_care);
+
+    // And a plain `put` over it leaves the class where it was: absent means unchanged,
+    // never "back to the default".
+    client
+        .put(&imported, &Plaintext::from(&b"second"[..]))
+        .expect("write");
+    assert_eq!(
+        client.versions(&imported).expect("versions").rotation.class,
+        "breaks-data"
+    );
 }
 
 /// The refusals, which are the half a client gets wrong quietly.

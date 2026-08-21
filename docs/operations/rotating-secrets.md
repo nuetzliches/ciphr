@@ -1,7 +1,8 @@
 # Rotating secrets that do not want to be rotated
 
-**Status:** current as of 2026-08-20. The classification is implemented, stored, readable and
-filterable from the CLI, returned by the API, and shown by the viewer.
+**Status:** current as of 2026-08-21. The classification is implemented, stored, readable and
+filterable from the CLI, returned by the API, settable over the API since 2026-08-21, and shown by
+the viewer.
 
 Rotation is the operational promise of a secret store, and versioning makes it *easier* to get wrong,
 not harder: write a new version, the next deploy renders it, and data encrypted under the old value is
@@ -120,13 +121,51 @@ Writing `rotatable` to clear a listing is the one move to avoid: it is indisting
 answer somebody arrived at by looking, which is precisely the ambiguity the class was introduced to
 remove.
 
+## Recording a class while the service runs
+
+Four ways to set one, and the fourth is the only one that does not need the service stopped:
+
+```sh
+ciphr rotation infra/service-a/DB_KEY breaks-data   # the standalone reclassification
+ciphr put infra/service-a/DB_KEY --rotation breaks-data
+ciphr import --from-dotenv ./.env --prefix infra/service-a --rotation breaks-data
+```
+
+```http
+PUT /v1/secrets/infra/service-a/DB_KEY
+{ "value": "…", "rotation": "breaks-data" }
+```
+
+All three CLI forms open a session and therefore take the store lock, so they run with the service
+down — see [cli.md](cli.md). That is the reason the API carries the field at all: migrating an
+existing estate one service at a time is the case `PUT` exists for, and without the field the
+no-downtime import produced a store where every value said `unclassified` — *nobody has looked at
+this* — and making it honest cost exactly the downtime the API path had just avoided.
+
+**Absent means unchanged**, both ways round: a new path written without the field still lands
+`unclassified`, and a value written over an existing classification does not reset it. An unknown
+class is a `400` and never a default, because defaulting a typo would turn it into "safe to rotate".
+Setting it needs `write` on the path and nothing more — the class is metadata and reaches no
+authorization decision, so naming what a value is safe for is not a broader privilege than setting
+the value.
+
+Two things to know when it is used against a service somebody else deploys. The class is applied
+*after* the version exists, so a failed classification leaves the value written and answers with an
+error — a retry then writes a second version of the same value. And a service older than the field
+ignores it the way any unknown property is ignored, in silence: one `GET /v1/versions/{path}` after
+the first import confirms the field arrived, rather than an estate quietly staying `unclassified`.
+
 ## Who changed the classification, and when
 
-Setting a class writes a `classify` entry into the audit trail, naming the path and the operator.
+Setting a class writes a `classify` entry into the audit trail, naming the path and whoever did
+it — the operator for the CLI forms, the calling identity for the API one.
 It is its own action rather than a `write`, because it produces no version and would otherwise be
 invisible among the value writes — and downgrading a class to `rotatable` is the step that comes
 immediately before a rotation that destroys data. Reading a class records a `list`, like any other
 metadata read.
+
+A `PUT` that carries a class therefore writes **two** entries, `write` and `classify`, and that is
+the same rule rather than an exception to it: one entry for the value, one for the claim about it.
 
 ## What is not automated
 

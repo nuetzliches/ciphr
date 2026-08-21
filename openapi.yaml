@@ -134,6 +134,12 @@ paths:
         leaves the store untouched. Paths under `sys/` are refused with `400`: that
         prefix names the virtual paths the administrative endpoints authorize against,
         and a secret living there would change what an authorization decision means.
+
+        An optional `rotation` carries the class along with the value, so that importing
+        an estate over the API does not have to leave every path `unclassified` until
+        somebody stops the service to say otherwise. It produces a second audit entry,
+        `classify`, and it is applied after the version exists — a class cannot be
+        recorded for a path that is not there yet.
       requestBody:
         required: true
         content:
@@ -635,6 +641,36 @@ components:
         value:
           type: string
           description: The value, as UTF-8 text.
+        rotation:
+          type: string
+          examples: ["rotatable", "breaks-data"]
+          description: |
+            The rotation class to record for this secret, as `Classification.class`
+            names it.
+
+            **Absent means unchanged**, which is what keeps the pessimistic default
+            intact: a path written for the first time without this field lands
+            `unclassified`, exactly as before. Naming it on an existing path is a
+            reclassification and is audited as one — a `classify` entry beside the
+            `write`, because a class that moved silently among the value writes is the
+            one nobody sees moving down to `rotatable` before a rotation that destroys
+            data.
+
+            An unknown class is `400`. Unlike on the way out, where `class` is
+            deliberately an open string so a client can carry one it does not know, an
+            input is checked against the classes this service has: defaulting a typo to
+            anything would turn it into a claim nobody made.
+
+            No capability beyond `write` on the path. Naming what a value is safe for is
+            not a broader privilege than setting the value, and the field is metadata
+            that never reaches an authorization decision.
+
+            The class in effect is **not** echoed in the response: it belongs to the
+            secret rather than to the version that was just written, and
+            `GET /v1/versions/{path}` is where it is read. That matters against a service
+            older than this field, which ignores it in silence the way an unknown
+            property always is — one version listing after the first import confirms the
+            field arrived rather than a whole estate quietly staying `unclassified`.
 
     Secret:
       type: object
