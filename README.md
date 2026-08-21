@@ -4,7 +4,7 @@ A small secret manager for machine identities: key/value secrets, gap-free acces
 and path-based authorization. The name contains *CI* — the primary consumer is a build and
 deploy pipeline, not a human.
 
-> **Status: v0.3.0 released.** Usable end to end: envelope encryption with master key rotation,
+> **Status: v0.4.0 released.** Usable end to end: envelope encryption with master key rotation,
 > SQLite with migrations, the policy evaluator, the fail-closed hash-chained audit trail, the HTTPS
 > API with token authentication, and the `ciphr` CLI. Since v0.1.0: the audit anchor and the
 > retention cut that bounds the trail (`ciphr audit anchor`, `ciphr audit cut`), one rule for
@@ -12,9 +12,12 @@ deploy pipeline, not a human.
 > secrets, and `ciphr-run` for an image that only understands environment variables. The read-only
 > browser viewer in [`ui/`](ui/) ships as its own image and is released on its own cadence. Since
 > v0.2.0: a secret nobody classified says so instead of claiming to be safe to rotate, the class is
-> on the wire and in the viewer, and setting one is recorded in the audit trail.
-> **This is the artifact the external review was performed against.** That review happened on
-> 2026-08-21, against this tag, and is recorded in
+> on the wire and in the viewer, and setting one is recorded in the audit trail. Since v0.3.0: issuing
+> and revoking a credential is in the audit trail, and the six findings of the external review are
+> answered — two fixed as defects, two more found by the same reading, two answered as prose that
+> claimed more than the code did.
+> **`v0.3.0` is the artifact the external review was performed against.** That review happened on
+> 2026-08-21, against that tag, and is recorded in
 > [`docs/review-2026-08-21.md`](docs/review-2026-08-21.md): six findings, an explicit statement of
 > what was and was not read, and a qualified yes on fitness. Its two conditions — unwiped heap
 > copies of a token secret, and a reserved-path refusal that only the HTTP layer enforced — are

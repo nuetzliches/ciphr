@@ -1,6 +1,6 @@
 # Upgrading
 
-**Status:** current as of 2026-08-20, covering every released version up to `0.3.0`.
+**Status:** current as of 2026-08-21, covering every released version up to `0.4.0`.
 
 The changelog says what changed. This says what to *do* about it, and it exists because the two are
 not the same document: a changelog entry sinks under the next release, while the person upgrading two
@@ -34,6 +34,50 @@ on. The breaking notes below are per version and they accumulate.
 5. Only then update anything that consumes the API: the viewer, the SDK, `ciphr-run`.
 
 Step 5 is last on purpose, and from `0.3.0` it is load-bearing rather than tidy — see below.
+
+From `0.4.0` there is a step 0: **check the file modes below before stopping anything.** A refusal
+there happens at start, which is the worst moment to discover it.
+
+## 0.4.0
+
+**Check the mode of the master key file and every token file before you deploy.** This is the only
+change in this release that can turn a working deployment into one that does not start. The refusal
+for a credential file anyone can reach now covers world-**writable** as well as world-readable, so a
+file at `0602`, `0666` or `0622` starts the process today and stops it after the upgrade. It applies
+to two files:
+
+```sh
+stat -c '%a %n' /path/to/master.key /path/to/token   # want 0600, or 0640 / 0660 for a service group
+```
+
+Group bits are still accepted, read and write alike. The refusal names which of the two bits it
+found, so a log line from a failed start says exactly what to fix. On a container whose key comes
+from a bind mount off a Windows or macOS host, mode `0777` is reported for every file regardless —
+that is the pre-existing false positive, the message says so, and the answer is a named volume
+rather than a weaker check.
+
+**No migration, and a rollback is safe.** Schema stays at 5. This is the first release here without
+a one-way door, after schema 4 in `0.2.0` and schema 5 in `0.3.0`, so the general rule above relaxes
+for this one upgrade only: going back to the `0.3.0` image needs no database restore. The new audit
+records do not trouble an older binary either — nothing on the read path parses a record into a
+strict struct, and verification hashes the stored bytes rather than re-serializing them.
+
+**A strict consumer of `GET /v1/audit` needs a look.** Two additions: records carry a `subject`
+field (who an action was *about*, set by the token operations and null everywhere else), and
+`deny_reason` has two new values, `delete-failed` and `not-listed`. A consumer that rejects unknown
+fields, or that treats every `deny_reason` as a denial, needs the update — a correcting entry is not
+a denial, and `openapi.yaml` now says so where the enum is defined. The CLI and the viewer are in
+this release.
+
+**Expect a few more audit entries per failed request, not per request.** A `delete` that deletes
+nothing, a version listing of a missing path, and an export that aborts now each write a second
+entry recording that the authorized work did not happen. A failing export writes one correction per
+path it had already recorded, bounded by the paths in that request. Steady-state volume does not
+change; a client in a retry loop against a missing path writes twice what it used to.
+
+**Nothing to do about the rest.** The token codec no longer leaves unwiped copies of a token secret
+in freed heap memory, `ciphr put sys/…` is refused by storage rather than only over HTTP, and two
+documentation claims were narrowed to what the code does. No interface moves.
 
 ## 0.3.0
 

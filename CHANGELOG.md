@@ -8,6 +8,37 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-08-21
+
+**The release the external review is on the other side of.** It happened on 2026-08-21, against
+`v0.3.0`, and it is recorded in [`docs/review-2026-08-21.md`](docs/review-2026-08-21.md) with the
+maintainer's decision to accept it in [`docs/security-review.md`](docs/security-review.md). Read who
+performed it before relying on it — an AI model commissioned by the maintainer, not the human
+practitioner the working paper asks for — and read what the acceptance does **not** cover, because
+that list is short and specific. Everything else here is that review's six findings and one audit
+gap found by a user's question.
+
+**What this is not**, and this is the sentence that changes: holding real secrets no longer runs
+ahead of the stated precondition. What it runs ahead of instead is a *human* review, and the
+acceptance says so in as many words. `ciphr-audit`, most of `ciphr-store`, the server's
+configuration and TLS code, and `ui/` were not read by anybody but their author.
+
+**Three things to do about this upgrade**, and
+[`docs/operations/upgrade.md`](docs/operations/upgrade.md) is the runbook that outlives this entry.
+
+1. **Check the mode of your master key file and every token file before deploying.** The refusal for
+   a world-accessible credential now covers world-*writable* as well as world-readable, so a file at
+   mode `0602` or `0666` that started the service before will stop it now. This is the only change
+   here that can turn a working deployment into one that will not start.
+2. **No migration, and a rollback is safe** — schema stays at 5. The first release in this project
+   where the one-way door is absent, after schema 4 in `0.2.0` and schema 5 in `0.3.0`. An older
+   binary reads the new audit records too: nothing on the read path parses them into a strict
+   struct.
+3. **A strict consumer of `GET /v1/audit` needs a look.** Records carry a `subject` field, and
+   `deny_reason` has two new values (`delete-failed`, `not-listed`). Both are additions, and both are
+   the reason this is a minor rather than a patch. Our own consumers — the CLI and the viewer — are
+   in this release.
+
 ### Security — a token secret no longer survives in a buffer nothing wipes
 
 Finding F1 of the review of 2026-08-21, which falsified claim B6. `base64url::decode_into` reached
@@ -1740,7 +1771,8 @@ first production use.
   decision.
 - `AGENTS.md` with the working rules, and `SECURITY.md` with the disclosure process and scope.
 
-[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.3.0...main
+[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.4.0...main
+[0.4.0]: https://github.com/nuetzliches/ciphr/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/nuetzliches/ciphr/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/nuetzliches/ciphr/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/nuetzliches/ciphr/releases/tag/v0.1.0

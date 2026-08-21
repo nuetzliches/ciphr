@@ -1,6 +1,6 @@
 # Threat model
 
-**Status:** current as of 2026-08-21, `v0.3.0` released, phases 0-3 and 7 in it. The adversaries and
+**Status:** current as of 2026-08-21, `v0.4.0` released, phases 0-3 and 7 in it. The adversaries and
 boundaries are settled. The cryptographic, storage, authorization, audit and transport defences
 exist. **A7 now describes a component that is built:** every countermeasure in that row is
 implemented in `ui/` and the ones that can be gated are gated — see [ui.md](ui.md). **A8 still

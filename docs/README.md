@@ -1,6 +1,6 @@
 # Documentation
 
-**Status:** current as of 2026-08-21, `v0.3.0` released and externally reviewed. Phases 0-3 and 7 are
+**Status:** current as of 2026-08-21, `v0.4.0` released; the external review was against `v0.3.0`. Phases 0-3 and 7 are
 in it; the viewer (phase 5) ships as its own image on its own cadence. Describes what is built, and
 says so where something is not.
 
