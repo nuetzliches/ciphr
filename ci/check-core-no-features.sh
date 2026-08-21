@@ -91,7 +91,9 @@ done
 # today but might tomorrow, and the dependent asking for it is not the thing that
 # makes the claim false.
 for crate in $core; do
-    if grep -E "^$crate[[:space:]]*=" Cargo.toml | grep -q 'features'; then
+    # Braced: `$crate[` reads as an array expansion to shellcheck (SC1087), and it is
+    # an error rather than a warning because in a shell that has arrays it would be one.
+    if grep -E "^${crate}[[:space:]]*=" Cargo.toml | grep -q 'features'; then
         echo "check-core-no-features: Cargo.toml gives $crate features in [workspace.dependencies]" >&2
         status=1
     fi
