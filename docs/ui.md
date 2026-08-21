@@ -1,9 +1,19 @@
 # The viewer
 
-**Status:** current as of 2026-08-20, phase 5. Built and running: the five views below, the strict
-Content-Security-Policy, and the container that serves them. Sign-in is a pasted token; SSO is
-post-v1 (ADR-12). **This viewer requires a service at `0.3.0` or newer** — it reads the rotation
-class from `GET /v1/versions/{path}`, which returned a bare array before that.
+**Status:** current as of 2026-08-21, phase 5, released as `ui-v0.3.0`. Built and running: the five
+views below, the strict Content-Security-Policy, and the container that serves them. Sign-in is a
+pasted token; SSO is post-v1 (ADR-12). **This viewer requires a service at `0.3.0` or newer** — it
+reads the rotation class from `GET /v1/versions/{path}`, which returned a bare array before that.
+
+**Against a `0.3.0` service it is complete, not degraded.** The audit table's last column is
+`Subject` rather than `Path` from `ui-v0.3.0`, and for the token actions it shows the identity a
+credential was issued for. A `0.3.0` service records no token actions at all, so there are no rows
+whose subject is missing — the column falls back to the path, which is every row that service writes.
+That is why this release has **no deploy ordering constraint**, unlike `ui-v0.2.0`, which needed the
+service first because it read a response shape `0.2.0` did not produce.
+
+**Its own version, on its own cadence** (ADR-11). `ui-v0.3.0` is the third viewer release and pairs
+with service `0.4.0`; the numbers are not meant to line up, and they have not since `ui-v0.1.1`.
 
 A read-only browser view of a ciphr deployment: the audit trail, secret metadata with a per-value
 reveal, identities, policies, and health. It is what makes the audit trail usable without the CLI,

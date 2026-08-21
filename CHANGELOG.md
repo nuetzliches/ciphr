@@ -8,6 +8,22 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Changed — the viewer is released as `ui-v0.3.0`
+
+Its own image and its own cadence (ADR-11), so it moves on its own tag rather than with the service.
+What is in it is the `Subject` column, which shipped in the service's `0.4.0` entry below and had no
+viewer image behind it until now.
+
+**No deploy ordering constraint this time**, and that is worth stating because the previous viewer
+release had one. `subject` is optional in the response type and the column falls back to the path, so
+against a `0.3.0` service the table is complete rather than degraded — that service records no token
+actions at all, so there is no row whose subject would be missing.
+
+`ui/package.json` moves to `0.3.0` and **`ui/package-lock.json` moves with it**. The lock was left at
+`0.1.0` when the package went to `0.2.0` — the same slip that entry called out about the package
+file, one file further along. The image version comes from the tag, so nothing was broken; the number
+in the file said something untrue.
+
 ## [0.4.0] — 2026-08-21
 
 **The release the external review is on the other side of.** It happened on 2026-08-21, against
