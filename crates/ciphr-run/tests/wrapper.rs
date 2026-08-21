@@ -74,10 +74,13 @@ struct Live {
 }
 
 impl Live {
-    fn start() -> Self {
-        let store_directory = tempfile::tempdir().expect("temp dir");
-        let database = store_directory.path().join("store.db");
-
+    /// A store with a root key, two credentials, and two secrets under one prefix.
+    ///
+    /// Extracted from [`Self::start`] because that function crossed clippy's line
+    /// budget — and it only crossed it in CI, since `#![cfg(unix)]` means this file
+    /// compiles to nothing on the development machine. Worth the note: a lint on a
+    /// unix-gated file is a lint nobody sees locally.
+    fn seeded_store(database: &std::path::Path) -> (SqliteStore, RootKey, Token, Token) {
         let seal = StaticSeal::from_master_key(
             "CIPHR_MASTER_KEY",
             MasterKey::from_hex(&"11".repeat(32)).expect("a valid master key"),
@@ -85,7 +88,7 @@ impl Live {
         let root = RootKey::generate().expect("entropy");
         let root_id = RootKeyId::generate().expect("entropy");
 
-        let mut store = SqliteStore::open(&database).expect("open the store");
+        let mut store = SqliteStore::open(database).expect("open the store");
         store
             .initialize(&SealState {
                 seal_id: seal.id().to_owned(),
@@ -96,26 +99,18 @@ impl Live {
         let pepper = TokenPepper::derive(&root);
         let service = Token::generate().expect("entropy");
         let outsider = Token::generate().expect("entropy");
-        store
-            .issue_token(
-                "service-a",
-                &service,
-                &pepper,
-                "operator",
-                None,
-                ciphr_store::TokenPurpose::Credential,
-            )
-            .expect("issue a token");
-        store
-            .issue_token(
-                "outsider",
-                &outsider,
-                &pepper,
-                "operator",
-                None,
-                ciphr_store::TokenPurpose::Credential,
-            )
-            .expect("issue a token");
+        for (identity, token) in [("service-a", &service), ("outsider", &outsider)] {
+            store
+                .issue_token(
+                    identity,
+                    token,
+                    &pepper,
+                    "operator",
+                    None,
+                    ciphr_store::TokenPurpose::Credential,
+                )
+                .expect("issue a token");
+        }
 
         for (path, value) in [
             ("infra/service-a/DB_PASSWORD", "seeded-db"),
@@ -129,6 +124,14 @@ impl Live {
                 })
                 .expect("seed a secret");
         }
+
+        (store, root, service, outsider)
+    }
+
+    fn start() -> Self {
+        let store_directory = tempfile::tempdir().expect("temp dir");
+        let database = store_directory.path().join("store.db");
+        let (store, root, service, outsider) = Self::seeded_store(&database);
 
         let devices: Vec<Box<dyn AuditDevice>> = vec![Box::new(
             SqliteAuditDevice::open(&database).expect("device"),
