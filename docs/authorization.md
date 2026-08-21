@@ -1,7 +1,8 @@
 # Authorization, as implemented
 
 **Status:** implemented and tested as of 2026-08-18, re-read against the code on 2026-08-20, scope
-guidance and the enforcement layer of the reserved prefix corrected 2026-08-21.
+guidance and the enforcement layer of the reserved prefix corrected 2026-08-21, guidance on broad
+wildcards and the reserved prefix added 2026-08-21.
 Describes the code in `crates/ciphr-policy` and the pattern matcher in `crates/ciphr-core`. **Every
 authorization decision the service makes goes through this** — the sentence here used to say there
 was no HTTP server yet and that the semantics were what it *would* call, which stopped being true
@@ -48,6 +49,44 @@ Nothing under `sys/` can be a real secret, and **storage is what refuses it** �
 which would leave the CLI free to plant one. That is what keeps a rule about `sys/audit` a rule
 about the audit trail: if a secret could live at that path, one grant would silently authorize two
 different things.
+
+### A broad wildcard reaches `sys/`, and that is a decision rather than an inheritance
+
+`read` is one capability for two kinds of object: a secret's value, and the control plane at
+`sys/audit`, `sys/identities` and `sys/policies`. Only the path separates them, and `**` matches one
+or more segments — so
+
+```toml
+  [[policy.rule]]
+  path         = "**"
+  capabilities = ["read"]
+```
+
+grants the audit trail, the identity inventory and the whole policy structure along with every
+secret. That is rarely what the author of such a rule means, and it matters more than it looks.
+`sys/policies` is the map of the authorization model. `sys/audit` says which paths legitimate
+consumers actually fetch — which is the same as saying which paths they never fetch, and that is
+precisely where [ADR-15](adr/0015-honeypots-and-what-a-tripwire-may-do.md) says bait belongs.
+
+**Where an identity needs a broad grant, fence the reserved prefix with one rule:**
+
+```toml
+  [[policy.rule]]
+  path         = "sys/**"
+  capabilities = []
+```
+
+One literal segment beats zero (rule 2 below) and an empty capability set is an explicit denial that
+beats any less specific permission (rule 4), so this wins over `**` entirely. Grant the reserved
+paths back individually to whoever should have them — `sys/audit` for an auditing identity, and
+nothing else follows from it.
+
+This is a recommendation, not something the evaluator enforces. `ciphr-policy` does not know the
+reserved prefix exists, deliberately: one code path decides every access, and a special case there
+would cost more than it buys. Whether the control plane should instead require a capability of its
+own — so that the fence is the default rather than a rule somebody remembers to write — is an open
+question in the issue tracker and is not settled here.
+
 
 ## The pattern language, in full
 
@@ -235,7 +274,9 @@ mechanism from the one ADR-15 describes, and choosing one closes the other.
    choosing honeypot tokens over honeypot secrets.
 
 Human identities sit outside this. The viewer is useful because it can see the trail and the
-inventory, and that is a broad grant by definition.
+inventory, and that is a broad grant by definition — which is the case where the reserved-prefix
+fence above is worth writing, so that the grant covers the control plane because somebody said so
+rather than because a wildcard reached it.
 
 ## What the tests establish
 

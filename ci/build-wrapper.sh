@@ -24,6 +24,11 @@ set -eu
 cd "$(dirname "$0")/.."
 
 TARGET=x86_64-unknown-linux-musl
+# The budget is per target, not per project. An aarch64 static binary is a
+# different size for reasons that have nothing to do with dependencies, so a
+# second target gets its own number here rather than raising this one to fit
+# both -- raising it to whichever is larger quietly weakens the check for the
+# smaller one, which is the check this exists to be.
 BUDGET=5242880 # 5 MiB
 OUT=${1:-target/wrapper}
 
@@ -36,7 +41,14 @@ cargo build --release --locked -p ciphr-run --target "$TARGET"
 
 built="target/$TARGET/release/ciphr-run"
 mkdir -p "$OUT"
-binary="$OUT/ciphr-run"
+
+# The name carries the target triple, and does so while there is only one
+# target. This file is published as a release asset, so a second architecture
+# would otherwise force a choice between renaming the asset -- breaking every
+# fetch script written against the documented name -- and shipping a qualified
+# binary beside an unqualified checksum. Derived from $TARGET rather than
+# written out, so a second target cannot inherit the first one's name.
+binary="$OUT/ciphr-run-$TARGET"
 
 # Stripped, because this is the file a deployment mounts and the symbols buy a
 # reader of a core dump nothing that the debug build does not.
@@ -65,7 +77,7 @@ fi
 # The checksum belongs next to the binary, because a deployment that fetches one
 # file has no other way to know it got the right one.
 if command -v sha256sum >/dev/null 2>&1; then
-    (cd "$OUT" && sha256sum ciphr-run > ciphr-run.sha256)
+    (cd "$OUT" && sha256sum "ciphr-run-$TARGET" > "ciphr-run-$TARGET.sha256")
 fi
 
 echo "build-wrapper: ok -- $size bytes, statically linked, budget $BUDGET"

@@ -1,6 +1,7 @@
 # `ciphr-run`: getting the wrapper, and mounting it
 
-**Status:** implemented and tested as of 2026-08-20, scope guidance added 2026-08-21 (phase 7,
+**Status:** implemented and tested as of 2026-08-20, scope guidance added 2026-08-21, release
+asset renamed to carry its target triple 2026-08-21 (phase 7,
 [ADR-14](../adr/0014-ciphr-run-injects-into-a-child-process.md)).
 The wrapper works and ships; where a deployment keeps the token file and which entrypoint it pins
 are decisions this document does not make for it.
@@ -22,8 +23,14 @@ grant — prefer it where the set of secrets is known. The two are mutually excl
 Two channels carry the same binary. Which one applies depends on what the host can authenticate to,
 not on preference.
 
-**As a release asset**, attached to the tag along with `ciphr-run.sha256`. This is the direct route
-for anything that can authenticate to the source forge.
+**As a release asset**, named `ciphr-run-x86_64-unknown-linux-musl` and attached to the tag beside
+`ciphr-run-x86_64-unknown-linux-musl.sha256`. This is the direct route for anything that can
+authenticate to the source forge.
+
+The name carries the target triple although only one target is built. That is deliberate rather than
+pedantic: an asset name is the thing a fetch script is written against, so qualifying it later would
+mean either breaking every such script or publishing a qualified binary beside an unqualified
+checksum. The suffix costs nothing now and buys the choice later.
 
 **As an image whose whole filesystem is that one file**, pushed under `<image>/run:<version>` next
 to the service image. This is the route for a host that authenticates to a registry and not to the
@@ -37,7 +44,10 @@ docker rm ciphr-run-export
 ```
 
 `docker cp` reads the filesystem of a *created* container, so an image with no shell in it is no
-obstacle. Pin the digest, not the tag: this file is mounted into containers built by other people,
+obstacle. The file inside the image is plain `/ciphr-run` and stays that way: an image states its
+architecture in its own manifest, so the digest already answers the question the suffix answers for
+the release asset -- a file pulled from a tag arrives carrying nothing but its name. Pin the digest,
+not the tag: this file is mounted into containers built by other people,
 and there is deliberately no `:latest` to follow.
 
 **Verify the checksum against the channel you pulled from.** The two images are built independently

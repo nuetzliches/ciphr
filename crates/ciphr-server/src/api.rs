@@ -234,11 +234,41 @@ struct VersionResponse {
     destroyed: bool,
 }
 
+/// `?rotation=` on `GET /v1/list/{prefix}`.
+#[derive(Debug, Default, Deserialize)]
+struct ListQuery {
+    rotation: Option<String>,
+}
+
 /// What `GET /v1/list/{prefix}` returns.
+///
+/// `paths` and `entries` carry the same set in the same order. The duplication is
+/// deliberate and it is compatibility, not indecision: `paths` is the v1 shape, and
+/// `ciphr-run` is bind-mounted into images this project does not own (ADR-14), so a
+/// wrapper on a host is routinely older than the service it calls. Turning `paths`
+/// into a list of objects would break exactly that pair, at the moment a service is
+/// starting and its secrets are not there. Adding a field breaks nobody — the SDK
+/// does not set `deny_unknown_fields`.
 #[derive(Debug, Serialize)]
 struct ListResponse {
     prefix: String,
     paths: Vec<String>,
+    entries: Vec<ListEntry>,
+}
+
+/// One row of `GET /v1/list/{prefix}`.
+///
+/// The class and nothing else. `needs_care` and `advice` are pure functions of it
+/// ([`Rotation::needs_care`], [`Rotation::advice`]), so a client derives them instead
+/// of receiving a paragraph of prose on every row of a listing.
+///
+/// This discloses nothing a caller could not already obtain. Every path here survived
+/// a `list` check, and `GET /v1/versions/{path}` returns the same class against the
+/// same capability — so this saves one request per secret rather than opening a door.
+#[derive(Debug, Serialize)]
+struct ListEntry {
+    path: String,
+    rotation: &'static str,
 }
 
 /// What `POST /v1/export` accepts.
@@ -666,31 +696,49 @@ async fn list_paths(
     headers: HeaderMap,
     origin: Origin,
     Path(prefix): Path<String>,
+    Query(query): Query<ListQuery>,
 ) -> Result<Json<ListResponse>, ApiError> {
     let request = request_context(&headers, origin);
     let caller = authenticate(&state, &headers, Action::List, &request)?;
     let prefix = parse_path(&prefix)?;
+    let wanted = parse_rotation(query.rotation.as_deref())?;
 
     // There is no single decision to record here: authorization runs per returned path,
     // so the listing is produced first and the entry carries how many paths it revealed.
     // Recording still happens before anything is serialized, so a failure to record
     // means nothing left the process.
-    let paths = state.with_store(|store| store.list(Some(&prefix)).map_err(ApiError::from))?;
-    let visible: Vec<String> = paths
+    let listed = state.with_store(|store| {
+        store
+            .list_with_rotation(Some(&prefix))
+            .map_err(ApiError::from)
+    })?;
+    let visible: Vec<ListEntry> = listed
         .into_iter()
-        .filter(|path| {
+        .filter(|secret| {
             state
-                .authorize(&caller, Capability::List, path)
+                .authorize(&caller, Capability::List, &secret.path)
                 .is_allowed()
         })
-        .map(|path| path.as_str().to_owned())
+        // The class filter runs *after* authorization and never before it. The two
+        // answer different questions -- what this caller may see, and what they asked
+        // for -- and running the cheap one first would make the count below describe a
+        // set that was never authorized.
+        .filter(|secret| wanted.is_none_or(|class| secret.rotation == class))
+        .map(|secret| ListEntry {
+            path: secret.path.as_str().to_owned(),
+            rotation: secret.rotation.as_str(),
+        })
         .collect();
 
+    // What was revealed, not what the caller was entitled to. A filtered listing
+    // reveals the filtered set, so recording the count before the filter would
+    // overstate every filtered read for as long as the trail is kept.
     state.record_listing(&caller, &prefix, &request, visible.len())?;
 
     Ok(Json(ListResponse {
         prefix: prefix.as_str().to_owned(),
-        paths: visible,
+        paths: visible.iter().map(|entry| entry.path.clone()).collect(),
+        entries: visible,
     }))
 }
 
@@ -1307,7 +1355,7 @@ fn parse_path(raw: &str) -> Result<SecretPath, ApiError> {
     })
 }
 
-/// Parse an optional rotation class from a request body.
+/// Parse an optional rotation class from a request body or a query parameter.
 ///
 /// Absent stays absent — "unchanged" and not "the default", which is what keeps a write
 /// without this field landing `unclassified` on a new path and leaving an existing class

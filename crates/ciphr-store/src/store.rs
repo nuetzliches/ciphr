@@ -36,6 +36,20 @@ pub struct SecretMetadata {
     pub updated_at: i64,
 }
 
+/// One row of a listing that carries the rotation class.
+///
+/// Deliberately not [`SecretMetadata`]. That type answers "everything known about
+/// this secret", which costs a second query per path; this one answers the corpus
+/// question — *what has nobody classified yet?* — from the row the path already
+/// came out of.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListedSecret {
+    /// The path.
+    pub path: SecretPath,
+    /// How safe this secret is to rotate.
+    pub rotation: Rotation,
+}
+
 /// What is known about one version without decrypting it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VersionSummary {
@@ -179,6 +193,29 @@ pub trait Store {
     /// Returns [`StoreError::Sqlite`] on a database error, or
     /// [`StoreError::Path`] if the database contains a path this build rejects.
     fn list(&self, prefix: Option<&SecretPath>) -> Result<Vec<SecretPath>, StoreError>;
+
+    /// The same paths as [`Store::list`], each with its rotation class.
+    ///
+    /// Separate from [`Store::list`] rather than replacing it, for two reasons that
+    /// point the same way. A consumer fetching secrets wants paths and nothing else —
+    /// `ciphr-run` lists a prefix on every container start — and a listing that needs
+    /// only names should not begin to fail because a metadata column is unreadable.
+    /// The two share their range bounds so they cannot disagree about what "at or
+    /// below this prefix" means; they do not share their error surface.
+    ///
+    /// Separate from calling [`Store::metadata`] per path because that is two queries
+    /// per secret. The class sits on the same row as the path, so reading it here
+    /// costs one more column and no extra statement.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Sqlite`] on a database error, or
+    /// [`StoreError::Path`] if the database contains a path this build rejects, or
+    /// [`StoreError::Rotation`] if a stored class is not one this build knows.
+    fn list_with_rotation(
+        &self,
+        prefix: Option<&SecretPath>,
+    ) -> Result<Vec<ListedSecret>, StoreError>;
 
     /// Set how safe a secret is to rotate.
     ///

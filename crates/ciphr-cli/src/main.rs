@@ -571,16 +571,17 @@ fn run(cli: Cli) -> Result<(), CliError> {
             }
             session.record(&entry)?;
 
-            for path in session.store.list(prefix.as_ref())? {
-                // The filter reads metadata the listing already authorized, and
-                // metadata is not a value: no decryption happens here and the
-                // master key is not involved.
-                if let Some(wanted) = wanted
-                    && session.store.metadata(&path)?.rotation != wanted
-                {
+            // One query, class included. This used to call `metadata` per path, which
+            // is two more statements per secret for a column the listing row already
+            // has -- and it is the same read the API performs, so the two now go
+            // through one store method rather than agreeing by coincidence. Metadata
+            // is not a value either way: nothing is decrypted and the master key is
+            // not involved.
+            for secret in session.store.list_with_rotation(prefix.as_ref())? {
+                if wanted.is_some_and(|wanted| secret.rotation != wanted) {
                     continue;
                 }
-                println!("{path}");
+                println!("{}", secret.path);
             }
             Ok(())
         }

@@ -1,6 +1,7 @@
 # Upgrading
 
-**Status:** current as of 2026-08-21, covering every released version up to `0.5.1`.
+**Status:** current as of 2026-08-21, covering every released version up to `0.5.1` plus the
+unreleased change below.
 
 The changelog says what changed. This says what to *do* about it, and it exists because the two are
 not the same document: a changelog entry sinks under the next release, while the person upgrading two
@@ -50,6 +51,43 @@ deployment and most deployments should have `viewer_api` off. What it prints is 
 the binary knows and the mark against the ones this file did not name, which is the only place that
 question is answered — an entry that is off is absent from the router, so its `404` is byte-identical
 to a typo'd path.
+
+## Unreleased
+
+### Nothing to do about the rotation class in listings
+
+`GET /v1/list/{prefix}` gained an `entries` array and an optional `?rotation=` filter. Purely
+additive: `paths` is unchanged, every existing client keeps working, no schema moves, and no
+configuration changes. Rolling back is safe.
+
+Worth knowing rather than doing: *what has nobody classified yet?* is now answerable against a
+running service — `GET /v1/list/{prefix}?rotation=unclassified` — where before it needed
+`ciphr list --rotation unclassified` on the host with the service **stopped**, because the CLI takes
+the exclusive store lock. If a rotation review was scheduled around a maintenance window for that
+reason, it no longer has to be.
+
+### The `ciphr-run` release asset has a new name
+
+The file attached to a release tag is now `ciphr-run-x86_64-unknown-linux-musl`, with its checksum
+as `ciphr-run-x86_64-unknown-linux-musl.sha256`. It was `ciphr-run` and `ciphr-run.sha256`.
+
+**What breaks:** any script that fetches the wrapper from a release tag by that name. It will fail
+to find the asset, which is a loud failure rather than a quiet one — nothing downloads a wrong file.
+Nothing that is already deployed changes: the binary is byte-identical, and a wrapper already sitting
+on a host keeps working untouched.
+
+**What to do:** update the asset name in the fetch step. There is no compatibility copy under the old
+name, deliberately — one release publishing both names is the inconsistent pair this change exists to
+avoid, and while this repository is private the consumer side is the same people making the change.
+
+**Not affected:** the registry route. The file inside `<image>/run` is still `/ciphr-run`, so the
+`docker create` / `docker cp` sequence in [wrapper.md](wrapper.md) is unchanged. An image says which
+architecture it is in its own manifest; a file pulled from a tag says it only in its name, which is
+the whole reason the two differ.
+
+**Why now, with one architecture.** Renaming the asset costs a line today and costs every fetch
+script the day a second architecture appears. Multi-arch itself is still deferred and this does not
+change that — it only removes the part of that decision that gets more expensive by waiting.
 
 ## 0.5.1
 

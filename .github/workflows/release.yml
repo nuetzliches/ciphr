@@ -26,6 +26,14 @@ concurrency:
 
 env:
   REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
+  # The release asset's name, defined once because three steps below reach for
+  # it. It carries the target triple while there is still only one target: this
+  # asset is what a fetch script is written against, so a second architecture
+  # must not force a choice between renaming it -- breaking those scripts -- and
+  # publishing a qualified binary beside an unqualified checksum.
+  # `ci/build-wrapper.sh` derives the same name from its `$TARGET`, and the CI
+  # artifact in `ci.yml` has always been spelled this way.
+  WRAPPER_ASSET: ciphr-run-x86_64-unknown-linux-musl
 
 jobs:
   # The image is only built if the code that goes into it passes. Duplicating
@@ -182,9 +190,9 @@ jobs:
           ref='${{ env.REGISTRY_IMAGE }}/run@${{ steps.build.outputs.digest }}'
           mkdir -p target/wrapper
           docker create --name ciphr-run-export "$ref"
-          docker cp ciphr-run-export:/ciphr-run target/wrapper/ciphr-run
+          docker cp ciphr-run-export:/ciphr-run "target/wrapper/$WRAPPER_ASSET"
           docker rm ciphr-run-export
-          (cd target/wrapper && sha256sum ciphr-run > ciphr-run.sha256)
+          (cd target/wrapper && sha256sum "$WRAPPER_ASSET" > "$WRAPPER_ASSET.sha256")
 
       # `gh` is preinstalled on the runner and authenticates with the job's token,
       # so this needs no additional third-party action to pin.
@@ -198,8 +206,8 @@ jobs:
             gh release create "$TAG" --title "$TAG" --generate-notes
           fi
           gh release upload "$TAG" \
-            target/wrapper/ciphr-run \
-            target/wrapper/ciphr-run.sha256 \
+            "target/wrapper/$WRAPPER_ASSET" \
+            "target/wrapper/$WRAPPER_ASSET.sha256" \
             --clobber
 
       # What a deployment has to check before mounting it, and where it can get
@@ -213,6 +221,6 @@ jobs:
             echo '```'
             echo "${{ env.REGISTRY_IMAGE }}/run:${{ steps.version.outputs.version }}"
             echo "${{ steps.build.outputs.digest }}"
-            cat target/wrapper/ciphr-run.sha256
+            cat "target/wrapper/$WRAPPER_ASSET.sha256"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

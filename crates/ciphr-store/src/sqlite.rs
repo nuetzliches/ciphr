@@ -22,8 +22,8 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use crate::error::StoreError;
 use crate::migrations::{self, SCHEMA_VERSION};
 use crate::store::{
-    EncryptForVersion, SealState, SecretMetadata, Store, StoredVersion, VersionSummary,
-    reject_reserved,
+    EncryptForVersion, ListedSecret, SealState, SecretMetadata, Store, StoredVersion,
+    VersionSummary, reject_reserved,
 };
 
 /// Meta keys holding the seal record. All four are written together or not at all.
@@ -454,13 +454,7 @@ impl Store for SqliteStore {
                 }
             }
             Some(prefix) => {
-                // A range scan rather than LIKE or GLOB. Both of those have
-                // metacharacters that would need escaping, and a path may legally
-                // contain `%`, `_`, or `[`. The bounds below need no escaping at
-                // all: every descendant starts with `prefix/`, and `0` is the byte
-                // after `/`, so the half-open range is exactly the subtree.
-                let lower = format!("{}/", prefix.as_str());
-                let upper = format!("{}0", prefix.as_str());
+                let (lower, upper) = subtree_bounds(prefix);
                 let mut statement = self.connection.prepare(
                     "SELECT path FROM secrets
                      WHERE path = ?1 OR (path >= ?2 AND path < ?3)
@@ -476,6 +470,55 @@ impl Store for SqliteStore {
         }
 
         Ok(paths)
+    }
+
+    fn list_with_rotation(
+        &self,
+        prefix: Option<&SecretPath>,
+    ) -> Result<Vec<ListedSecret>, StoreError> {
+        // `list` with a wider projection, not a second kind of query: the class is a
+        // column on the row the path already comes out of. Specifically not `list`
+        // followed by `metadata` per path, which is two statements per secret against
+        // a connection every request queues behind.
+        let mut listed = Vec::new();
+
+        match prefix {
+            None => {
+                let mut statement = self
+                    .connection
+                    .prepare("SELECT path, rotation FROM secrets ORDER BY path")?;
+                let rows = statement.query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?;
+                for row in rows {
+                    let (path, rotation) = row?;
+                    listed.push(ListedSecret {
+                        path: SecretPath::parse(&path)?,
+                        rotation: Rotation::parse(&rotation)?,
+                    });
+                }
+            }
+            Some(prefix) => {
+                let (lower, upper) = subtree_bounds(prefix);
+                let mut statement = self.connection.prepare(
+                    "SELECT path, rotation FROM secrets
+                     WHERE path = ?1 OR (path >= ?2 AND path < ?3)
+                     ORDER BY path",
+                )?;
+                let rows = statement.query_map(params![prefix.as_str(), lower, upper], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?;
+                for row in rows {
+                    let (path, rotation) = row?;
+                    listed.push(ListedSecret {
+                        path: SecretPath::parse(&path)?,
+                        rotation: Rotation::parse(&rotation)?,
+                    });
+                }
+            }
+        }
+
+        Ok(listed)
     }
 
     fn set_rotation(&mut self, path: &SecretPath, rotation: Rotation) -> Result<(), StoreError> {
@@ -571,6 +614,25 @@ impl SqliteStore {
             Some(destroyed_at) => Ok(destroyed_at.is_some()),
         }
     }
+}
+
+/// The half-open range covering everything at or below a prefix.
+///
+/// A range scan rather than LIKE or GLOB. Both of those have metacharacters that
+/// would need escaping, and a path may legally contain `%`, `_`, or `[`. These
+/// bounds need no escaping at all: every descendant starts with `prefix/`, and `0`
+/// is the byte after `/`, so the half-open range is exactly the subtree. The prefix
+/// itself is matched separately, because it is not its own descendant.
+///
+/// Shared by `list` and `list_with_rotation` so the two cannot come to disagree
+/// about what "at or below this prefix" means. They stay separate statements: a
+/// listing that needs only names should not start failing because a metadata column
+/// is unreadable.
+fn subtree_bounds(prefix: &SecretPath) -> (String, String) {
+    (
+        format!("{}/", prefix.as_str()),
+        format!("{}0", prefix.as_str()),
+    )
 }
 
 fn read_meta(connection: &Connection, key: &str) -> Result<Option<String>, StoreError> {

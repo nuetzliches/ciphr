@@ -66,7 +66,7 @@ pub use lock::StoreLock;
 pub use migrations::SCHEMA_VERSION;
 pub use sqlite::SqliteStore;
 pub use store::{
-    EncryptForVersion, SealState, SecretMetadata, Store, StoredVersion, VersionSummary,
-    reject_reserved,
+    EncryptForVersion, ListedSecret, SealState, SecretMetadata, Store, StoredVersion,
+    VersionSummary, reject_reserved,
 };
 pub use tokens::{Authenticated, Authentication, TokenPurpose, TokenRecord};

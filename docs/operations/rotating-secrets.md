@@ -1,8 +1,8 @@
 # Rotating secrets that do not want to be rotated
 
 **Status:** current as of 2026-08-21. The classification is implemented, stored, readable and
-filterable from the CLI, returned by the API, settable over the API since 2026-08-21, and shown by
-the viewer.
+filterable from the CLI, returned by the API, settable over the API since 2026-08-21, filterable
+over the API since 2026-08-21, and shown by the viewer.
 
 Rotation is the operational promise of a secret store, and versioning makes it *easier* to get wrong,
 not harder: write a new version, the next deploy renders it, and data encrypted under the old value is
@@ -47,6 +47,18 @@ They are now different, which turns one question into an answerable one:
 ciphr list --rotation unclassified          # what has nobody looked at yet
 ciphr rotation infra/service-a/DB_PASSWORD  # what does this one say, and why
 ```
+
+**Both of those need the service stopped**, because the CLI takes the exclusive store lock. The same
+question against a running service goes over the API, which is the form a rotation review actually
+wants — the answer is needed while everything is up, not during a maintenance window:
+
+```
+GET /v1/list/infra?rotation=unclassified
+```
+
+Every path in the response was authorized individually against `list`, and the class comes back on
+each row. Without the filter the whole listing carries its classes, which is the same question asked
+the other way round: not *which are unclassified* but *what is the state of this prefix*.
 
 Databases created before that date had every such secret rewritten to `unclassified` by migration
 005 — including the ones somebody *had* deliberately marked `rotatable`, because nothing recorded

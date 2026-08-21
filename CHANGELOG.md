@@ -70,6 +70,90 @@ exist. The shapes that stay legal are named there for whoever needs them.
 - **A comment said "the record" and printed part of it.** `--check-config`'s active line prints name,
   kind and `accepted`, not the reason; it now says so, and says why the reason is not there.
 
+### Added — the rotation class is in the listing, and can be filtered on
+
+`GET /v1/list/{prefix}` gains an `entries` array carrying each visible path with its rotation class,
+and an optional `?rotation=<class>` filter. The corpus question the class exists for — *what has
+nobody classified yet?* — was answerable only through `ciphr list --rotation`, and the CLI takes the
+exclusive store lock, so it was answerable only with the service stopped. That is the gap this
+closes; nothing else about the class changes.
+
+**Additive on the wire, and that is a compatibility decision rather than a stylistic one.** `paths`
+stays exactly as it was and carries the same set in the same order as `entries`. Making `paths` a
+list of objects would have been the cleaner shape and would have broken an older `ciphr-run` against
+a newer service — a wrapper is bind-mounted into images this project does not own (ADR-14), so that
+pair is version-skewed by construction, and it fails at the moment a service is starting and its
+secrets are not there. The SDK sets no `deny_unknown_fields`, so an added field costs an old client
+nothing.
+
+**Authorization is unchanged, and the filter runs after it.** Every path in `entries` survived the
+same per-path `list` check as before. The class filter is applied to the authorized set, never
+before it, and the audit entry records the number of paths actually returned — what was revealed,
+not what the caller was entitled to see. An unknown class is a `400` naming what was sent and what
+the classes are, the same asymmetry the write path already had: open on the way out, closed on the
+way in.
+
+**No new disclosure.** `GET /v1/versions/{path}` already returns the class against the same `list`
+capability, so this saves one request per secret rather than opening anything.
+
+**Only the class, not `needs_care` and `advice`.** Both are pure functions of the class, so a client
+derives them instead of receiving a paragraph of prose on every row.
+
+`Store` gains `list_with_rotation`, one statement with a wider projection — not `list` followed by
+`metadata` per path, which is two more statements per secret. `list` and the new method share their
+range bounds so they cannot disagree about what "at or below this prefix" means, and stay separate
+statements so a listing that needs only names does not start failing because a metadata column is
+unreadable. `ciphr list --rotation` now goes through the same method instead of calling `metadata`
+per path, so the host and the API answer from one place rather than agreeing by coincidence.
+
+**`ciphr-sdk` deliberately does not gain a method for this.** Its scope is the endpoints a service
+uses to fetch its own secrets, and no such consumer wants a rotation class. The consumers that do —
+an operator, the viewer, and eventually the MCP server of ADR-13 — reach it over the API or would
+bring the administrative reads as a set.
+
+### Documentation — a broad wildcard reaches the control plane, and `docs/authorization.md` now says so
+
+`read` is one capability for two kinds of object: a secret's value, and the virtual administrative
+paths under `sys/`. Only the path separates them, and `**` matches one or more segments — so a rule
+granting `read` on `**` grants the audit trail, the identity inventory and the whole policy structure
+along with every secret. Nothing about that is new and no code changed; it was simply not written
+down anywhere an author of such a rule would look.
+
+The document now names the fence — `path = "sys/**"`, `capabilities = []`, which wins over `**` by
+rules 2 and 4 — and says why it matters beyond tidiness: `sys/audit` reports which paths are actually
+fetched, which is the complement of where ADR-15 says bait belongs.
+
+Whether the control plane should require a capability of its own instead, so the fence is the default
+rather than a rule somebody remembers, is open in the issue tracker with an ADR draft attached. The
+recommendation above is the interim answer and works with the evaluator exactly as it is.
+
+### Changed — the `ciphr-run` release asset carries its target triple
+
+**Breaking, for a fetch script.** The file attached to a release tag is now
+`ciphr-run-x86_64-unknown-linux-musl` and its checksum `ciphr-run-x86_64-unknown-linux-musl.sha256`.
+Both were unqualified. No compatibility copy is published under the old name: one release shipping
+both names is exactly the inconsistent pair this removes, and while the repository is private the
+consumer side is the same people making the change. [`docs/operations/upgrade.md`](docs/operations/upgrade.md)
+says what to edit; the failure mode if it is not edited is a missing asset, not a wrong file.
+
+**Nothing about the artefact moves.** The binary is byte-identical, a wrapper already mounted on a
+host is untouched, and the registry route is unchanged — the file inside `<image>/run` is still
+`/ciphr-run`, because an image states its architecture in its manifest while a file pulled from a tag
+states it only in its name.
+
+**Why with one architecture, and why this is not multi-arch.** `.github/workflows/release.yml` defers
+multi-arch on the grounds that a second build produces an artifact nothing pulls, and that reasoning
+is unchanged. This is the one part of that deferral that gets more expensive by waiting: qualifying
+the name later means either breaking every script written against the documented one or publishing a
+qualified binary beside an unqualified checksum. `ci.yml` has always named its artifact this way, so
+this also ends a disagreement between the two workflows.
+
+`ci/build-wrapper.sh` derives the name from its `$TARGET` rather than spelling it out, and
+`release.yml` holds it in one workflow-level variable that three steps read — in both cases so a
+second target cannot inherit the first one's name. The size budget in `build-wrapper.sh` now records
+that it is per target: an aarch64 static binary differs in size for reasons unrelated to
+dependencies, so a second target gets its own number rather than this one being raised to fit both.
+
 ## [0.5.1] — 2026-08-21
 
 **The release that corrects `0.5.0` rather than adding to it**, and the first patch release here.

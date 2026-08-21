@@ -1399,6 +1399,109 @@ fn listing_shows_only_what_the_caller_may_list() {
 }
 
 #[test]
+fn a_listing_carries_the_rotation_class_of_every_path_it_shows() {
+    // The corpus question -- what has nobody classified yet? -- used to be answerable
+    // only with the service stopped, because `ciphr list --rotation` goes through the
+    // CLI and the CLI takes the exclusive store lock. This asks it of a running one.
+    let harness = Harness::new();
+
+    let request = Harness::build(
+        "PUT",
+        "/v1/secrets/infra/service-c/SEED",
+        Some(&harness.deploy_token),
+        Some(serde_json::json!({ "value": "s", "rotation": "seed-only" })),
+    );
+    harness.send(request);
+
+    let (status, body) = harness.get("/v1/list/infra", Some(&harness.deploy_token));
+    assert_eq!(status, StatusCode::OK);
+
+    let entries = body["entries"].as_array().expect("entries");
+    let paths = body["paths"].as_array().expect("paths");
+    assert_eq!(
+        entries.len(),
+        paths.len(),
+        "both arrays carry the same set, so a client reading only `paths` sees no fewer"
+    );
+    for (entry, path) in entries.iter().zip(paths) {
+        assert_eq!(&entry["path"], path, "and in the same order");
+    }
+
+    let seeded = entries
+        .iter()
+        .find(|entry| entry["path"] == "infra/service-c/SEED")
+        .expect("the secret just written");
+    assert_eq!(seeded["rotation"], "seed-only");
+
+    let untouched = entries
+        .iter()
+        .find(|entry| entry["path"] == "infra/service-a/DB_PASSWORD")
+        .expect("the fixture secret");
+    assert_eq!(
+        untouched["rotation"], "unclassified",
+        "a secret nobody classified says so rather than claiming to be safe to rotate"
+    );
+}
+
+#[test]
+fn a_rotation_filter_narrows_the_listing_and_the_trail_counts_what_was_revealed() {
+    let harness = Harness::new();
+
+    let request = Harness::build(
+        "PUT",
+        "/v1/secrets/infra/service-c/SEED",
+        Some(&harness.deploy_token),
+        Some(serde_json::json!({ "value": "s", "rotation": "seed-only" })),
+    );
+    harness.send(request);
+
+    let (status, body) = harness.get(
+        "/v1/list/infra?rotation=seed-only",
+        Some(&harness.deploy_token),
+    );
+    assert_eq!(status, StatusCode::OK);
+
+    let paths = body["paths"].as_array().expect("paths");
+    assert_eq!(paths.len(), 1, "only the classified one, got {paths:?}");
+    assert_eq!(paths[0], "infra/service-c/SEED");
+
+    // The number in the trail is what left the process, not what the caller was
+    // entitled to see. Recording the pre-filter count would overstate every filtered
+    // read for as long as the trail is kept.
+    let entries = harness.audit_entries();
+    let listing = entries
+        .iter()
+        .rfind(|record| record["entry"]["action"] == "list")
+        .expect("a list entry");
+    assert_eq!(
+        listing["entry"]["results"].as_u64(),
+        Some(1),
+        "the entry counts the filtered set, which is what was revealed"
+    );
+}
+
+#[test]
+fn an_unknown_rotation_class_in_a_filter_is_refused() {
+    // The same asymmetry the write path has: a class on the way out is an open string,
+    // a class on the way in is closed. Accepting one this build cannot interpret would
+    // silently filter against nothing and return an empty listing that looks like an
+    // answer.
+    let harness = Harness::new();
+
+    let (status, body) = harness.get(
+        "/v1/list/infra?rotation=probably-fine",
+        Some(&harness.deploy_token),
+    );
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let text = body.to_string();
+    assert!(
+        text.contains("probably-fine") && text.contains("unclassified"),
+        "the refusal names what was sent and what the classes are, got {text}"
+    );
+}
+
+#[test]
 fn export_writes_one_audit_entry_per_secret_served() {
     // The property that makes a bulk read auditable at all. A collective entry for an
     // export is the blind spot that disqualified other candidates during the

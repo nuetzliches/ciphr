@@ -244,6 +244,25 @@ paths:
         prefix would refuse the listing to an identity permitted to list everything
         under it. An empty array is what "you may list nothing here" looks like, and it
         is indistinguishable from "there is nothing here".
+
+        Each path comes with its rotation class in `entries`, which is what makes *what
+        has nobody classified yet?* answerable against a running service — the CLI can
+        answer it too, but only with the service stopped, because it takes the exclusive
+        store lock.
+      parameters:
+        - name: rotation
+          in: query
+          required: false
+          description: |
+            Return only paths in this class. Unknown classes are refused with `400`
+            rather than matching nothing, because an empty listing looks like an answer.
+
+            The filter runs **after** authorization, and the audit entry records the
+            number of paths actually returned — what was revealed, not what the caller
+            was entitled to see.
+          schema:
+            type: string
+            examples: ["unclassified"]
       responses:
         "200":
           description: The visible paths.
@@ -1004,12 +1023,47 @@ components:
 
     Listing:
       type: object
-      required: [prefix, paths]
+      required: [prefix, paths, entries]
       properties:
         prefix: { type: string }
         paths:
           type: array
           items: { type: string }
+          description: |
+            The visible paths. Carries the same set in the same order as `entries`, and
+            the duplication is compatibility rather than indecision: `ciphr-run` is
+            bind-mounted into images this project does not own (ADR-14), so a wrapper on
+            a host is routinely older than the service it calls. Turning this into a
+            list of objects would break exactly that pair, at the moment a service is
+            starting and its secrets are not there.
+        entries:
+          type: array
+          items: { $ref: "#/components/schemas/ListedSecret" }
+          description: |
+            The same paths, each with its rotation class. Added in a later version than
+            `paths`; a client that does not know the field ignores it.
+
+    ListedSecret:
+      type: object
+      required: [path, rotation]
+      properties:
+        path: { type: string }
+        rotation:
+          type: string
+          examples: ["unclassified", "rotatable", "seed-only"]
+          description: |
+            The rotation class as stored, and only the class. `needs_care` and `advice`
+            are pure functions of it, so they are not repeated on every row of a
+            listing — see `Classification`, which carries all three for one secret.
+
+            Open rather than a closed enum, for the reason `Classification.class` gives:
+            a client that could not parse a class a later service added would break for
+            a reason that has nothing to do with it.
+
+            This discloses nothing new. Every path here survived a `list` check, and
+            `GET /v1/versions/{path}` returns the same class against the same
+            capability — so the field saves a request per secret rather than opening a
+            door.
 
     ExportRequest:
       type: object
