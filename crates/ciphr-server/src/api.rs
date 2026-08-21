@@ -297,17 +297,22 @@ async fn read_secret(
         Err(error) => {
             // The decision was allowed and is already recorded; this entry records
             // that the read found nothing, so the trail does not imply a value was
-            // served.
-            if matches!(error.status(), StatusCode::NOT_FOUND) {
-                state.record_outcome(
-                    &caller,
-                    Action::Read,
-                    Some(&path),
-                    &request,
-                    404,
-                    Some("not-found"),
-                )?;
-            }
+            // served. Every error takes this branch, not only the 404: a store that
+            // could not answer served no value either, and the narrower version of
+            // this check was the residue named in finding F4.
+            let reason = if matches!(error.status(), StatusCode::NOT_FOUND) {
+                "not-found"
+            } else {
+                "not-served"
+            };
+            state.record_outcome(
+                &caller,
+                Action::Read,
+                Some(&path),
+                &request,
+                error.status().as_u16(),
+                Some(reason),
+            )?;
             return Err(error);
         }
     };
@@ -394,6 +399,11 @@ async fn write_secret(
 /// Reversible, and audited before it happens. Destroying a version is not exposed
 /// over HTTP at all: crypto-shredding is irreversible and belongs to the CLI on the
 /// host (ADR-3).
+///
+/// A delete that does not happen — no such path, no current version, a store that
+/// refuses — gets a second entry saying so, the way a failed write does. Without it the
+/// trail claimed an authorized deletion at `200` for a secret that is still there
+/// (finding F4).
 async fn delete_secret(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -408,15 +418,28 @@ async fn delete_secret(
 
     state.authorize_and_record(&caller, Action::Delete, Capability::Delete, &path, &request)?;
 
-    let version = match query.version()? {
-        Some(version) => version,
-        None => state
-            .with_store(|store| store.metadata(&path).map_err(ApiError::from))?
-            .current_version
-            .ok_or(ApiError::NotFound)?,
-    };
+    // Everything that can still fail goes inside, including the version query: a
+    // malformed `?version=` is refused after the decision was recorded, so it needs the
+    // correction as much as a missing path does.
+    state.complete_or_record(
+        &caller,
+        Action::Delete,
+        &path,
+        &request,
+        "delete-failed",
+        || {
+            let version = match query.version()? {
+                Some(version) => version,
+                None => state
+                    .with_store(|store| store.metadata(&path).map_err(ApiError::from))?
+                    .current_version
+                    .ok_or(ApiError::NotFound)?,
+            };
 
-    state.with_store(|store| store.delete(&path, version).map_err(ApiError::from))?;
+            state.with_store(|store| store.delete(&path, version).map_err(ApiError::from))
+        },
+    )?;
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -436,11 +459,18 @@ async fn list_versions(
     // Both reads in one borrow of the store, and both fail identically for a path
     // that does not exist -- each goes through `require_secret` -- so carrying the
     // classification here changes no error behaviour.
-    let (metadata, versions) = state.with_store(|store| {
-        let metadata = store.metadata(&path)?;
-        let versions = store.versions(&path)?;
-        Ok::<_, ApiError>((metadata, versions))
-    })?;
+    //
+    // The correction is the same rule as on reads and deletes. This handler was not in
+    // finding F4's list, and it has F4's shape: a 404 here used to leave a lone
+    // "allowed list, 200" behind.
+    let (metadata, versions) =
+        state.complete_or_record(&caller, Action::List, &path, &request, "not-listed", || {
+            state.with_store(|store| {
+                let metadata = store.metadata(&path)?;
+                let versions = store.versions(&path)?;
+                Ok::<_, ApiError>((metadata, versions))
+            })
+        })?;
 
     Ok(Json(VersionsResponse {
         path: path.as_str().to_owned(),
@@ -521,6 +551,21 @@ async fn list_paths(
 /// Produces **one audit entry per secret served**, never one per call. A collective
 /// entry for a bulk read is exactly the blind spot that disqualified other candidates
 /// during the evaluation, so it is authorized and recorded path by path.
+///
+/// # Why a failure corrects *every* entry this request wrote
+///
+/// One refusal or one missing path fails the whole export — a partial answer would let a
+/// caller map which paths they may read, one call at a time. But the entries for the
+/// paths that already succeeded are written by then, each saying "allowed read, 200",
+/// and **not one of those values left the process**. Finding F4 of the review of
+/// 2026-08-21: for a nine-path export that fails on the ninth, the trail claimed nine
+/// reads that never happened.
+///
+/// So on any failure each path recorded by this request gets a second entry. That is
+/// more entries than the alternative of correcting only the path that failed, and it is
+/// the only version a reader can trust without knowing that this handler aborts as a
+/// unit. The correction is bounded by the request: nothing loops beyond the paths asked
+/// for.
 async fn export(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -536,14 +581,48 @@ async fn export(
         });
     }
 
-    let mut secrets = Vec::with_capacity(body.paths.len());
-    for raw in body.paths {
+    // Every path whose decision is on the trail already. Recorded before the read it
+    // authorizes, so a path is in here whether or not its value was produced.
+    let mut recorded: Vec<SecretPath> = Vec::with_capacity(body.paths.len());
+
+    match export_secrets(&state, &caller, &request, body.paths, &mut recorded) {
+        Ok(secrets) => Ok(Json(ExportResponse { secrets })),
+        Err(error) => {
+            for path in &recorded {
+                state.record_outcome(
+                    &caller,
+                    Action::Read,
+                    Some(path),
+                    &request,
+                    error.status().as_u16(),
+                    Some("not-served"),
+                )?;
+            }
+            Err(error)
+        }
+    }
+}
+
+/// The body of [`export`], separated so that a failure anywhere in it has one place to
+/// be caught.
+///
+/// `recorded` grows as decisions reach the trail. On the error path the caller uses it to
+/// correct them; on the success path it is discarded, because every entry in it described
+/// something that then happened.
+fn export_secrets(
+    state: &AppState,
+    caller: &Caller,
+    request: &RequestContext,
+    paths: Vec<String>,
+    recorded: &mut Vec<SecretPath>,
+) -> Result<Vec<ExportedSecret>, ApiError> {
+    let mut secrets = Vec::with_capacity(paths.len());
+    for raw in paths {
         let path = parse_path(&raw)?;
 
-        // Per path: authorize, record, then read. A single refusal fails the whole
-        // export rather than returning a partial answer, so a caller cannot use it to
-        // map which paths they may read.
-        state.authorize_and_record(&caller, Action::Read, Capability::Read, &path, &request)?;
+        // Per path: authorize, record, then read.
+        state.authorize_and_record(caller, Action::Read, Capability::Read, &path, request)?;
+        recorded.push(path.clone());
 
         let stored = state.with_store(|store| store.get(&path, None).map_err(ApiError::from))?;
         let plaintext = ciphr_crypto::decrypt(
@@ -563,8 +642,7 @@ async fn export(
             value,
         });
     }
-
-    Ok(Json(ExportResponse { secrets }))
+    Ok(secrets)
 }
 
 /// `GET /v1/audit` — read the audit trail.
@@ -613,24 +691,40 @@ async fn read_audit(
         allowed,
     };
 
-    let rows = state.with_store(|store| store.audit_query(&filter).map_err(ApiError::from))?;
-    let mut entries = Vec::with_capacity(rows.len());
-    for row in rows {
-        // `from_string` validates that the stored text is JSON and then keeps it exactly
-        // as it is. Nothing here parses the record into fields: this endpoint's job is to
-        // hand over the bytes that were hashed, and any structure it imposed on the way
-        // would be structure a client has to undo before it can verify anything.
-        let record = serde_json::value::RawValue::from_string(row.payload).map_err(|error| {
-            ApiError::Internal {
-                detail: format!("a stored audit record is not readable: {error}"),
+    // F4's shape again, on the endpoint whose own trail is the subject: a store that
+    // cannot answer, or a record that is not readable, served nothing, and the decision
+    // above already says "allowed read, 200" on `sys/audit`.
+    let entries = state.complete_or_record(
+        &caller,
+        Action::Read,
+        &virtual_path,
+        &request,
+        "not-served",
+        || {
+            let rows =
+                state.with_store(|store| store.audit_query(&filter).map_err(ApiError::from))?;
+            let mut entries = Vec::with_capacity(rows.len());
+            for row in rows {
+                // `from_string` validates that the stored text is JSON and then keeps it
+                // exactly as it is. Nothing here parses the record into fields: this
+                // endpoint's job is to hand over the bytes that were hashed, and any
+                // structure it imposed on the way would be structure a client has to undo
+                // before it can verify anything.
+                let record =
+                    serde_json::value::RawValue::from_string(row.payload).map_err(|error| {
+                        ApiError::Internal {
+                            detail: format!("a stored audit record is not readable: {error}"),
+                        }
+                    })?;
+                entries.push(AuditEntryResponse {
+                    seq: row.seq,
+                    hash: ciphr_core::hex::encode(&row.hash),
+                    record,
+                });
             }
-        })?;
-        entries.push(AuditEntryResponse {
-            seq: row.seq,
-            hash: ciphr_core::hex::encode(&row.hash),
-            record,
-        });
-    }
+            Ok(entries)
+        },
+    )?;
 
     Ok(Json(AuditResponse { entries }))
 }

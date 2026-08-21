@@ -474,6 +474,120 @@ fn deleting_makes_a_secret_unreadable_and_is_recorded() {
 }
 
 #[test]
+fn a_delete_that_deletes_nothing_says_so_in_the_trail() {
+    // Finding F4. The decision is recorded before the work, so without a second entry
+    // the trail claims an authorized deletion at 200 for a secret that is still there.
+    let harness = Harness::new();
+    let delete = Harness::build(
+        "DELETE",
+        "/v1/secrets/infra/service-a/NOT_THERE",
+        Some(&harness.deploy_token),
+        None,
+    );
+
+    let (status, _) = harness.send(delete);
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let deletes: Vec<_> = harness
+        .audit_entries()
+        .into_iter()
+        .filter(|entry| entry["entry"]["action"] == "delete")
+        .collect();
+
+    assert_eq!(deletes.len(), 2, "the decision and its correction");
+    assert_eq!(deletes[0]["entry"]["allowed"], true);
+    assert_eq!(deletes[0]["entry"]["request"]["http_status"], 200);
+    assert_eq!(deletes[1]["entry"]["deny_reason"], "delete-failed");
+    assert_eq!(deletes[1]["entry"]["request"]["http_status"], 404);
+    assert_eq!(deletes[1]["entry"]["path"], "infra/service-a/NOT_THERE");
+}
+
+#[test]
+fn a_version_listing_of_a_missing_path_says_so_in_the_trail() {
+    // The same shape as the delete above. This handler was not in F4's list and had
+    // F4's defect.
+    let harness = Harness::new();
+    let (status, _) = harness.get(
+        "/v1/versions/infra/service-a/NOT_THERE",
+        Some(&harness.deploy_token),
+    );
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let listings: Vec<_> = harness
+        .audit_entries()
+        .into_iter()
+        .filter(|entry| entry["entry"]["action"] == "list")
+        .collect();
+
+    assert_eq!(listings.len(), 2, "the decision and its correction");
+    assert_eq!(listings[1]["entry"]["deny_reason"], "not-listed");
+    assert_eq!(listings[1]["entry"]["request"]["http_status"], 404);
+}
+
+#[test]
+fn an_export_that_fails_corrects_every_entry_it_had_already_written() {
+    // Finding F4, the part that is easy to under-fix: correcting only the path that
+    // failed would leave the earlier "allowed read, 200" entries standing for values
+    // that never left the process, because the whole export aborts as a unit.
+    let harness = Harness::new();
+    for path in ["infra/abort/ONE", "infra/abort/TWO"] {
+        let write = Harness::build(
+            "PUT",
+            &format!("/v1/secrets/{path}"),
+            Some(&harness.deploy_token),
+            Some(serde_json::json!({ "value": "x" })),
+        );
+        harness.send(write);
+    }
+
+    let before = harness.audit_entries().len();
+
+    let export = Harness::build(
+        "POST",
+        "/v1/export",
+        Some(&harness.deploy_token),
+        Some(serde_json::json!({
+            "paths": ["infra/abort/ONE", "infra/abort/TWO", "infra/abort/MISSING"]
+        })),
+    );
+    let (status, body) = harness.send(export);
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(!body.to_string().contains("\"value\""), "no partial answer");
+
+    let written: Vec<_> = harness.audit_entries().split_off(before);
+
+    // Three decisions, then three corrections: one per path this request recorded,
+    // including the two whose reads succeeded and were thrown away.
+    let allowed: Vec<_> = written
+        .iter()
+        .filter(|entry| entry["entry"]["allowed"] == true)
+        .collect();
+    let corrections: Vec<_> = written
+        .iter()
+        .filter(|entry| entry["entry"]["deny_reason"] == "not-served")
+        .collect();
+
+    assert_eq!(allowed.len(), 3, "one decision per requested path");
+    assert_eq!(corrections.len(), 3, "one correction per recorded path");
+    assert!(
+        corrections
+            .iter()
+            .all(|entry| entry["entry"]["request"]["http_status"] == 404),
+        "the correction carries the status the caller got: {corrections:?}"
+    );
+
+    let corrected: Vec<&str> = corrections
+        .iter()
+        .map(|entry| entry["entry"]["path"].as_str().expect("a path"))
+        .collect();
+    assert!(
+        corrected.contains(&"infra/abort/ONE") && corrected.contains(&"infra/abort/TWO"),
+        "the paths that were read and discarded must be corrected too: {corrected:?}"
+    );
+}
+
+#[test]
 fn the_version_history_is_available_without_values() {
     let harness = Harness::new();
     let write = Harness::build(

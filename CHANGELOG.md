@@ -49,6 +49,29 @@ enforced at the wrong layer, and the layer that was missing it is the one the cl
 - The HTTP and CLI checks stay as early, specific errors, and both now call the shared refusal. A
   refused `put` reaches the store no more than it reaches the audit trail.
 
+### Fixed — the audit trail no longer claims a delete or an export that did not happen
+
+Finding F4 of the review of 2026-08-21. The decision is recorded before the work, which is the
+property the design rests on, and it means an "allowed, 200" entry has to be corrected when the work
+then fails. Reads and writes did that. `delete`, `POST /v1/export`, and `GET /v1/versions/{path}` did
+not, so their trails said an authorized operation happened at `200` when nothing had.
+
+Nothing was under-claimed — the trail over-stated access rather than hiding it, which is why this
+survived three phases. It matters when the trail is read forensically: "who deleted this" answered
+confidently and wrongly is worse than answered not at all.
+
+- **`delete` and the version listing** record `delete-failed` / `not-listed` with the status the
+  caller received, the way a failed write records `write-failed`.
+- **An export corrects every path it had already recorded**, not only the one that failed. One
+  missing path fails the whole export, so none of the earlier values left the process either — a
+  three-path export failing on the third now leaves three decisions and three corrections.
+- **Reads correct on every error**, not only on `404`. A store that could not answer served no value
+  either; that was the narrower residue the finding named.
+- **`GET /v1/audit` has the correction too.** Not in the finding's list, same shape.
+- The rule is now one named helper, `AppState::complete_or_record`, instead of something each
+  handler remembers. `openapi.yaml` lists the new reasons and says in as many words that a
+  correction is not a denial.
+
 ### Security — a credential file the world can write is refused, like one it can read
 
 Finding F6 of the same review. `check_not_world_readable` tested `mode & 0o004` and nothing else, so

@@ -372,6 +372,54 @@ impl AppState {
         self.record(&entry)
     }
 
+    /// Run the work an allowed decision authorized, and record that it did not happen
+    /// if it did not.
+    ///
+    /// The counterpart of [`Self::authorize_and_record`], and the reason it exists is
+    /// finding F4 of the review of 2026-08-21: the correcting second entry was a rule
+    /// each handler remembered for itself, so `read` and `write` had it and `delete`,
+    /// `export`, and the version listing did not. Their trails said an authorized
+    /// operation happened at `200` when it had not. The direction was conservative —
+    /// over-claiming access, never under-claiming it — which is exactly why nobody
+    /// noticed.
+    ///
+    /// `reason` is the label the second entry carries. `error.status()` is the status,
+    /// so a call site cannot record one status while returning another.
+    ///
+    /// Note what a failure to record does here: it replaces the caller's error with
+    /// [`ApiError::AuditUnavailable`]. That is deliberate and matches `write_secret`'s
+    /// long-standing shape — a trail left over-claiming is the failure this whole
+    /// module exists to prevent, so it is worth a different status code.
+    ///
+    /// # Errors
+    ///
+    /// Whatever `work` returned, or [`ApiError::AuditUnavailable`] if the correcting
+    /// entry could not be stored.
+    pub fn complete_or_record<T>(
+        &self,
+        caller: &Caller,
+        action: Action,
+        path: &SecretPath,
+        request: &RequestContext,
+        reason: &str,
+        work: impl FnOnce() -> Result<T, ApiError>,
+    ) -> Result<T, ApiError> {
+        match work() {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                self.record_outcome(
+                    caller,
+                    action,
+                    Some(path),
+                    request,
+                    error.status().as_u16(),
+                    Some(reason),
+                )?;
+                Err(error)
+            }
+        }
+    }
+
     /// Record a listing, which authorizes **per returned path** rather than once.
     ///
     /// Deliberately not `record_outcome`: there is no decision to attach here, and an

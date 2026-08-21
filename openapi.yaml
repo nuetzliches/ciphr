@@ -823,11 +823,18 @@ components:
             allowed: { type: boolean }
             deny_reason:
               type: [string, "null"]
-              enum: [unknown-identity, no-matching-rule, not-granted, tie, unauthenticated, not-found, write-failed, not-served, null]
+              enum: [unknown-identity, no-matching-rule, not-granted, tie, unauthenticated, not-found, write-failed, delete-failed, not-listed, not-served, null]
               description: |
                 Stable labels, except for `audit-device-failed` entries, whose reason is
                 `device-refused: <device name>` so a later reader can tell which copy of
                 the trail has a gap.
+
+                `not-found`, `write-failed`, `delete-failed`, `not-listed`, and
+                `not-served` mark a **correcting second entry**: the decision above them
+                said an operation was allowed, and this one says it did not happen. They
+                are not denials. On `POST /v1/export` a failure corrects every path the
+                request had already recorded, because none of those values left the
+                process either.
             rule:
               type: [object, "null"]
               properties:

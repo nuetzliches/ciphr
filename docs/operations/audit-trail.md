@@ -1,6 +1,6 @@
 # The audit trail
 
-**Status:** implemented and tested as of 2026-08-20. The chain, the fail-closed sink, the file
+**Status:** implemented and tested as of 2026-08-21. The chain, the fail-closed sink, the file
 device, and the SQLite device work and are tested, and so do `ciphr audit tail`, `verify`, `anchor`,
 and `cut` — the last of these is what bounds the queryable trail, and it arrived after the rest.
 
@@ -28,6 +28,37 @@ identifier. That is structural rather than reviewed: the types that hold secrets
 
 Every field is written out, including as `null`. Skipping absent fields would make "not applicable"
 and "an older version did not record this" indistinguishable in a file read years later.
+
+### Two entries about one operation, and how to read them
+
+**The decision is recorded before the work happens.** That is the property the whole design rests on
+— nothing is served or changed before the trail says it was authorized — and it has a consequence
+worth knowing before you read a trail forensically: *an "allowed, 200" entry is a record of a
+decision, not proof that the operation succeeded.*
+
+So anything other than success gets a **second entry** for the same operation, with the status the
+caller actually received and a `deny_reason` that says what happened instead:
+
+| Reason | Means |
+|---|---|
+| `not-found` | The read was allowed and the path did not exist. |
+| `not-served` | The read was allowed and no value reached the caller — undecryptable, not UTF-8, a store that could not answer, or an export that aborted. |
+| `write-failed` | The write was allowed and the store did not accept it. |
+| `delete-failed` | The delete was allowed and nothing was deleted. |
+| `not-listed` | The version listing was allowed and the path did not exist. |
+
+These are **not denials**, even though they use the same field. A denial has no allowed entry before
+it; a correction always does.
+
+**`POST /v1/export` corrects every path it had recorded** (added 2026-08-21, finding F4 of the
+review). One missing path fails the whole export, and the earlier paths' values never leave the
+process either — so a three-path export failing on the third leaves three decisions and three
+corrections. Correcting only the path that failed would leave the other two claiming reads that did
+not happen.
+
+Before 2026-08-21 the correction existed on reads and writes only, so `delete`, `export`, and the
+version listing over-claimed. The direction was always conservative — the trail claimed more access
+than occurred, never less — which is exactly why it went unnoticed for three phases.
 
 ## Fail closed
 
