@@ -81,6 +81,27 @@ master key or the store lock.
 No code changed. Both halves were measured by the deployment that reported them
 ([`docs/field-report-2026-08-22.md`](docs/field-report-2026-08-22.md), findings 2 and 4).
 
+### Changed — a release can no longer publish half of itself
+
+`v0.6.0` published its server image, moved `:latest` to it, and then failed to build
+`Dockerfile.run`. `0.6.1` fixed the cause and named what would have caught it — a CI step that builds
+that file — then priced that step and declined it, because it doubles a job on every push for a file
+that changes rarely. The decision was right and it left the class open: the next change to the
+wrapper's build inputs can break a release the same way, and the first sign is again a tag that exists
+half.
+
+`release.yml` now builds `Dockerfile.run` in a job that **pushes nothing, and that both publishing
+jobs wait for.** That is the part which had gone unnoticed: the two of them hung off `verify` alone and
+ran in parallel, so one could publish while the other failed. The gate needs no registry credentials,
+runs on a release rather than on every push, and reads the same `scope=wrapper` cache the publishing
+job reads afterwards — so the second build of that image is a cache hit and not a second compile.
+
+This is the cheaper of the two shapes the field report asked for, and it answers the failure that
+happened rather than the class it generalizes to: a wrapper that cannot be built now costs a failed
+release instead of a version that means two different things
+([`docs/field-report-2026-08-22.md`](docs/field-report-2026-08-22.md), finding 5). Building the file on
+every push stays undone, with the reasoning `0.6.1` already recorded.
+
 ## [0.6.1] — 2026-08-22
 
 **The release that finishes `0.6.0`.** Same code, same schema, no configuration change — the one

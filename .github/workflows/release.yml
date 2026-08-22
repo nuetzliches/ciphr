@@ -43,9 +43,49 @@ jobs:
     name: Verify before publishing
     uses: ./.github/workflows/ci.yml
 
+  # The gate `v0.6.0` did not have. That release published its server image and
+  # moved `:latest` to it, then failed to build `Dockerfile.run` -- the asset
+  # rename in `1f82928` had left it copying a path the build no longer produces --
+  # so one version existed as one image and not as the other, and the tag could
+  # not be rebuilt without overwriting a digest somebody may already have pinned.
+  #
+  # Nothing caught it because nothing builds that file except a release, and the
+  # two publishing jobs below have no reason to wait for each other: they both
+  # hang off `verify` and run in parallel. This one builds the wrapper image and
+  # pushes nothing, and both of them wait for it -- so a wrapper that cannot be
+  # built now costs a failed release rather than half a published one, which is
+  # the difference between an inconvenience and a version that means two things.
+  #
+  # Deliberately *not* the same thing as building this file on every push. That is
+  # the more thorough answer, and `0.6.1`'s changelog priced it and declined: it
+  # doubles a CI job on every commit for a file that changes rarely. This runs
+  # only on a release, and the job that publishes the same image afterwards reads
+  # the same `scope=wrapper` cache, so the second build is a cache hit and not a
+  # second compile. Asked for in `docs/field-report-2026-08-22.md`, finding 5.
+  wrapper-image:
+    name: The wrapper image builds before anything is published
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      # No registry login and no `push:`, so this job needs none of the
+      # credentials the two after it hold. The build is the whole assertion.
+      - name: Build it and publish nothing
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          file: Dockerfile.run
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha,scope=wrapper
+          cache-to: type=gha,mode=max,scope=wrapper
+
   image:
     name: Build and publish
-    needs: verify
+    needs: [verify, wrapper-image]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -118,7 +158,7 @@ jobs:
   # that was pushed, so the two cannot disagree about what they contain.
   wrapper:
     name: Publish the static wrapper
-    needs: verify
+    needs: [verify, wrapper-image]
     # A manual run publishes no image tag and gets no release either; there is no
     # release to attach a file to.
     if: startsWith(github.ref, 'refs/tags/v')
