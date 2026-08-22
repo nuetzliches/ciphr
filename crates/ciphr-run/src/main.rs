@@ -196,43 +196,35 @@ fn fetch(client: &Client, cli: &Cli) -> Result<Environment, RunError> {
 ///
 /// Replaceable matters as much as readable here. This file is the only thing standing
 /// between the wrapper and a token of someone else's choosing.
+///
+/// **One descriptor, inspected and read** ([`ciphr_core::open_credential`], F10). The
+/// check used to resolve the path, then the read resolved it again — and this file is
+/// mounted into images this project does not own, which is exactly where the directory
+/// around a credential is least under anyone's control.
 fn read_token(path: &Path) -> Result<String, RunError> {
-    check_not_world_accessible(path)?;
+    let mut credential =
+        ciphr_core::open_credential(path).map_err(|error| RunError::TokenFile {
+            path: path.display().to_string(),
+            reason: error.reason(),
+        })?;
 
-    std::fs::read_to_string(path).map_err(|error| RunError::TokenFile {
-        path: path.display().to_string(),
-        reason: error.kind().to_string(),
-    })
-}
-
-#[cfg(unix)]
-fn check_not_world_accessible(path: &Path) -> Result<(), RunError> {
-    use std::os::unix::fs::PermissionsExt;
-
-    let metadata = std::fs::metadata(path).map_err(|error| RunError::TokenFile {
-        path: path.display().to_string(),
-        reason: error.kind().to_string(),
-    })?;
-
-    let mode = metadata.permissions().mode() & 0o777;
-    if let Some(access) = ciphr_core::WorldAccess::of(mode) {
+    if let Some(access) = credential.world {
         return Err(RunError::TokenFileWorldAccessible {
             path: path.display().to_string(),
-            mode,
+            // Present whenever `world` is: the verdict is derived from it.
+            mode: credential.mode.unwrap_or_default(),
             access,
         });
     }
-    Ok(())
-}
 
-#[cfg(not(unix))]
-// The `Result` is unnecessary on this platform and required by the other one: both
-// variants must share a signature, exactly as in `ciphr-crypto`.
-#[allow(clippy::unnecessary_wraps)]
-fn check_not_world_accessible(_path: &Path) -> Result<(), RunError> {
-    // No portable equivalent of the mode bits. Unreachable in any case: this platform
-    // refuses before it gets here.
-    Ok(())
+    let mut token = String::new();
+    std::io::Read::read_to_string(&mut credential.file, &mut token).map_err(|error| {
+        RunError::TokenFile {
+            path: path.display().to_string(),
+            reason: error.kind().to_string(),
+        }
+    })?;
+    Ok(token)
 }
 
 #[cfg(test)]

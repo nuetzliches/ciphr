@@ -204,14 +204,35 @@ impl StaticSeal {
     /// hexadecimal characters. No error contains the content.
     pub fn from_file(path: impl AsRef<std::path::Path>) -> Result<Self, CryptoError> {
         let path = path.as_ref();
-        check_not_world_accessible(path)?;
 
-        let value = Zeroizing::new(std::fs::read_to_string(path).map_err(|error| {
+        // **Opened once, then inspected and read through that one descriptor** (F10).
+        // The mode check used to run against the name and the read against the name
+        // again, so whoever could create entries in the key file's directory could
+        // exchange the approved file for another between the two.
+        let mut credential = ciphr_core::open_credential(path).map_err(|error| {
+            CryptoError::MasterKeyFileUnreadable {
+                path: path.display().to_string(),
+                reason: error.reason(),
+            }
+        })?;
+
+        if let Some(access) = credential.world {
+            return Err(CryptoError::MasterKeyFileWorldAccessible {
+                path: path.display().to_string(),
+                // Present whenever `world` is: the verdict is derived from it.
+                mode: credential.mode.unwrap_or_default(),
+                access,
+            });
+        }
+
+        let mut read = Zeroizing::new(String::new());
+        std::io::Read::read_to_string(&mut credential.file, &mut read).map_err(|error| {
             CryptoError::MasterKeyFileUnreadable {
                 path: path.display().to_string(),
                 reason: error.kind().to_string(),
             }
-        })?);
+        })?;
+        let value = read;
 
         let master = MasterKey::from_hex(value.trim())?;
         Ok(Self {
@@ -236,52 +257,6 @@ impl StaticSeal {
     pub const fn source(&self) -> &KeySource {
         &self.source
     }
-}
-
-/// Refuse a key file that anyone but its owner and group can read or write.
-///
-/// A world-accessible master key is unambiguously wrong, so it stops the process rather
-/// than producing a warning nobody reads. **Which bits count is
-/// [`ciphr_core::WorldAccess`] and not this function:** the identical sentence guards the
-/// token file in `ciphr-run`, and while each spelled the rule out for itself, both spelled
-/// out only half of it (finding F6 — a key file at mode `0602` started the process).
-///
-/// Group bits are left alone: a root-owned file read by a service group is a legitimate
-/// and common arrangement, and refusing it would push deployments towards running as root
-/// instead. That is the judgement call; the world bits are not.
-///
-/// Windows has no equivalent bit, and no check runs there. Saying so is better than a
-/// check that silently does nothing on one platform.
-#[cfg(unix)]
-fn check_not_world_accessible(path: &std::path::Path) -> Result<(), CryptoError> {
-    use std::os::unix::fs::PermissionsExt;
-
-    let metadata =
-        std::fs::metadata(path).map_err(|error| CryptoError::MasterKeyFileUnreadable {
-            path: path.display().to_string(),
-            reason: error.kind().to_string(),
-        })?;
-
-    let mode = metadata.permissions().mode() & 0o777;
-    if let Some(access) = ciphr_core::WorldAccess::of(mode) {
-        return Err(CryptoError::MasterKeyFileWorldAccessible {
-            path: path.display().to_string(),
-            mode,
-            access,
-        });
-    }
-    Ok(())
-}
-
-#[cfg(not(unix))]
-// The `Result` is unnecessary on this platform and required by the other one: both
-// variants must share a signature. Collapsing it here would mean the caller changes
-// shape depending on the target, which is worse than an unused wrapper.
-#[allow(clippy::unnecessary_wraps)]
-fn check_not_world_accessible(_path: &std::path::Path) -> Result<(), CryptoError> {
-    // No portable equivalent of the mode bits. Documented on `from_file` rather than
-    // silently skipped.
-    Ok(())
 }
 
 impl Seal for StaticSeal {

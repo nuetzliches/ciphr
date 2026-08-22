@@ -78,6 +78,17 @@ wrapper fetch under an identity they control. On a Windows host the refusal can 
 — a bind-mounted file reports mode 0777 regardless of what it is on the host — so on that platform
 put the token in a named volume rather than relaxing anything.
 
+**Who has to be trusted for that check to mean anything: the file's owner and the directory it sits
+in.** The wrapper opens the token file once and inspects *that descriptor* — the permission bits and
+the content come from one open file, so a file swapped in after the check is not the file that was
+read (F10, [issue #13](https://github.com/nuetzliches/ciphr/issues/13)). What no check can settle is
+who could have written the file before it was opened: whoever can create entries in the directory the
+token lives in can put their own token there at mode `0600`, and it will pass every rule on this page.
+So mount the token from a directory the service account cannot write — a secrets mount, or a
+root-owned directory — and not from a working directory shared with the application. This is the
+requirement to write into the mount, because `ciphr-run` is bind-mounted into images this project does
+not own and nothing in the image enforces it.
+
 **The service reads the token file itself.** Not a failure — a property. `exec` replaces the
 process image, not the filesystem view, so whatever the wrapper could read, the service can read.
 Scope the token to the service's own prefix and this gives away nothing it did not already receive.

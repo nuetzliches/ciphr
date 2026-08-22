@@ -127,6 +127,16 @@ says, and it arrives while everything else on the screen is about the source. It
 destination *and* its directory, and says which end to check. The refusal to overwrite an existing
 backup is unchanged, wording included.
 
+### The token file and the master key file are opened once, and must be regular files
+
+**A named pipe or a directory where a credential is expected is now refused.** Both files used to be
+inspected by name and then read by name; they are opened once and read through that one descriptor, so
+a file exchanged between the two steps is no longer possible (F10 of
+`docs/review-2026-08-21-current-tree.md`). A FIFO passed as `--token-file` used to be a read that never
+returned; it is now a refusal. Ordinary files at ordinary modes behave exactly as before, and the
+world-bit rule is unchanged. The trust requirement this leaves — the file's owner and the directory it
+sits in — is written down in [wrapper.md](wrapper.md), where the mount is written.
+
 ## 0.7.0
 
 ### The container refuses to start where core dumps cannot be disabled

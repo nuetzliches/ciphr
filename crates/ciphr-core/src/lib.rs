@@ -29,7 +29,9 @@ pub mod version;
 
 pub use capability::{Capability, CapabilityError};
 pub use env_name::{EnvNameError, EnvVarName, NameFault};
-pub use file_mode::{BIND_MOUNT_HINT, BIND_MOUNT_MODE, WorldAccess};
+pub use file_mode::{
+    BIND_MOUNT_HINT, BIND_MOUNT_MODE, Credential, CredentialError, WorldAccess, open_credential,
+};
 pub use path::{PathError, SecretPath};
 pub use pattern::{PathPattern, PatternError};
 pub use rotation::{Rotation, RotationError};

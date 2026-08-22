@@ -91,6 +91,14 @@ The answer is a **named volume**, not a weaker check: put the key file in a volu
 and the permission bits mean what they say again. This is the normal case for developing against a
 container on Windows, and it costs an hour the first time nobody has written it down.
 
+**The file is opened once and inspected through that descriptor**, so the file whose mode was approved
+is the file whose content is read — a replacement between the two steps is not possible (F10 of the
+2026-08-21 review). What that check cannot settle is who could write the file *before* it was opened:
+whoever can create entries in the directory the key lives in can put their own key there at mode
+`0600`. So the directory is part of the requirement, not only the file — a secrets mount or a
+root-owned directory, never one the service account can write. Something that is not a regular file — a
+directory, a named pipe — is refused for what it is rather than measured for its mode.
+
 ## What either source buys, and what it does not
 
 The key sits in a file or a variable that the deployment supplies, mode `0600`, owned by the account

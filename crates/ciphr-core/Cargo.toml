@@ -15,6 +15,9 @@ unicode-normalization.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+# One property below opens a real file: `open_credential` is about descriptors, so a
+# test of it needs a file on disk rather than a path in a string.
+tempfile.workspace = true
 
 [lints]
 workspace = true

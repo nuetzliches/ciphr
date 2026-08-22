@@ -71,6 +71,28 @@ The message now names the destination and its directory and says which end to ch
 overwrite an existing backup keeps SQLite's own words, which `backup.md` documents. A row for this
 failure is in *What breaks, and how it will look*, where the causal note belongs.
 
+### Fixed — credential files are opened once, and read through that descriptor (F10)
+
+The master key file (`ciphr-crypto`) and the token file (`ciphr-run`) inspected the path with
+`metadata` and then read it again by name: two resolutions of one name, so whoever can create entries
+in the directory a credential lives in could exchange the approved file for another in between. F10 of
+[`docs/review-2026-08-21-current-tree.md`](docs/review-2026-08-21-current-tree.md), filed as issue #13,
+low severity and cheap — and the mode check is what makes it reachable, because it is the reason a
+deployment leaves a credential in a directory a service account can write.
+
+`ciphr_core::open_credential` opens once, takes the mode from the descriptor, and hands the caller the
+same open file to read from. It also **requires a regular file**: a named pipe where a token is
+expected was a read that never returned, and mode bits on a pipe say nothing about who is on the other
+end. `O_NOFOLLOW` is deliberately not used — it needs `libc`, and `ciphr-run`'s dependency list is
+itself the guarantee there (ADR-14); the substance is the single descriptor. What is left is a trust
+requirement on the file's owner and its parent directory, now written down where the mount is written
+([`wrapper.md`](docs/operations/wrapper.md)) and where the key is chosen
+([`master-key.md`](docs/operations/master-key.md)).
+
+**F9 of that issue — the core-dump limit failing open — was closed in `0.7.0`** and the same field
+report confirms it from the operating side: `ulimit -c` reads `0` in the `0.7.0` image, measured before
+the pin moved.
+
 ### Changed — the mirror cannot publish half a version either
 
 `0.7.0` closed this on `release.yml` and left it open where it was first observed. Finding 5 of
