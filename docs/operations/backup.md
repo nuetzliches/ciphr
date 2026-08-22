@@ -102,6 +102,22 @@ Two things no configuration names, so the command says so instead of guessing: t
 by whoever runs `audit anchor --out`, and the audit archive's rotated siblings. Both belong in the
 backup.
 
+**And the job that keeps the files can be told, rather than taught:**
+
+```sh
+ciphr state --json    /etc/ciphr/ciphr.toml   # every row, with the verdict as a value
+ciphr state --exclude /etc/ciphr/ciphr.toml   # only the paths that must never be copied
+```
+
+The table this command prints is a report for a person; those two forms are the same inventory for the
+thing that actually takes the backup. `--json` gives each row a `verdict` to branch on —
+`include`, `include-with-store`, `never`, `separately`, `reissue` — instead of the sentence in the
+right-hand column, and it names the two undeducible rows above under `not_derivable`. `--exclude`
+gives a file-level backup tool the one thing it wants handed to it: the paths that must not be copied,
+one per line. Both are in [cli.md](cli.md), and the reason they exist is that a deployment wired this
+into a nightly job and found the report unparseable
+([field-report-2026-08-22.md](../field-report-2026-08-22.md)).
+
 The table below is the *why*. The database is not self-sufficient, three of these rows are things a
 restored database needs in order to serve a single request, and each has been a surprise to
 somebody.
@@ -120,7 +136,7 @@ And one file that must **not** be in it:
 
 | What | Why not |
 |---|---|
-| `store.db.lock` | It is the exclusive store lock, and it records a process id and that process's start time. Restored onto a host, it names a holder that does not exist — and where liveness cannot be checked, an unverifiable lock is treated as **held**, on purpose (`crates/ciphr-store/src/lock.rs`). A file-level job that globs `store.db*` picks it up; exclude it |
+| `store.db.lock` | It is the exclusive store lock, and it records a process id and that process's start time. Restored onto a host, it names a holder that does not exist — and where liveness cannot be checked, an unverifiable lock is treated as **held**, on purpose (`crates/ciphr-store/src/lock.rs`). A file-level job that globs `store.db*` picks it up; exclude it, and `ciphr state --exclude` prints it — with the `-shm` beside it — one path per line so the job can be handed the list |
 
 ### The two `.toml` files, and what losing them costs
 
@@ -190,8 +206,56 @@ taking one with a newer binary cannot migrate the database first. `ciphr` and `c
 migrate on an ordinary open, so a pre-upgrade backup taken any other way with the new binary would
 have already destroyed the rollback it exists for.
 
+**"With the service running or stopped" carries one condition, and it is about the source's
+*mount* rather than about the command.** The store is write-ahead-logged, and SQLite can only open
+such a database if the `-shm` file is there or can be created. While the service runs it is there,
+so a source mounted read-only works. A **clean stop checkpoints the log away and removes both
+sidecars** — and since `0.6.0` made `docker stop` reach the graceful shutdown, that is the ordinary
+state after a maintenance stop rather than a rarity — so on a read-only source the open then fails
+with `database error: unable to open database file`, in exactly the window where somebody is most
+likely to be taking a copy by hand: the service is down and there is time.
+
+**So a containerized job mounts the store directory read-write and runs as the service's uid.** A
+throwaway container of the same image is the right shape — it needs nothing from the service
+container, so it still works when that one is unhealthy, stopped or gone — but read-only is not the
+mount mode that makes it work. Running as the service's uid is the half that must not be got wrong:
+the `-shm` created against a stopped store belongs to whoever created it, and a root-owned `-shm` in
+the store directory leaves the service unable to open its own database on the next start. While the
+service is up, no file is created at all. Both halves were measured by a deployment before they were
+written down here ([field-report-2026-08-22.md](../field-report-2026-08-22.md)).
+
 What it does *not* do is make the copy a backup. It is ciphertext; the master key belongs somewhere
 else, and the rest of the list above has to exist too.
+
+#### In a scheduled job
+
+The example above names a dated destination, which is the right shape for a copy taken by hand
+before an upgrade. An unattended job usually wants the opposite — one current file whose name does
+not move, so that the file-backup tool behind it deduplicates instead of accumulating — and that
+choice is forced by a documented refusal rather than by taste: **`ciphr backup` does not overwrite
+an existing file.**
+
+- **A fixed name** therefore needs the previous copy removed in the same script, immediately before
+  the new one is taken. `rm -f` and then `backup`, in that order — and not a `--force` on the
+  command, because the refusal is what protects a mistyped path.
+- **A dated name** removes nothing and owns its own retention. Schedule, retention and where the
+  copies go are deployment decisions and stay out of this document; which of the two shapes needs
+  an `rm` does not, because that is this command's behaviour and nothing else says it.
+
+Either way, **verify the copy inside the job**:
+
+```sh
+rm -f /var/backups/ciphr/store.db
+ciphr --database /var/lib/ciphr/store.db backup /var/backups/ciphr/store.db
+ciphr --database /var/backups/ciphr/store.db audit verify
+```
+
+The two checks answer different questions, which is why both are worth the seconds. `ciphr backup`
+proves the file is a readable database — `integrity_check` on the copy and its schema version
+against the source's. `audit verify` on the copy proves it is *this store's* trail, unbroken from
+its start, which is the claim a restore actually depends on. Neither needs the master key or the
+store lock, so both belong in an unattended job, and a job that fails loudly on either is a job
+that cannot report a torn copy as a success.
 
 ### Without the binary: a file-level copy
 
@@ -343,6 +407,7 @@ quietly falling back to a read-write connection, and the reasoning is at the fun
 | Policy file not restored | Every request is denied, and the service looks healthy | Restore `policies.toml`. Deny by default is working as intended; the identities are simply not there |
 | Configuration not restored | The service refuses to start, naming an unknown field or a surface entry without a date and reason | Keep the configuration beside the database backup ([upgrade.md](upgrade.md)) |
 | A *file-level* copy checked on a read-only mount | The open fails even for a read-only command | Copy it somewhere writable; WAL needs to create the `-shm` file. A `ciphr backup` copy is not write-ahead-logged and does not have this problem |
+| `ciphr backup` against a read-only source, service stopped | The open fails: `unable to open database file` | A clean stop removed the `-shm` SQLite has to create to read a write-ahead-logged database. Mount the source read-write and run as the service's uid — nothing is written while the service is up |
 | `ciphr backup` refuses: the destination exists | `database error: output file already exists` | Deliberate — it will not truncate a previous backup. Name the new file, or remove the old one knowingly |
 | `audit verify --anchor` reports `AnchorUnreachable` | The restored chain is shorter than the newest anchor | Expected after a restore: older than the evidence, not tampered with ([audit-trail.md](audit-trail.md)) |
 

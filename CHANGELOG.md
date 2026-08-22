@@ -47,6 +47,40 @@ of this command does not depend on who reads its output. Four tests pin the part
 the verdict spellings, that no `role` carries the table's indent, that the key never reaches the
 exclude list, and that the two forms refuse to be combined.
 
+### Documentation — the read-only backup recipe stops working exactly when the service does
+
+[`backup.md`](docs/operations/backup.md) said `ciphr backup` runs "with the service running or
+stopped", and on a container host the recipe that follows from that sentence is a throwaway container
+of the same image with the data directory mounted **read-only**. It works while the service runs and
+fails when it does not, which is the opposite of what the sentence suggests. The store is
+write-ahead-logged, SQLite can only open such a database if the `-shm` file is there or can be
+created, and a *clean* stop checkpoints the log away and removes both sidecars. `0.6.0` is the release
+that made `docker stop` reach the graceful shutdown, so that state became the ordinary one after a
+maintenance stop rather than a rarity — and `open_read_only` cannot create the file on a read-only
+mount, so the command fails in exactly the window where somebody is most likely taking a copy by
+hand: the service is down and there is time.
+
+The document now says so, and says what to do instead: **mount the source read-write and run as the
+service's uid.** While the service holds the database open, nothing is written at all. The `-shm`
+created against a stopped store belongs to whoever created it, and a root-owned one in the store
+directory leaves the service unable to open its own database on the next start, which is the half that
+must not be got wrong. The "what breaks, and how it will look" table has a row for the failure too.
+
+**And a section about the job rather than about the command.** The documented example is a dated
+destination, which is the right shape for a copy taken by hand before an upgrade. A scheduled job
+usually wants one fixed name so that the file-backup tool behind it deduplicates instead of
+accumulating — and that choice interacts with a documented refusal, because `ciphr backup` will not
+overwrite an existing file. So a fixed-name job needs an `rm` immediately before it and a dated-name
+job owns its retention, and neither was written anywhere. Schedule, retention and where the copies go
+stay out of this document; which of the two shapes needs an `rm` does not, because that is this
+command's own behaviour and nothing else said it. The section also recommends running `ciphr audit
+verify` on the copy inside the job: `backup`'s own checks prove the file is a readable database, and
+`verify` proves it is *this store's* trail — two different claims, both cheap, neither needing the
+master key or the store lock.
+
+No code changed. Both halves were measured by the deployment that reported them
+([`docs/field-report-2026-08-22.md`](docs/field-report-2026-08-22.md), findings 2 and 4).
+
 ## [0.6.1] — 2026-08-22
 
 **The release that finishes `0.6.0`.** Same code, same schema, no configuration change — the one
