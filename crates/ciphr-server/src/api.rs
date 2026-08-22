@@ -993,11 +993,26 @@ async fn read_honeypots(
         &request,
     )?;
 
-    let (bait, trips) = state.with_store(|store| {
-        let bait = store.honeypots().map_err(ApiError::from)?;
-        let trips = store.open_trips().map_err(ApiError::from)?;
-        Ok((bait, trips))
-    })?;
+    // F4's shape once more, on the route whose subject is the bait inventory. Finding F8:
+    // these two queries ran after an entry that already said "allowed read, 200" on
+    // `sys/honeypots`, and nothing corrected it when either failed — so the trail could
+    // claim the inventory was returned while the client got an error. No privilege
+    // escalation, and still worth the fix: the entry that would be read while
+    // reconstructing an incident is the one this route writes.
+    let (bait, trips) = state.complete_or_record(
+        &caller,
+        Action::Read,
+        &virtual_path,
+        &request,
+        "not-served",
+        || {
+            state.with_store(|store| {
+                let bait = store.honeypots().map_err(ApiError::from)?;
+                let trips = store.open_trips().map_err(ApiError::from)?;
+                Ok((bait, trips))
+            })
+        },
+    )?;
 
     let kind_of = |kind: ciphr_store::BaitKind| match kind {
         ciphr_store::BaitKind::Secret => "secret",

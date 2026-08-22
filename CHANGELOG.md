@@ -102,6 +102,54 @@ release instead of a version that means two different things
 ([`docs/field-report-2026-08-22.md`](docs/field-report-2026-08-22.md), finding 5). Building the file on
 every push stays undone, with the reasoning `0.6.1` already recorded.
 
+### Fixed — a honeypot token was recorded and paged nobody
+
+Findings F1, F5 and F8 of [`docs/review-2026-08-21-current-tree.md`](docs/review-2026-08-21-current-tree.md),
+filed as [issue #7](https://github.com/nuetzliches/ciphr/issues/7). All three are in the
+`honeypot_alert` entry, which is off in a default build — so a deployment that plants no bait was
+never affected, and one that plants bait was affected in the way that is hardest to notice.
+
+**F1 (high). Token bait wrote its entry and latched nothing.** `record_rejection` recognized the
+credential, wrote the `honeypot-triggered` entry, and returned. So `/v1/health` went on answering
+`tripped: false` with `open_tripwires: 0`, and `/v1/honeypots` went on calling that token untripped.
+[`honeypots.md`](docs/operations/honeypots.md) names three things that must be true or the bait is
+decoration, and the third is that something polls health and pages a human — a deployment that did all
+three correctly still missed the event. The runbook's own sentence turned out to be about the
+implementation rather than about a misconfiguration: *bait that cannot fire looks exactly like bait
+nobody took.* It now latches, off the request path, exactly as secret bait has since `0.5.0`.
+
+One detail that came out of writing the test, and that is a decision rather than a translation: **the
+trip records no identity.** That column means who took the bait, and presenting a honeypot token
+authenticates nobody — which is what the route's own response documented while the code had no path to
+write it. *Which* bait it was is the token id, and `/v1/honeypots` maps that to the identity the bait
+was issued for. Writing that identity onto the trip would have made it read as "deploy took it", which
+is the one thing that did not happen.
+
+**F5 (medium). One task per touch became one task per piece of bait.** Every touch of bait scheduled a
+`spawn_blocking` latch write, including touches of bait whose trip was already open, and those tasks
+serialize on the store mutex — so anyone who could reach known bait could queue work against
+authentication, reads and health checks. The database's partial index refused the duplicate *rows* and
+bounded nothing else. A claim set now decides whether a write is worth scheduling: the first touch of a
+reference schedules, every later one is a set lookup. And this is why F5 belongs in the same release as
+F1: once token bait latches, that queue is reachable **without authenticating at all**.
+
+What the bound is, stated rather than implied: work in flight is limited by the number of distinct
+pieces of bait, which is a number an operator chose when planting them. It is not limited by how often
+anybody touches them, and that was the half reachable from outside. A failed write releases its claim,
+so a transient database failure costs one latch rather than every later one on the same bait.
+
+**F8 (medium). `GET /v1/honeypots` could claim it served an inventory it did not.** Two fallible store
+queries ran *after* the entry that says "allowed read, 200" on `sys/honeypots`, and nothing corrected
+it when either failed. Both now run through `complete_or_record`, which is the shape finding F4 put on
+`delete`, `export` and the version listing in `0.5.1`. No privilege escalation, and worth fixing for
+where the entry gets read: reconstructing the incident this route exists for.
+
+**Tests.** Two through the router — the latch after a presented bait token, in the trail, on
+`/v1/health` and on `/v1/honeypots`; and three presentations latching once while the trail records all
+three. Three unit tests for the claim set, which is the part the router cannot see: with or without
+deduplication the end state is identical, because the index already refused the second row, so the only
+place to assert that the work is not queued is where the decision is made.
+
 ## [0.6.1] — 2026-08-22
 
 **The release that finishes `0.6.0`.** Same code, same schema, no configuration change — the one

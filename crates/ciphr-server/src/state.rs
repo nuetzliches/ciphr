@@ -34,6 +34,8 @@
 //! writes — moving the work to another thread would add a hop without removing the
 //! contention. The locks are never held across an `await`.
 
+#[cfg(feature = "honeypot_alert")]
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use ciphr_audit::{Action, AuditError, AuditSink, Entry, Principal, RequestContext};
@@ -64,6 +66,62 @@ struct Inner {
     /// entry, and interior mutability here is what such a route would need.
     surface: crate::surface::Active,
     devices: Mutex<Vec<DeviceHealth>>,
+    /// Which bait already has a latch pending or open, so that one piece of bait
+    /// schedules one write and not one per touch (finding F5). Present only with the
+    /// entry: without it nothing plants bait, and a set nothing ever inserts into is
+    /// a field a later reader has to rule out.
+    #[cfg(feature = "honeypot_alert")]
+    latching: LatchClaims,
+}
+
+/// Which pieces of bait already have a latch pending or open.
+///
+/// A cache in front of an authoritative constraint, never the constraint itself: the
+/// partial unique index on `tripwire` is what makes a second open trip impossible, and
+/// this only decides whether it is worth asking. That order matters for every judgement
+/// below — being wrong here costs duplicate work, and cannot produce a duplicate row.
+///
+/// Keyed by the pair the database is keyed by, the stored kind label and the reference, so
+/// this set cannot disagree with the table about what one piece of bait is. It holds only
+/// references that were planted, which is why it is bounded by the bait rather than by the
+/// traffic.
+#[cfg(feature = "honeypot_alert")]
+#[derive(Default)]
+struct LatchClaims {
+    held: Mutex<HashSet<(&'static str, String)>>,
+}
+
+#[cfg(feature = "honeypot_alert")]
+impl LatchClaims {
+    /// Take the claim for one piece of bait, or report that something else holds it.
+    ///
+    /// `true` means this caller is the one that should schedule the latch write. `false`
+    /// means a write is already pending or has already opened the trip, so there is
+    /// nothing left to write and nothing worth queueing.
+    ///
+    /// A poisoned lock is answered by granting the claim rather than by refusing it: a
+    /// task panicked while holding the set, and the safe direction is the one that still
+    /// writes the trip. The duplicate work is what this type exists to avoid, not what it
+    /// exists to prevent.
+    fn claim(&self, kind: ciphr_store::BaitKind, reference: &str) -> bool {
+        let mut held = match self.held.lock() {
+            Ok(held) => held,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        held.insert((kind.as_str(), reference.to_owned()))
+    }
+
+    /// Give a claim back, for a latch that was scheduled and could not be written.
+    ///
+    /// Only that case. Releasing after a *successful* write would let the next touch
+    /// queue a task for a trip that is already open, which is the whole of F5.
+    fn release(&self, kind: ciphr_store::BaitKind, reference: &str) {
+        let mut held = match self.held.lock() {
+            Ok(held) => held,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        held.remove(&(kind.as_str(), reference.to_owned()));
+    }
 }
 
 /// Whether one audit device accepted the most recent record.
@@ -171,6 +229,8 @@ impl AppState {
                 key_source,
                 surface,
                 devices: Mutex::new(devices),
+                #[cfg(feature = "honeypot_alert")]
+                latching: LatchClaims::default(),
             }),
         }
     }
@@ -459,6 +519,21 @@ impl AppState {
     /// principle meet the store mutex held by this task. That is one lock acquisition
     /// against a millisecond-scale insert, and it is the honest limit of this approach.
     ///
+    /// **One task per piece of bait, and not one per touch.** Finding F5 of
+    /// `docs/review-2026-08-21-current-tree.md`: every touch used to schedule a task,
+    /// including touches of bait whose trip is already open, and those tasks serialize on
+    /// the store mutex — so anyone who could reach known bait could queue work against
+    /// authentication, reads and health checks. The database's partial index stopped the
+    /// duplicate *rows* and bounded nothing else. [`LatchClaims`] is what bounds it now:
+    /// the first touch of a reference schedules, every later one returns here after a set
+    /// lookup.
+    ///
+    /// What that bound is worth saying plainly, because it is not a queue length: work in
+    /// flight is limited by the number of distinct pieces of bait, which is a number an
+    /// operator chose when planting them. It is not limited by how often anybody touches
+    /// them — and that is the half which is reachable from outside, without authenticating
+    /// at all once token bait latches.
+    ///
     /// Failures are swallowed here and visible in the trail instead. This is outside the
     /// fail-closed contract by the dated decision in ADR-15: the authoritative record is
     /// the entry that was already stored above, and refusing the request because a
@@ -472,6 +547,10 @@ impl AppState {
         identity: Option<String>,
         tier: ciphr_store::HoneypotTier,
     ) {
+        if !self.inner.latching.claim(kind, &reference) {
+            return;
+        }
+
         let state = self.clone();
         let work = move || {
             let latched = state.with_store(|store| {
@@ -485,8 +564,12 @@ impl AppState {
             //
             // A failure does get one: the trail says the latch is missing rather than
             // the state going quietly wrong, which is the same shape as the entry a
-            // refusing audit device produces.
+            // refusing audit device produces. The claim goes back with it, so a transient
+            // database failure costs this latch and not every later one on the same bait:
+            // a claim kept after a failed write would suppress exactly the retry the
+            // bait still needs.
             if latched.is_err() {
+                state.inner.latching.release(kind, &reference);
                 let entry = Entry::denied(Action::HoneypotTriggered, "latch-failed")
                     .with_detail("the trip was recorded and the latch was not");
                 let _ = state.record(&entry);
@@ -756,7 +839,37 @@ impl AppState {
                     http_status: Some(401),
                     ..request.clone()
                 });
-            return self.record(&entry);
+            // The entry first and the derived state after it, the same order the secret
+            // path uses and for the same reason: a latch nobody can read about would
+            // leave `/v1/health` claiming something the trail cannot confirm.
+            self.record(&entry)?;
+
+            // Finding F1 of `docs/review-2026-08-21-current-tree.md`: this used to return
+            // above, so a honeypot *token* wrote its entry and latched nothing.
+            // `/v1/health` kept answering `tripped: false` with `open_tripwires: 0`, and
+            // `/v1/honeypots` kept calling the credential untripped — so a deployment that
+            // did all three things `honeypots.md` asks for still missed the event, and the
+            // runbook's own sentence applied to the implementation rather than to a
+            // misconfiguration: bait that cannot fire looks exactly like bait nobody took.
+            //
+            // The token id is the reference, because that is the column `tripwire` keys a
+            // token trip on. **The identity is `None`, and that is not an omission:** the
+            // column means who took the bait, and presenting a honeypot token authenticates
+            // nobody -- which is what `TripResponse::identity` documents. Which bait it was
+            // is the token id, and `/v1/honeypots` maps that to the identity it was issued
+            // for. Writing that identity here instead would make the trip read as "deploy
+            // took it", which is the one thing that did not happen.
+            //
+            // `Alert` by construction rather than by storage: a token row has no tier
+            // column, because bait that authenticates nothing can never reach a tier that
+            // acts on an identity (ADR-15, property 4).
+            self.latch_off_the_request_path(
+                ciphr_store::BaitKind::Token,
+                bait.token_id.clone(),
+                None,
+                ciphr_store::HoneypotTier::Alert,
+            );
+            return Ok(());
         }
 
         // Named `_bait` in a build without the entry so the signature stays one shape:
@@ -771,5 +884,57 @@ pub(crate) fn now_millis() -> i64 {
     match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
         Ok(elapsed) => i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX),
         Err(before) => -i64::try_from(before.duration().as_millis()).unwrap_or(i64::MAX),
+    }
+}
+
+/// The claim set, on its own.
+///
+/// It is a private type with three lines of logic, and it is tested here rather than
+/// through the router for a reason worth stating: from the outside, deduplicating the
+/// latch write is *invisible*. The end state is identical either way, because the
+/// database's partial index already refused the second row — what changed is the work
+/// that is no longer queued, and the only place to assert that is here.
+#[cfg(all(test, feature = "honeypot_alert"))]
+mod tests {
+    use super::LatchClaims;
+    use ciphr_store::BaitKind;
+
+    #[test]
+    fn one_claim_per_reference() {
+        let claims = LatchClaims::default();
+
+        assert!(
+            claims.claim(BaitKind::Secret, "infra/db/PASSWORD"),
+            "the first touch schedules the latch"
+        );
+        assert!(
+            !claims.claim(BaitKind::Secret, "infra/db/PASSWORD"),
+            "the second touch must not queue a second write -- this is finding F5"
+        );
+    }
+
+    #[test]
+    fn a_failed_write_can_be_retried() {
+        let claims = LatchClaims::default();
+
+        assert!(claims.claim(BaitKind::Token, "cph_id"));
+        // What the task does when `latch_trip` fails: a claim kept here would suppress
+        // every later attempt on bait whose trip was never actually opened.
+        claims.release(BaitKind::Token, "cph_id");
+        assert!(
+            claims.claim(BaitKind::Token, "cph_id"),
+            "a released claim can be taken again"
+        );
+    }
+
+    #[test]
+    fn the_two_kinds_do_not_share_a_reference() {
+        let claims = LatchClaims::default();
+
+        // `tripwire` keys a secret trip on `path` and a token trip on `token_id`, so the
+        // same text in the two columns is two different pieces of bait. Keying this set
+        // by the reference alone would silently drop one of them.
+        assert!(claims.claim(BaitKind::Secret, "same-text"));
+        assert!(claims.claim(BaitKind::Token, "same-text"));
     }
 }

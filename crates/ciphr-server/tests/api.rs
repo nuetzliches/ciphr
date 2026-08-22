@@ -925,6 +925,102 @@ fn taking_the_bait_is_recorded_as_a_trip() {
     );
 }
 
+/// Presenting bait opens the latch, so the thing that pages a human can see it.
+///
+/// The test above stops at the trail, and so did the implementation: finding F1 of
+/// `docs/review-2026-08-21-current-tree.md` is that the entry was written and nothing
+/// latched. `/v1/health` kept answering `tripped: false`, `/v1/honeypots` kept calling the
+/// credential untripped, and a deployment that polled health — the third of the three
+/// things `honeypots.md` requires — missed the event while doing everything right.
+///
+/// Not racy, for the reason `the_second_read_of_the_same_bait_does_not_latch_again` gives
+/// in full: `Harness::send` builds a runtime per call and dropping a tokio runtime waits
+/// for its blocking tasks, so each request drains its own latch write.
+#[cfg(feature = "honeypot_alert")]
+#[test]
+fn presenting_a_honeypot_token_opens_the_latch() {
+    let harness = Harness::new();
+
+    let (_, before) = harness.get("/v1/health", None);
+    assert_eq!(before["tripped"], false);
+    assert_eq!(before["open_tripwires"], 0);
+
+    let (status, _) = harness.get(
+        "/v1/secrets/infra/service-a/DB_PASSWORD",
+        Some(&harness.bait_token.clone()),
+    );
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "what the caller is told does not change"
+    );
+
+    let (_, after) = harness.get("/v1/health", None);
+    assert_eq!(after["tripped"], true);
+    assert_eq!(after["open_tripwires"], 1);
+    // That something fired, never what. A token id here would let whoever presented the
+    // credential confirm that the one they hold is the bait.
+    let rendered = after.to_string();
+    assert!(
+        !rendered.contains("deploy"),
+        "health must not name an identity"
+    );
+
+    // Which bait is the administrative read's job.
+    let (status, body) = harness.get("/v1/honeypots", Some(&harness.auditor_token.clone()));
+    assert_eq!(status, StatusCode::OK);
+    let token = body["honeypots"]
+        .as_array()
+        .expect("an array")
+        .iter()
+        .find(|entry| entry["kind"] == "token")
+        .expect("the planted token");
+    assert_eq!(token["tripped"], true, "the bait that was taken says so");
+
+    let trips = body["open_trips"].as_array().expect("an array");
+    assert_eq!(trips.len(), 1);
+    assert_eq!(trips[0]["kind"], "token");
+    assert!(trips[0]["token_id"].is_string(), "which credential it was");
+    assert!(trips[0]["path"].is_null(), "a token trip names no path");
+    // Nobody authenticated, so the trip names nobody. The identity the bait was issued
+    // for is on the honeypot row above, where it means what it says.
+    assert!(
+        trips[0]["identity"].is_null(),
+        "presenting bait authenticates nothing, so no identity took it"
+    );
+    assert_eq!(trips[0]["tier"], "alert");
+}
+
+/// Three presentations, one latch, three entries.
+///
+/// The latch bounds the paging and not the record — for tokens exactly as for secrets. It
+/// also bounds the *work* after finding F5, and that half is not visible from here: with
+/// or without the deduplication this test passes, because the database's partial index
+/// already refused the second row. `state.rs` has the unit tests for the part this one
+/// cannot see, and this comment is here so nobody deletes them as redundant.
+#[cfg(feature = "honeypot_alert")]
+#[test]
+fn a_token_presented_three_times_latches_once() {
+    let harness = Harness::new();
+
+    for _ in 0..3 {
+        harness.get(
+            "/v1/secrets/infra/service-a/DB_PASSWORD",
+            Some(&harness.bait_token.clone()),
+        );
+    }
+
+    let (_, health) = harness.get("/v1/health", None);
+    assert_eq!(health["open_tripwires"], 1, "one latch, three attempts");
+
+    let trips = harness
+        .audit_entries()
+        .iter()
+        .filter(|entry| entry["entry"]["action"] == "honeypot-triggered")
+        .count();
+    assert_eq!(trips, 3, "the trail records each attempt");
+}
+
 /// Without the entry, bait is recorded as any other rejected credential is.
 ///
 /// This is what "a deployment that plants none runs the code the review read" means in
