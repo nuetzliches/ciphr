@@ -199,3 +199,162 @@ fn the_key_is_named_by_location_and_never_by_value() {
         "the key's value must never reach the output"
     );
 }
+
+/// The two machine-readable forms exist because a job cannot read the table, and the
+/// point of a test here is the *contract*: a consumer branches on `verdict`, so the
+/// spellings are what must not move. The sentences in `note` may be reworded, and
+/// nothing below asserts one.
+#[test]
+fn the_json_form_carries_the_verdict_as_a_value() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let path = directory.path();
+
+    write_config(path, "[seal]\ntype = \"static_env\"", "store.db");
+    create_required(path, "store.db");
+
+    let listed = ciphr(&["state", "--json", "ciphr.toml"], path);
+    assert!(listed.status.success(), "state --json: {}", stderr(&listed));
+
+    let document: serde_json::Value =
+        serde_json::from_str(&stdout(&listed)).expect("the output is one JSON document");
+    assert_eq!(
+        document["format"], "ciphr.state.v1",
+        "the document names its own format, so a consumer can refuse an unknown one"
+    );
+
+    let verdict = |role: &str| -> String {
+        document["pieces"]
+            .as_array()
+            .expect("pieces is an array")
+            .iter()
+            .find(|piece| piece["role"] == role)
+            .unwrap_or_else(|| panic!("a row for {role}, got:\n{document:#}"))["verdict"]
+            .as_str()
+            .expect("a verdict string")
+            .to_owned()
+    };
+
+    // The three the field report asked for by name, and the two that separate this from
+    // a list of paths: the key is `separately` rather than `never`, and TLS is neither.
+    assert_eq!(verdict("store"), "include");
+    assert_eq!(verdict("write-ahead log"), "include-with-store");
+    assert_eq!(verdict("store lock"), "never");
+    assert_eq!(verdict("master key"), "separately");
+    assert_eq!(verdict("tls key"), "reissue");
+
+    // The role is the role, without the table's indent. A consumer keying on it must not
+    // have to strip layout.
+    assert!(
+        document["pieces"]
+            .as_array()
+            .expect("pieces is an array")
+            .iter()
+            .all(|piece| !piece["role"].as_str().expect("a role").starts_with(' ')),
+        "no role carries the table's indent, got:\n{document:#}"
+    );
+
+    // The two rows no configuration names are in the document rather than only in the
+    // note beside the table, because the job that builds a file list is what needs them.
+    let not_derivable = document["not_derivable"]
+        .as_array()
+        .expect("not_derivable is an array");
+    assert!(
+        not_derivable
+            .iter()
+            .any(|row| row["role"] == "anchor file" && row["verdict"] == "include"),
+        "the anchor file is named as something to include, got:\n{document:#}"
+    );
+}
+
+#[test]
+fn the_exclude_form_names_the_lock_and_never_the_key() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let path = directory.path();
+
+    write_config(
+        path,
+        "[seal]\ntype = \"static_file\"\npath = \"master.key\"",
+        "store.db",
+    );
+    create_required(path, "store.db");
+    std::fs::write(path.join("master.key"), b"placeholder").expect("write a key file");
+
+    let listed = ciphr(&["state", "--exclude", "ciphr.toml"], path);
+    assert!(
+        listed.status.success(),
+        "state --exclude: {}",
+        stderr(&listed)
+    );
+
+    let printed = stdout(&listed);
+    let lines: Vec<&str> = printed.lines().map(str::trim_end).collect();
+    assert!(
+        lines.contains(&"store.db.lock"),
+        "the lock is the file this form exists for, got:\n{lines:?}"
+    );
+    // Printed although it does not exist here: the lock appears when the service comes
+    // up, which is after whoever wrote the exclude list read this output.
+    assert!(
+        lines.contains(&"store.db-shm"),
+        "the shared-memory index is the other one a `store.db*` glob picks up, got:\n{lines:?}"
+    );
+
+    // The whole point of the distinction between `never` and `separately`. A job handed
+    // the key here would exclude it from every backup it takes, which is how a key is
+    // lost rather than how it is kept out of this archive.
+    assert!(
+        !lines.contains(&"master.key"),
+        "the master key must not be in an exclude list, got:\n{lines:?}"
+    );
+    assert!(
+        !lines.contains(&"store.db") && !lines.contains(&"store.db-wal"),
+        "nothing that belongs in the backup may appear here, got:\n{lines:?}"
+    );
+}
+
+#[test]
+fn the_machine_readable_forms_keep_the_exit_code() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let path = directory.path();
+
+    write_config(path, "[seal]\ntype = \"static_env\"", "store.db");
+    create_required(path, "store.db");
+    std::fs::remove_file(path.join("policies.toml")).expect("remove the policy file");
+
+    // The pre-flight half of this command does not depend on who reads it: a job that
+    // runs `--json` before an upgrade has to fail for the same reason a person does.
+    let listed = ciphr(&["state", "--json", "ciphr.toml"], path);
+    assert!(
+        !listed.status.success(),
+        "a missing required file fails in JSON too"
+    );
+
+    // And the document is still a document, so the consumer can say *which* file.
+    let document: serde_json::Value =
+        serde_json::from_str(&stdout(&listed)).expect("valid JSON even on the failure path");
+    assert!(
+        document["pieces"]
+            .as_array()
+            .expect("pieces is an array")
+            .iter()
+            .any(|piece| piece["role"] == "policies" && piece["state"] == "missing"),
+        "the row says which one, got:\n{document:#}"
+    );
+}
+
+#[test]
+fn the_two_forms_are_not_combinable() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let path = directory.path();
+
+    write_config(path, "[seal]\ntype = \"static_env\"", "store.db");
+    create_required(path, "store.db");
+
+    // One output or the other. A JSON document with paths appended after it would be
+    // neither, and a consumer that got one would fail on a day nobody chose.
+    let listed = ciphr(&["state", "--json", "--exclude", "ciphr.toml"], path);
+    assert!(
+        !listed.status.success(),
+        "the two forms conflict rather than both printing"
+    );
+}

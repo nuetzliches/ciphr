@@ -1,7 +1,8 @@
 # The `ciphr` command
 
-**Status:** implemented and tested as of 2026-08-22. Every command below works, `backup` included —
-it is implemented and tested but not yet in a release. Deployment
+**Status:** implemented and tested as of 2026-08-22. Every command below works, and every one of
+them is in a release except the two machine-readable forms of `state` — `--json` and `--exclude` are
+implemented and tested but not yet released. Deployment
 — containers, reverse proxy, certificates — is documented in `docs/operations/` and in the
 deployment's own repository, not here.
 
@@ -359,6 +360,40 @@ deployment.
 And two things it cannot list, because no configuration names them: the anchor file, which is an
 argument to `audit anchor --out`, and the archive's rotated siblings. It says so in its own output
 rather than leaving a reader to find out.
+
+### For the job rather than for the reader: `--json` and `--exclude`
+
+The consumer of *what do I have to keep* is usually the thing that keeps it, and aligned columns with
+a free-text verdict per row are not something a job can read. A parser written against prose breaks on
+the next rewording, and a job that gives up and names its paths itself is the hand-maintained list
+this command exists to replace, one layer further out.
+
+```sh
+ciphr state --json    /etc/ciphr/ciphr.toml   # every row, with the verdict as a value
+ciphr state --exclude /etc/ciphr/ciphr.toml   # only the paths that must never be copied
+```
+
+`--json` prints one self-describing document: `format`, the configuration it read, and one object per
+piece carrying `role`, `path`, `state` (`present`, `absent`, `missing`, `not-a-file`), `required` and
+**`verdict`** — one of `include`, `include-with-store`, `never`, `separately`, `reissue`, `unknown`.
+Branch on `verdict`. `note` is the table's sentence carried along for whoever reads the job's log, and
+it is the one field here that may be reworded. The two rows no configuration names are in the document
+as well, under `not_derivable`, because a job building a file list is precisely what needs to be told
+about them.
+
+`--exclude` prints paths, one per line, and nothing else — the form a backup tool's exclude list can be
+handed rather than taught. It is the `never` rows: the store lock, whose restored copy names a process
+that does not exist and is therefore treated as held, and the `-shm`, which a `store.db*` glob picks up
+and SQLite rebuilds anyway. Absent files are printed too, deliberately: the lock appears when the
+service comes up, which is after somebody read this output. **The master key is not in it**, and that
+is the distinction the verdict draws — it is `separately`, not `never`, and a job that fed it to an
+exclude list would be excluding the key from every backup it takes, which is how a key is lost rather
+than how it is kept out of this archive.
+
+Both forms exit non-zero on a missing required file, exactly as the table does: the pre-flight half of
+this command does not depend on who is reading its output. Both were asked for by the deployment in
+[field-report-2026-08-22.md](../field-report-2026-08-22.md), which had to write the backup job before
+it could say what the command was missing.
 
 ## Backing up
 

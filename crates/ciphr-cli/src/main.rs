@@ -197,10 +197,23 @@ enum Command {
     /// What it cannot know is stated in its own output rather than left to be discovered:
     /// the anchor file and the audit archive's rotated siblings are named by whoever runs
     /// `audit anchor` and `audit cut`, not by this file, so no configuration mentions them.
+    ///
+    /// Two machine-readable forms for the job that keeps these files: `--json`
+    /// carries the same rows with the verdict as a value rather than as a sentence,
+    /// and `--exclude` prints only the paths that must never be copied, one per line.
+    /// Both exit non-zero on a missing required file, exactly as the table does.
     State {
         /// Path to the server's configuration file. The deployment's own answer about
         /// where everything is, rather than this command's guess.
         config: String,
+        /// Print the inventory as one JSON document instead of a table: the same
+        /// rows, with the verdict as a value a job can branch on.
+        #[arg(long, conflicts_with = "exclude")]
+        json: bool,
+        /// Print only the paths a backup must never copy, one per line, for a
+        /// file-level backup tool to be handed rather than told.
+        #[arg(long)]
+        exclude: bool,
     },
 
     /// Copy the store to one consistent file, with the service running or stopped.
@@ -769,9 +782,92 @@ fn run(cli: Cli) -> Result<(), CliError> {
             new_key_env,
             new_key_file,
         } => rotate_master_key(&cli, new_key_env.as_deref(), new_key_file.as_deref()),
-        Command::State { config } => state(&config),
+        Command::State {
+            config,
+            json,
+            exclude,
+        } => state(&config, json, exclude),
         Command::Backup { destination } => backup(&cli, &destination),
         Command::Dump { format, force } => dump(&cli, &format, force),
+    }
+}
+
+/// What a backup should do about one piece, as a value rather than as a sentence.
+///
+/// [`Piece::keep`] says the same thing in prose, and both exist because the two readers
+/// are different. A sentence can gain a clause and stay readable; a job that parsed that
+/// sentence breaks on the clause. So the prose stays free to be prose, and this is the
+/// part that is promised to stay put.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Verdict {
+    /// Into the backup, on its own.
+    Include,
+    /// Into the backup, and only together with the store it belongs to. A `-wal` carried
+    /// without its store is not a partial backup, it is a file that means nothing.
+    IncludeWithStore,
+    /// Never into the backup. Either restoring it does damage -- the store lock names a
+    /// process that will not exist -- or it is state about a running database rather than
+    /// about its content.
+    Never,
+    /// Into a backup, and not into this one. The master key beside the store makes that
+    /// archive a decryptable secret store; see `docs/operations/master-key.md`.
+    Separately,
+    /// Not data: reissue it rather than restore it (ADR-8, ADR-17).
+    Reissue,
+    /// This command cannot say, because it does not understand the configuration that
+    /// produced the row. A job is told that rather than shown a guess.
+    Unknown,
+}
+
+impl Verdict {
+    /// The spelling a job reads. Stable, and kebab-case like every other value this CLI
+    /// prints for a machine.
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Include => "include",
+            Self::IncludeWithStore => "include-with-store",
+            Self::Never => "never",
+            Self::Separately => "separately",
+            Self::Reissue => "reissue",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+/// Whether a piece is where the configuration says it is.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Presence {
+    /// It is there.
+    Present,
+    /// Not there, and allowed to be: an archive the file device has not created yet.
+    Absent,
+    /// Not there, and the deployment requires it. This is what makes the exit code
+    /// non-zero, which is the half of this command that runs before an upgrade.
+    Missing,
+    /// Not a path at all -- the master key as a variable. Reporting that as an absent
+    /// file would be a false alarm about the highest-value piece in the list.
+    NotAFile,
+}
+
+impl Presence {
+    /// The spelling a job reads.
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Present => "present",
+            Self::Absent => "absent",
+            Self::Missing => "missing",
+            Self::NotAFile => "not-a-file",
+        }
+    }
+
+    /// The first column of the table: one width, and shouting where it matters.
+    fn column(self) -> &'static str {
+        match self {
+            Self::Present => "present",
+            Self::Absent => "absent ",
+            Self::Missing => "MISSING",
+            Self::NotAFile => "-      ",
+        }
     }
 }
 
@@ -779,10 +875,17 @@ fn run(cli: Cli) -> Result<(), CliError> {
 struct Piece {
     role: &'static str,
     path: String,
-    /// What a backup should do about it. Not whether it exists -- that is looked up.
+    /// What a backup should do about it, as a sentence, for a person. Not whether it
+    /// exists -- that is looked up.
     keep: &'static str,
+    /// The same decision as a value, for a job. See [`Verdict`].
+    verdict: Verdict,
     /// Whether the deployment cannot run without it. Decides the exit code.
     required: bool,
+    /// Whether this file lives beside the store rather than on its own. Only the table
+    /// uses it, as an indent that carries the relationship; the machine-readable forms
+    /// carry no layout at all, which is most of the reason they exist.
+    beside_the_store: bool,
 }
 
 /// The audit devices' own files.
@@ -817,13 +920,17 @@ fn audit_pieces(document: &toml::Value) -> Vec<Piece> {
                     .unwrap_or("(no path configured)")
                     .to_owned(),
                 keep: "back up: the trail before the last cut is only here",
+                verdict: Verdict::Include,
                 required: false,
+                beside_the_store: false,
             }),
             _ => pieces.push(Piece {
                 role: "audit device",
                 path: format!("(device {} is not a kind this CLI knows)", index + 1),
                 keep: "check the configuration",
+                verdict: Verdict::Unknown,
                 required: false,
+                beside_the_store: false,
             }),
         }
     }
@@ -849,36 +956,57 @@ fn inventory(config: &str, document: &toml::Value) -> Vec<Piece> {
         role: "configuration",
         path: config.to_owned(),
         keep: "back up: the [[surface]] stanzas exist nowhere else",
+        verdict: Verdict::Include,
         required: true,
+        beside_the_store: false,
     }];
 
-    // The store, and the two files that live beside it. Defaults match `config.rs`, so a
-    // configuration that leaves a key out gets the same answer the server would use.
+    // The store, and the three files that live beside it. Defaults match `config.rs`, so
+    // a configuration that leaves a key out gets the same answer the server would use.
     let store = at(&["storage", "path"]).unwrap_or_else(|| "/var/lib/ciphr/store.db".to_owned());
     pieces.push(Piece {
         role: "store",
         path: store.clone(),
         keep: "back up: everything the service holds",
+        verdict: Verdict::Include,
         required: true,
+        beside_the_store: false,
     });
     pieces.push(Piece {
-        role: "  write-ahead log",
+        role: "write-ahead log",
         path: format!("{store}-wal"),
         keep: "back up with the store, or use `ciphr backup`",
+        verdict: Verdict::IncludeWithStore,
         required: false,
+        beside_the_store: true,
+    });
+    // Listed although it is never wanted, because a file-level job that globs `store.db*`
+    // picks it up and the only place that said so was a paragraph. SQLite rebuilds it, so
+    // a copy is at best noise; `--exclude` is the form a backup tool can be handed.
+    pieces.push(Piece {
+        role: "shared-memory index",
+        path: format!("{store}-shm"),
+        keep: "never back up: SQLite recreates it, a stale one gains nothing",
+        verdict: Verdict::Never,
+        required: false,
+        beside_the_store: true,
     });
     pieces.push(Piece {
-        role: "  store lock",
+        role: "store lock",
         path: format!("{store}.lock"),
         keep: "never back up: it names a process, not the store",
+        verdict: Verdict::Never,
         required: false,
+        beside_the_store: true,
     });
 
     pieces.push(Piece {
         role: "policies",
         path: at(&["policies"]).unwrap_or_else(|| "/etc/ciphr/policies.toml".to_owned()),
         keep: "back up: the identities exist in no table",
+        verdict: Verdict::Include,
         required: true,
+        beside_the_store: false,
     });
 
     // The seal names either a file or a variable. Only one of them is a path, and the
@@ -889,7 +1017,9 @@ fn inventory(config: &str, document: &toml::Value) -> Vec<Piece> {
             role: "master key",
             path: at(&["seal", "path"]).unwrap_or_else(|| "(no path configured)".to_owned()),
             keep: "NEVER in the same backup as the store",
+            verdict: Verdict::Separately,
             required: true,
+            beside_the_store: false,
         }),
         _ => pieces.push(Piece {
             role: "master key",
@@ -898,7 +1028,9 @@ fn inventory(config: &str, document: &toml::Value) -> Vec<Piece> {
                 at(&["seal", "env"]).unwrap_or_else(|| "CIPHR_MASTER_KEY".to_owned())
             ),
             keep: "NEVER in the same backup as the store",
+            verdict: Verdict::Separately,
             required: false,
+            beside_the_store: false,
         }),
     }
 
@@ -913,7 +1045,9 @@ fn inventory(config: &str, document: &toml::Value) -> Vec<Piece> {
                 role,
                 path,
                 keep: "reissue rather than restore",
+                verdict: Verdict::Reissue,
                 required: true,
+                beside_the_store: false,
             });
         }
     }
@@ -921,34 +1055,92 @@ fn inventory(config: &str, document: &toml::Value) -> Vec<Piece> {
     pieces
 }
 
+/// Whether one piece is there.
+///
+/// Kept out of [`inventory`] so that the inventory stays a function of the configuration
+/// document alone: what a deployment consists of does not depend on what happens to be on
+/// this host right now, and the two questions are answered in different places.
+fn presence(piece: &Piece) -> Presence {
+    // A variable is not a path and must not be reported as an absent file.
+    if piece.path.starts_with(&['$', '('][..]) {
+        Presence::NotAFile
+    } else if std::path::Path::new(&piece.path).exists() {
+        Presence::Present
+    } else if piece.required {
+        Presence::Missing
+    } else {
+        Presence::Absent
+    }
+}
+
 /// `ciphr state CONFIG` -- the file set this configuration implies.
 ///
 /// Derived from the configuration on purpose. A deployment that has moved its store,
 /// added a second audit device or switched the key from a variable to a file gets an
 /// answer about *its* files, and nobody has to remember to update a list.
-fn state(config: &str) -> Result<(), CliError> {
+///
+/// **Three forms of one inventory**, because this command has two readers and the first
+/// version served only one of them. The table is a report a person reads. `--json` is the
+/// same rows with the verdict as a value, for the job that actually keeps the files --
+/// a job that has to parse aligned prose to find them ends up maintaining the very list
+/// this command exists to replace, one layer further out. `--exclude` is the subset that
+/// must not be copied, one path per line, because that is the form a file-level backup
+/// tool can be handed rather than told. All three were asked for by a deployment that
+/// wired this into a nightly job (`docs/field-report-2026-08-22.md`).
+///
+/// All three exit non-zero when a file the configuration requires is absent. The
+/// pre-flight half of this command does not depend on who is reading its output.
+fn state(config: &str, json: bool, exclude: bool) -> Result<(), CliError> {
     let text = std::fs::read_to_string(config)?;
     let document = toml::from_str::<toml::Value>(&text).map_err(|error| CliError::Config {
         path: config.to_owned(),
         reason: error.to_string(),
     })?;
 
-    let mut missing = 0;
-    for piece in inventory(config, &document) {
-        // A variable is not a path and must not be reported as an absent file.
-        let present = if piece.path.starts_with(&['$', '('][..]) {
-            "-      "
-        } else if std::path::Path::new(&piece.path).exists() {
-            "present"
-        } else if piece.required {
-            missing += 1;
-            "MISSING"
+    let found: Vec<(Presence, Piece)> = inventory(config, &document)
+        .into_iter()
+        .map(|piece| (presence(&piece), piece))
+        .collect();
+
+    if json {
+        print_state_json(config, &found)?;
+    } else if exclude {
+        print_state_excludes(&found);
+    } else {
+        print_state_table(&found);
+    }
+
+    let missing = found
+        .iter()
+        .filter(|(presence, _)| *presence == Presence::Missing)
+        .count();
+    if missing > 0 {
+        return Err(CliError::Config {
+            path: config.to_owned(),
+            reason: format!("{missing} file(s) this configuration requires are not there"),
+        });
+    }
+    Ok(())
+}
+
+/// The inventory as a table, and the two rows it cannot derive as a note beneath it.
+///
+/// The note goes to standard error rather than to standard output, so that a reader who
+/// pipes this somewhere still gets it and does not have to strip it.
+fn print_state_table(found: &[(Presence, Piece)]) {
+    for (presence, piece) in found {
+        // The indent carries the relationship, which is exactly the kind of meaning a
+        // parser should not have to recover from whitespace -- hence `--json`.
+        let role = if piece.beside_the_store {
+            format!("  {}", piece.role)
         } else {
-            "absent "
+            piece.role.to_owned()
         };
         println!(
-            "{present}  {:<18}  {:<44}  {}",
-            piece.role, piece.path, piece.keep
+            "{}  {role:<21}  {:<44}  {}",
+            presence.column(),
+            piece.path,
+            piece.keep
         );
     }
 
@@ -957,14 +1149,77 @@ fn state(config: &str) -> Result<(), CliError> {
     eprintln!("anchor file (`audit anchor --out`) and the audit archive's rotated siblings.");
     eprintln!("Both belong in the backup and both are chosen where they are written.");
     eprintln!("`docs/operations/backup.md` has the rest, including what a restore undoes.");
+    eprintln!();
+    eprintln!("For a backup job: `--json` carries these rows with the verdict as a value,");
+    eprintln!("and `--exclude` prints only the paths that must never be copied.");
+}
 
-    if missing > 0 {
-        return Err(CliError::Config {
-            path: config.to_owned(),
-            reason: format!("{missing} file(s) this configuration requires are not there"),
-        });
-    }
+/// The inventory as one JSON document, for the job that keeps the files.
+///
+/// Self-describing, like `dump --format portable` and for the same reason: a consumer
+/// that finds a `format` it does not know can say so instead of guessing at fields.
+/// `verdict` is the field to branch on -- `note` is the table's sentence, carried along
+/// for a human reading a log, and it is the one field here that may be reworded.
+///
+/// The two rows this command cannot derive are in the document rather than only in the
+/// note beside the table. They are the two a job most needs told about, and a paragraph
+/// on standard error tells it nothing.
+fn print_state_json(config: &str, found: &[(Presence, Piece)]) -> Result<(), CliError> {
+    let pieces: Vec<serde_json::Value> = found
+        .iter()
+        .map(|(presence, piece)| {
+            serde_json::json!({
+                "role": piece.role,
+                "path": piece.path,
+                "state": presence.as_str(),
+                "required": piece.required,
+                "verdict": piece.verdict.as_str(),
+                "note": piece.keep,
+            })
+        })
+        .collect();
+
+    let document = serde_json::json!({
+        "format": "ciphr.state.v1",
+        "configuration": config,
+        "pieces": pieces,
+        "not_derivable": [
+            {
+                "role": "anchor file",
+                "verdict": Verdict::Include.as_str(),
+                "named_by": "audit anchor --out",
+                "note": "no configuration names it, so this command cannot give its path",
+            },
+            {
+                "role": "audit archive rotations",
+                "verdict": Verdict::Include.as_str(),
+                "named_by": "audit cut --archive",
+                "note": "siblings of the archive above, named where they are written",
+            },
+        ],
+    });
+
+    println!("{}", serde_json::to_string_pretty(&document)?);
     Ok(())
+}
+
+/// The paths that must never be in the backup, one per line and nothing else.
+///
+/// Only [`Verdict::Never`]. **The master key is deliberately not here**, and that is the
+/// one decision in this function: it is `separately`, not `never`, and a job that fed it
+/// to an exclude list would be excluding the key from every backup it takes -- which is
+/// how a key is lost, not how it is kept apart from the store.
+///
+/// Absent files are printed too. The store lock does not exist while the service is down,
+/// and an exclude list covering only what happened to be there when the job was written
+/// would be wrong exactly when the service comes up.
+fn print_state_excludes(found: &[(Presence, Piece)]) {
+    for (_, piece) in found
+        .iter()
+        .filter(|(_, piece)| piece.verdict == Verdict::Never)
+    {
+        println!("{}", piece.path);
+    }
 }
 
 /// `ciphr backup DESTINATION`.

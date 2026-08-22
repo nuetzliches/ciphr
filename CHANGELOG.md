@@ -8,6 +8,45 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — `ciphr state` answers a job as well as a person
+
+`ciphr state` derives the file set from the configuration, which was the right idea pointed at one of
+its two readers. Its output is aligned columns with a two-level indent that carries meaning and a
+free-text verdict per row: a report a person reads. The natural consumer of *what do I have to keep*
+is the job that keeps it, and a parser written against aligned prose breaks on the next rewording. A
+deployment wired its nightly backup around this command, could not parse the report, and ended up
+naming its paths itself — the hand-maintained list this command exists to replace, one layer further
+out ([`docs/field-report-2026-08-22.md`](docs/field-report-2026-08-22.md)).
+
+**`--json` is the same inventory with the verdict as a value.** One self-describing document:
+`format`, the configuration it read, and an object per piece carrying `role`, `path`, `state`
+(`present`, `absent`, `missing`, `not-a-file`), `required` and `verdict` — one of `include`,
+`include-with-store`, `never`, `separately`, `reissue`, `unknown`. Branch on `verdict`; `note` carries
+the table's sentence for whoever reads the job's log and is the one field here that may be reworded.
+The two rows no configuration can name — the anchor file and the archive's rotated siblings — are in
+the document too, under `not_derivable`, because a job building a file list is exactly what needs to
+be told about them rather than shown a paragraph on standard error.
+
+**`--exclude` prints the paths that must never be copied**, one per line and nothing else, which is
+the form a backup tool's exclude list can be handed rather than taught. Until now the one file that
+must not be in a backup — `store.db.lock`, whose restored copy names a process that does not exist
+and is for that reason treated as **held** — was named in prose in two documents and in no pattern, so
+the exclusion was a line somebody wrote by hand after reading a page they reach only during an
+incident. The `-shm` is in that list as well, and appears in the table for the first time: a
+file-level job that globs `store.db*` picks it up, and SQLite rebuilds it anyway. Absent files are
+printed too, deliberately — the lock exists only while the service does, which is after whoever
+configured the job read this output.
+
+**The master key is deliberately not in `--exclude`.** Its verdict is `separately`, not `never`, and
+that distinction is the reason the field exists: a job fed the key here would be excluding it from
+every backup it takes, which is how a key is lost rather than how it is kept out of the store's
+archive.
+
+Both forms exit non-zero on a missing required file, exactly as the table does — the pre-flight half
+of this command does not depend on who reads its output. Four tests pin the part that is a contract:
+the verdict spellings, that no `role` carries the table's indent, that the key never reaches the
+exclude list, and that the two forms refuse to be combined.
+
 ## [0.6.1] — 2026-08-22
 
 **The release that finishes `0.6.0`.** Same code, same schema, no configuration change — the one
