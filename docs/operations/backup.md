@@ -118,6 +118,13 @@ one per line. Both are in [cli.md](cli.md), and the reason they exist is that a 
 into a nightly job and found the report unparseable
 ([field-report-2026-08-22.md](../field-report-2026-08-22.md)).
 
+**If the job runs in a different mount namespace, these paths need translating.** `--exclude` prints
+the paths the *configuration* names, which are the paths as the service sees them. A backup job in its
+own container sees the same files somewhere else, and an exclusion that matches nothing looks exactly
+like an exclusion that works — no error, a slightly larger archive, and a surprise at restore. Map the
+list through both mount tables rather than writing the translated paths down a second time; the tool
+cannot know the mapping ([field-report-2026-08-23.md](../field-report-2026-08-23.md), finding 4).
+
 **A missing required file is exit `3`, not `1`.** All three forms print their whole output first and
 then report the pre-flight result, and `3` says exactly that: the listing is complete, and something
 the configuration requires is not on this host. A backup container that deliberately cannot see the

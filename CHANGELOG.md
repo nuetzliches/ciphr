@@ -93,6 +93,15 @@ requirement on the file's owner and its parent directory, now written down where
 report confirms it from the operating side: `ulimit -c` reads `0` in the `0.7.0` image, measured before
 the pin moved.
 
+### Documentation — the `--exclude` paths belong to the service's mount namespace
+
+`--exclude` prints what the configuration names, so a backup job in its own container has to translate
+the list before handing it to anything — and an exclusion that matches nothing looks exactly like one
+that works: no error, a slightly larger archive, a surprise at restore. The tool cannot know the
+mapping; one sentence in `backup.md` and `cli.md` is what was missing
+([`docs/field-report-2026-08-23.md`](docs/field-report-2026-08-23.md), finding 4, which asked for
+nothing else).
+
 ### Changed — the mirror cannot publish half a version either
 
 `0.7.0` closed this on `release.yml` and left it open where it was first observed. Finding 5 of

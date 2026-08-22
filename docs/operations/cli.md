@@ -415,6 +415,11 @@ list and a non-zero status about files it must not have. `2` is left to clap for
 job branching on the status cannot confuse a misspelled flag with a pre-flight result
 ([field-report-2026-08-23.md](../field-report-2026-08-23.md), finding 2).
 
+**The paths are the service's, not the job's.** `--exclude` prints what the configuration names, so a
+consumer in another mount namespace has to translate them before handing them to anything — an
+exclusion that matches nothing is silent. Same note as in [backup.md](backup.md), because that is
+where the job is written.
+
 ## Backing up
 
 ```sh
