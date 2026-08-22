@@ -186,12 +186,12 @@ pub async fn stop_requested() -> bool {
         // Registering both before awaiting either is the part that matters: a signal
         // stream replaces the default action from the moment it exists, so a SIGTERM
         // arriving during startup is queued rather than fatal.
-        let mut terminate = match signal(SignalKind::terminate()) {
-            Ok(stream) => stream,
-            // Nothing here can recover from this, and pretending otherwise would leave
-            // the process believing it has a graceful shutdown it does not have. Fall
-            // back to SIGINT alone, which is what the previous behaviour was.
-            Err(_) => return tokio::signal::ctrl_c().await.is_ok(),
+
+        // Nothing here can recover from a failed registration, and pretending otherwise
+        // would leave the process believing it has a graceful shutdown it does not have.
+        // Fall back to SIGINT alone, which is what the previous behaviour was.
+        let Ok(mut terminate) = signal(SignalKind::terminate()) else {
+            return tokio::signal::ctrl_c().await.is_ok();
         };
 
         tokio::select! {
