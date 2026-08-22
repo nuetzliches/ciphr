@@ -108,6 +108,18 @@ wanted:
 `ciphr surface show <config>` is unchanged and still the CLI-side answer; it reads the file rather than
 the binary, so it cannot speak for a build entry. From `docs/field-report-2026-08-23.md`, finding 1.
 
+### `ciphr state` exits `3` when the listing is complete and a required file is absent
+
+**Check anything that branches on this command's status.** A missing required file was exit `1` and is
+now exit `3`, in all three forms; `1` still means the command failed. Nothing changed about the output
+or about which files are required.
+
+The case this is for: a backup job consuming `--exclude` from its own container, which — following
+[backup.md](backup.md) — deliberately cannot see the TLS material or the master key. Its exclude list
+is derived from `[storage] path` alone and is complete and correct, and its status was non-zero about
+files it must not have. `2` is left to clap for a usage error, so the two cannot be confused. From
+`docs/field-report-2026-08-23.md`, finding 2.
+
 ## 0.7.0
 
 ### The container refuses to start where core dumps cannot be disabled

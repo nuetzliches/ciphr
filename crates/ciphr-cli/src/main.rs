@@ -499,7 +499,10 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("ciphr: {error}");
-            ExitCode::FAILURE
+            // Not `ExitCode::FAILURE` for every failure: `ciphr state` distinguishes
+            // "this command failed" from "this command answered, and a required file is
+            // absent" -- see `CliError::exit_code`.
+            ExitCode::from(error.exit_code())
         }
     }
 }
@@ -1088,8 +1091,14 @@ fn presence(piece: &Piece) -> Presence {
 /// tool can be handed rather than told. All three were asked for by a deployment that
 /// wired this into a nightly job (`docs/field-report-2026-08-22.md`).
 ///
-/// All three exit non-zero when a file the configuration requires is absent. The
-/// pre-flight half of this command does not depend on who is reading its output.
+/// All three exit non-zero when a file the configuration requires is absent, and all
+/// three print their whole output first: the pre-flight half of this command does not
+/// depend on who is reading it. **The status says which of the two happened** —
+/// [`CliError::StatePreflight`] exits `3`, so an unattended job can tell "the listing is
+/// complete and this host is missing a file it does not need to see" from a command that
+/// failed. Asked for by the deployment in `docs/field-report-2026-08-23.md`, whose backup
+/// container deliberately cannot see the TLS material or the key and therefore could
+/// never get a zero.
 fn state(config: &str, json: bool, exclude: bool) -> Result<(), CliError> {
     let text = std::fs::read_to_string(config)?;
     let document = toml::from_str::<toml::Value>(&text).map_err(|error| CliError::Config {
@@ -1115,9 +1124,9 @@ fn state(config: &str, json: bool, exclude: bool) -> Result<(), CliError> {
         .filter(|(presence, _)| *presence == Presence::Missing)
         .count();
     if missing > 0 {
-        return Err(CliError::Config {
+        return Err(CliError::StatePreflight {
             path: config.to_owned(),
-            reason: format!("{missing} file(s) this configuration requires are not there"),
+            missing,
         });
     }
     Ok(())

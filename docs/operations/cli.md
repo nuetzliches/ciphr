@@ -405,6 +405,16 @@ this command does not depend on who is reading its output. Both were asked for b
 [field-report-2026-08-22.md](../field-report-2026-08-22.md), which had to write the backup job before
 it could say what the command was missing.
 
+**The status distinguishes the two things that can happen: `3` is a complete listing plus a missing
+required file, `1` is a command that failed.** All three forms print their whole output before the
+status is decided, so a `3` means the rows are there and this host is short of something the
+configuration names. That matters most where the caller *should* be short of something: the `never`
+rows are derived from `[storage] path` alone, so a backup container that follows
+[backup.md](backup.md) and cannot see the TLS material or the key gets a correct, complete exclude
+list and a non-zero status about files it must not have. `2` is left to clap for a usage error, so a
+job branching on the status cannot confuse a misspelled flag with a pre-flight result
+([field-report-2026-08-23.md](../field-report-2026-08-23.md), finding 2).
+
 ## Backing up
 
 ```sh

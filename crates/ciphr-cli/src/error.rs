@@ -96,6 +96,27 @@ pub(crate) enum CliError {
         /// What is wrong with it.
         reason: String,
     },
+    /// `ciphr state` printed its whole inventory, and a file the configuration requires
+    /// is not on this host.
+    ///
+    /// **Its own variant because it carries its own exit code**, and the exit code is
+    /// the finding ([`docs/field-report-2026-08-23.md`], finding 2). The output above
+    /// this error is complete and correct — the `never` rows a backup job consumes are
+    /// derived from `[storage] path` alone, so nothing a missing TLS leaf or key file
+    /// does can change them. A deployment that follows `backup.md` most strictly does
+    /// not mount the key or the certificate into its backup container, so its job sees
+    /// a non-zero status on every run that is *about something else*, and either ignores
+    /// the status or re-implements the check the tool just performed.
+    ///
+    /// So: exit `3`, distinct from every other failure, and distinct from clap's `2` for
+    /// a misspelled flag — a job branching on a status must not have to tell a usage
+    /// error from a pre-flight result.
+    StatePreflight {
+        /// Which configuration.
+        path: String,
+        /// How many required files are absent.
+        missing: usize,
+    },
     /// A path was to be marked as bait and holds nothing.
     BaitNeedsASecret {
         /// The path that was given.
@@ -103,6 +124,23 @@ pub(crate) enum CliError {
     },
     /// Something failed while reading or writing a file.
     Io(std::io::Error),
+}
+
+/// The exit code a job branches on.
+///
+/// `1` for everything that went wrong, `3` where the command *answered* and part of the
+/// answer was that this host is missing a file. Nothing returns `2`: clap uses it for a
+/// usage error, and a status a caller cannot interpret unambiguously is not worth having.
+pub(crate) const PREFLIGHT_EXIT: u8 = 3;
+
+impl CliError {
+    /// The exit code this failure leaves behind.
+    pub(crate) const fn exit_code(&self) -> u8 {
+        match self {
+            Self::StatePreflight { .. } => PREFLIGHT_EXIT,
+            _ => 1,
+        }
+    }
 }
 
 impl fmt::Display for CliError {
@@ -165,6 +203,14 @@ impl fmt::Display for CliError {
             Self::Config { path, reason } => {
                 write!(f, "{path} is not a usable configuration: {reason}")
             }
+            // The same sentence the `Config` variant produced for this case before it had
+            // its own exit code, so an operator reading a log sees no change and only a
+            // job branching on the status does.
+            Self::StatePreflight { path, missing } => write!(
+                f,
+                "{path} is not a usable configuration: {missing} file(s) this \
+                 configuration requires are not there"
+            ),
             Self::BaitNeedsASecret { path } => write!(
                 f,
                 "{path} holds nothing. Bait is a real secret with a real-looking value \

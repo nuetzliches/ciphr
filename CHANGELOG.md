@@ -44,6 +44,21 @@ nothing mounted but the two `.toml` files.
 The check also no longer creates an empty `store.db` at the configured path on a host that has none,
 which is what a read-write open did on the way to reporting "not initialized".
 
+### Changed — `ciphr state` exits `3` when the listing is complete and a file is missing
+
+**The exit code was about rows the caller must not have.** `--exclude` prints the paths that must never
+be copied, derived from `[storage] path` alone — nothing a missing TLS leaf or key file does can change
+them. A backup job in its own container, following
+[`docs/operations/backup.md`](docs/operations/backup.md)'s *keep the key somewhere this backup is not*,
+therefore gets a complete and correct exclude list and a non-zero status about three files it must not
+see. The deployment that wired it up ignores the status by design and validates the output instead:
+*"Writing that guard felt like re-implementing a check the tool had just performed"*
+([`docs/field-report-2026-08-23.md`](docs/field-report-2026-08-23.md), finding 2).
+
+All three forms now exit **`3`** for "listing complete, pre-flight failed", and `1` still means the
+command failed. The report asked for `2`; `2` is what clap returns for a usage error, and a job
+branching on a status must not have to tell a misspelled flag from a pre-flight result.
+
 ### Changed — the mirror cannot publish half a version either
 
 `0.7.0` closed this on `release.yml` and left it open where it was first observed. Finding 5 of

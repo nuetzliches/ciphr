@@ -118,6 +118,12 @@ one per line. Both are in [cli.md](cli.md), and the reason they exist is that a 
 into a nightly job and found the report unparseable
 ([field-report-2026-08-22.md](../field-report-2026-08-22.md)).
 
+**A missing required file is exit `3`, not `1`.** All three forms print their whole output first and
+then report the pre-flight result, and `3` says exactly that: the listing is complete, and something
+the configuration requires is not on this host. A backup container that deliberately cannot see the
+TLS material or the master key — which is what the rule above asks for — gets `3` on every run, and a
+job can branch on it instead of parsing text. `1` remains a command that failed.
+
 The table below is the *why*. The database is not self-sufficient, three of these rows are things a
 restored database needs in order to serve a single request, and each has been a surprise to
 somebody.

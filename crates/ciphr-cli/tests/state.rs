@@ -324,9 +324,10 @@ fn the_machine_readable_forms_keep_the_exit_code() {
     // The pre-flight half of this command does not depend on who reads it: a job that
     // runs `--json` before an upgrade has to fail for the same reason a person does.
     let listed = ciphr(&["state", "--json", "ciphr.toml"], path);
-    assert!(
-        !listed.status.success(),
-        "a missing required file fails in JSON too"
+    assert_eq!(
+        listed.status.code(),
+        Some(3),
+        "a missing required file fails in JSON too, with the same code all three forms use"
     );
 
     // And the document is still a document, so the consumer can say *which* file.
@@ -339,6 +340,56 @@ fn the_machine_readable_forms_keep_the_exit_code() {
             .iter()
             .any(|piece| piece["role"] == "policies" && piece["state"] == "missing"),
         "the row says which one, got:\n{document:#}"
+    );
+}
+
+/// The finding: a backup job cannot tell "the listing is complete" from "the command
+/// failed", and the exit code is where that distinction has to live.
+///
+/// The `never` rows are derived from `[storage] path` alone, so nothing a missing TLS leaf
+/// or key file does can change them. A deployment that follows `backup.md` most strictly
+/// keeps the key and the certificate out of the container that takes the backup — so its
+/// job could never see a zero here, and had to either ignore the status or re-implement
+/// the check the tool had just performed (`docs/field-report-2026-08-23.md`, finding 2).
+#[test]
+fn a_complete_listing_with_a_missing_required_file_has_its_own_exit_code() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let path = directory.path();
+
+    write_config(path, "[seal]\ntype = \"static_env\"", "store.db");
+    create_required(path, "store.db");
+    // What the backup container sees: no TLS material, on purpose.
+    for name in ["cert.pem", "key.pem"] {
+        std::fs::remove_file(path.join(name)).expect("remove the TLS material");
+    }
+
+    let listed = ciphr(&["state", "--exclude", "ciphr.toml"], path);
+    assert_eq!(
+        listed.status.code(),
+        Some(3),
+        "the pre-flight failure has its own code: {}",
+        stderr(&listed)
+    );
+
+    // And the listing it exited non-zero on is complete.
+    let printed = stdout(&listed);
+    let lines: Vec<&str> = printed.lines().collect();
+    assert!(
+        lines.iter().any(|line| line.ends_with("store.db.lock")),
+        "the lock is the exclusion whose absence breaks a restore, got:\n{lines:?}"
+    );
+    assert!(
+        lines.iter().any(|line| line.ends_with("store.db-shm")),
+        "and the -shm beside it, got:\n{lines:?}"
+    );
+
+    // The reason it is `3` and not `2`: clap already uses `2` for a usage error, and a
+    // job that branched on `2` would confuse a misspelled flag with a pre-flight result.
+    let misused = ciphr(&["state", "--json", "--exclude", "ciphr.toml"], path);
+    assert_eq!(
+        misused.status.code(),
+        Some(2),
+        "a usage error stays clap's own code"
     );
 }
 
