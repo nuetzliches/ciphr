@@ -382,6 +382,7 @@ dependencies = [
  "ciphr-crypto",
  "ciphr-policy",
  "ciphr-store",
+ "rusqlite",
  "rustls",
  "serde",
  "serde_json",

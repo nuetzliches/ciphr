@@ -70,6 +70,44 @@ the binary knows and the mark against the ones this file did not name, which is 
 question is answered — an entry that is off is absent from the router, so its `404` is byte-identical
 to a typo'd path.
 
+**Since 0.8.0 that report needs neither a store nor a key, so this step is runnable in review.** The
+command prints the configuration, the policy counts and the whole surface report first, and reports
+store readiness as its own last section; only that last section needs a host. So the same binary that
+will run the file can check the file in a pipeline, with nothing mounted but the two `.toml` files —
+which is where a configuration edit is actually reviewed. On the host it also no longer takes the
+store's writer lock, so it runs while the service is up, and it neither migrates the store nor writes
+to the audit trail. Exit is non-zero while the store is not ready, as before, and the store section
+says why ([field-report-2026-08-23.md](../field-report-2026-08-23.md), finding 1).
+
+## 0.8.0
+
+### `--check-config` answers about the file first, and about the host last
+
+**Nothing to do, and one thing to know: the output has a new shape.** The command now prints the
+configuration path, the policy counts and the whole surface report before it looks at storage, then a
+final `store:` section that either says `ready (schema …, seal …, key from …)` or names the reason it
+is not. The first line is unchanged — `configuration and policies are usable` — and so is the exit
+code: zero when the store is ready, non-zero when it is not.
+
+**What this makes possible** is the reason for the change: the report that catches a *forgotten*
+surface stanza is now reachable with only the two `.toml` files, so a configuration edit can be
+checked in review or in a pipeline by the same binary that will run it. Before this it needed a store
+and a key at the paths the configuration names, which on a review host means fabricating both — a gate
+satisfiable by fabrication, so it protected nothing.
+
+**Three side effects are gone**, and each one was a reason the check could not be run where it was
+wanted:
+
+- It no longer takes the store's **writer lock**, so it runs while the service is up.
+- It no longer **migrates** the store. `SqliteStore::open` migrates on open, so pre-flighting a `0.7`
+  store with a `0.8` binary used to perform the schema move that the pre-upgrade backup exists to
+  make reversible. It opens read-only now.
+- It no longer writes a **`surface-active` audit record**. That entry belongs to a process about to
+  serve, and a check is not one.
+
+`ciphr surface show <config>` is unchanged and still the CLI-side answer; it reads the file rather than
+the binary, so it cannot speak for a build entry. From `docs/field-report-2026-08-23.md`, finding 1.
+
 ## 0.7.0
 
 ### The container refuses to start where core dumps cannot be disabled

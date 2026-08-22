@@ -44,7 +44,7 @@ pub mod tls;
 
 pub use config::{AuditConfig, Config, SealConfig, StorageBackend, StorageConfig};
 pub use error::{ApiError, ConfigError, StartupError};
-pub use server::Server;
+pub use server::{Check, Server, StoreReady};
 pub use state::DeviceHealth;
 pub use state::{AppState, Caller};
 pub use surface::{Active as ActiveSurface, ENTRIES as SURFACE_ENTRIES};

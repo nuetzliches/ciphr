@@ -8,6 +8,42 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Changed — `--check-config` answers about the file before it looks at the host
+
+**The gate was satisfiable by fabrication, so it protected nothing.** `ciphr-server --check-config`
+was `Server::prepare` with the listener left off, so its *whole* report — including the surface
+report, which is a pure function of the configuration file — printed only after the store had been
+opened, locked and written to. The fourth field report from a private deployment
+([`docs/field-report-2026-08-23.md`](docs/field-report-2026-08-23.md), finding 1) shows what that costs
+in practice: the deploy script creates a scratch store on every run — `chown`, `ciphr init` with the
+production master key, check, delete — because the alternative was not running the check. *"The
+fabrication is what every validator has to build."*
+
+And the mistake the check exists to catch is exactly the one that needs no store: a **forgotten**
+`[[surface]]` stanza. That file is legal, so the parse-level refusals say nothing about it, and the
+surface report is the only place the question is answered.
+
+`Server::check` now returns the two halves separately. The file half — configuration, policy counts,
+resolved surface — is printed first and holds without a host; the store half is a labelled `store:`
+section at the end. Exit is unchanged: zero when the store is ready, non-zero when it is not, with the
+reason in that section. So the same binary that will run a configuration can check it in review, with
+nothing mounted but the two `.toml` files.
+
+**Three side effects went with it, and each was worse than the inconvenience:**
+
+- **No store lock.** The old check took the exclusive writer lock, which the running service holds — so
+  the only host with a store was the only host where the check could not be run without an outage.
+- **No migration.** `SqliteStore::open` migrates on open, so pre-flighting a store with the *newer*
+  binary performed the schema move that the pre-upgrade backup, taken in the step after it, exists to
+  make reversible. The check opens read-only now, and `tests/check_config.rs` winds a store's schema
+  back to pin it.
+- **No audit record.** `prepare` records the active surface. That entry is right for a process about to
+  serve and false for one about to exit, and a check nobody can run twice without explaining the second
+  line is a check nobody runs.
+
+The check also no longer creates an empty `store.db` at the configured path on a host that has none,
+which is what a read-write open did on the way to reporting "not initialized".
+
 ### Changed — the mirror cannot publish half a version either
 
 `0.7.0` closed this on `release.yml` and left it open where it was first observed. Finding 5 of
