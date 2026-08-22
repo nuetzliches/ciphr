@@ -149,6 +149,12 @@ a rewriting proxy, a moved listener — the SDK stops working against it, and th
 API has no redirect contract, so following one was resolving a misconfiguration on the caller's behalf.
 Point the client at the service.
 
+**And `ciphr-run` carries the same client**, so route B gets that change through the *file*
+rather than through a configuration: a host that keeps its mounted `ciphr-run` keeps following
+redirects. Fetch the `0.7.0` copy ([wrapper.md](wrapper.md)) if that matters to you. Nothing
+else about the wrapper changed, and the old file keeps working otherwise — this is the one
+behaviour that differs between the two copies.
+
 ## 0.6.1
 
 ### `0.6.0` is a partial release — take `0.6.1`
