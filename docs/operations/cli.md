@@ -1,8 +1,7 @@
 # The `ciphr` command
 
-**Status:** implemented and tested as of 2026-08-22. Every command below works, and every one of
-them is in a release except the two machine-readable forms of `state` — `--json` and `--exclude` are
-implemented and tested but not yet released. Deployment
+**Status:** implemented and tested as of 2026-08-22, released in `v0.7.0`. Every command below
+works and every one of them is in a release. Deployment
 — containers, reverse proxy, certificates — is documented in `docs/operations/` and in the
 deployment's own repository, not here.
 

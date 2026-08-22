@@ -4,7 +4,7 @@ A small secret manager for machine identities: key/value secrets, gap-free acces
 and path-based authorization. The name contains *CI* — the primary consumer is a build and
 deploy pipeline, not a human.
 
-> **Status: v0.6.1 released.** Usable end to end: envelope encryption with master key rotation,
+> **Status: v0.7.0 released.** Usable end to end: envelope encryption with master key rotation,
 > SQLite with migrations, the policy evaluator, the fail-closed hash-chained audit trail, the HTTPS
 > API with token authentication, and the `ciphr` CLI. Since v0.1.0: the audit anchor and the
 > retention cut that bounds the trail (`ciphr audit anchor`, `ciphr audit cut`), one rule for
@@ -17,11 +17,26 @@ deploy pipeline, not a human.
 > answered — two fixed as defects, two more found by the same reading, two answered as prose that
 > claimed more than the code did. Since v0.4.0: optional surface entries, and honeypots. Since
 > v0.5.1: a backup command, a report of the files a deployment has to keep, and listings that
-> answer while the service runs.
+> answer while the service runs. Since v0.6.1: a machine-readable form of that report, and six
+> findings of a source review answered.
 >
-> **Pin `0.6.1`, not `0.6.0`.** `v0.6.0` published its server image and then failed to build the
-> wrapper image, so `…/run:0.6.0` and the `v0.6.0` release assets do not exist. `0.6.1` is the same
-> code with both artefacts published.
+> **v0.7.0 answers a source review and a field report.** Six findings of the review of 2026-08-21 and
+> the three asks of the deployment that rebuilt its nightly backup around `0.6.0`. The two that reach a
+> running deployment: `export --format actions-env` used a predictable heredoc delimiter, so a value
+> could close its own assignment and define environment variables for later workflow steps; and a
+> honeypot *token* wrote its audit entry and latched nothing, so a deployment doing everything the
+> runbook asks still missed the event. Also: every `/v1` response now says `Cache-Control: no-store`,
+> `ciphr-sdk` follows no redirects, an audit archive is named after the record it closes at and never
+> replaces one, `ciphr state` has `--json` and `--exclude` for the job that keeps the files, and the
+> container refuses to start where core dumps cannot be disabled. Nothing migrates; the schema stays at
+> 6. Three things to do rather than know are in
+> [`docs/operations/upgrade.md`](docs/operations/upgrade.md) — including that the honeypot fixes sit
+> behind a build entry, so a deployment that plants bait rebuilds its derived image.
+>
+> **Pin `0.7.0`.** And a note that outlives it: `v0.6.0` published its server image and then
+> failed to build the wrapper image, so `…/run:0.6.0` and the `v0.6.0` release assets do not
+> exist. `0.6.1` is the same code with both artefacts published, and `a14d143` added the gate
+> that makes half a release unreachable.
 >
 > **v0.6.0 is the release that makes operating this a matter of commands.** `ciphr backup` takes a
 > copy that cannot be torn and needs neither the store lock nor the master key; `ciphr state`

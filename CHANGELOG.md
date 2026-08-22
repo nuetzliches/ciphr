@@ -8,6 +8,29 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-08-22
+
+**The release that answers a review and a field report.** Six findings of the source review of
+2026-08-21 ([`docs/review-2026-08-21-current-tree.md`](docs/review-2026-08-21-current-tree.md)) — one
+high, three medium, two low — plus the two claim notes that turned out to say more than the code did,
+and the three asks of the deployment that rebuilt its nightly backup around `0.6.0`
+([`docs/field-report-2026-08-22.md`](docs/field-report-2026-08-22.md)). **Nothing migrates:** the schema
+stays at 6, so a rollback to `0.6.1` needs neither a restore nor a configuration edit.
+
+**The two that reach a deployment rather than a reader.** `export --format actions-env` used a
+predictable heredoc delimiter, so an identity allowed to write one exported secret could define
+environment variables for later steps of every workflow that read it — that one is why this release is
+worth taking promptly. And a honeypot *token* wrote its audit entry and latched nothing, so a
+deployment doing all three things the runbook asks still missed the event.
+
+**Three things to do rather than know**, all in
+[`docs/operations/upgrade.md`](docs/operations/upgrade.md): the container now refuses to start where
+core dumps cannot be disabled; a tripwire that was quiet for token bait can start paging; and the
+honeypot fixes sit behind a *build* entry, so a deployment that plants bait has to rebuild its derived
+image to get them — the published default artefact does not contain that code, which is the point of
+the entry.
+
+
 ### Added — `ciphr state` answers a job as well as a person
 
 `ciphr state` derives the file set from the configuration, which was the right idea pointed at one of
@@ -3425,7 +3448,8 @@ first production use.
   decision.
 - `AGENTS.md` with the working rules, and `SECURITY.md` with the disclosure process and scope.
 
-[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.6.1...main
+[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.7.0...main
+[0.7.0]: https://github.com/nuetzliches/ciphr/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/nuetzliches/ciphr/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/nuetzliches/ciphr/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/nuetzliches/ciphr/compare/v0.5.0...v0.5.1

@@ -1,6 +1,6 @@
 # Upgrading
 
-**Status:** current as of 2026-08-22, covering every released version up to `0.6.1`, plus the unreleased changes on `main`.
+**Status:** current as of 2026-08-22, covering every released version up to `0.7.0`.
 
 The changelog says what changed. This says what to *do* about it, and it exists because the two are
 not the same document: a changelog entry sinks under the next release, while the person upgrading two
@@ -70,7 +70,7 @@ the binary knows and the mark against the ones this file did not name, which is 
 question is answered — an entry that is off is absent from the router, so its `404` is byte-identical
 to a typo'd path.
 
-## Unreleased
+## 0.7.0
 
 ### The container refuses to start where core dumps cannot be disabled
 
@@ -109,6 +109,23 @@ before this release.
 
 `ciphr honeypot clear` clears a latch the way it always did, and the audit trail is unchanged — every
 presentation was already recorded, and still is.
+
+### The honeypot fixes are behind a build entry — a derived image has to be rebuilt
+
+`honeypot_alert` is a *build* entry (ADR-20), so **no published artefact contains any of this code** and
+the two fixes above reach only a deployment that builds its own image. If you plant bait, rebuild the
+derived image against `v0.7.0`:
+
+```sh
+cargo build --release --locked --features honeypot_alert --bin ciphr-server
+```
+
+For a container, the same in a derived image — copy `Dockerfile`, add the flag to its `cargo build`
+line, publish under your own tag. `ciphr-server --check-config <file>` on the result reports
+`honeypot_alert  build` as on, which is the check that the build and the configuration agree.
+
+**A deployment that plants no bait needs none of this** and loses nothing by staying on the published
+image, which is the whole argument for the entry: absent code has no behaviour to get wrong.
 
 ### Rotated audit archives carry the closing sequence in their name
 
