@@ -17,6 +17,8 @@
 
 use ciphr_core::{EnvNameError, EnvVarName, SecretPath};
 
+use crate::error::CliError;
+
 /// A path and its value, ready to be written out.
 pub(crate) struct Exported {
     /// Where it came from.
@@ -59,9 +61,11 @@ impl ExportFormat {
     /// if two of them want the same one. [`ExportFormat::Json`] is keyed by the full path
     /// and therefore cannot fail — which is the honest difference between the formats
     /// rather than an inconsistency in this signature.
-    pub(crate) fn render(self, secrets: &[Exported]) -> Result<String, EnvNameError> {
+    pub(crate) fn render(self, secrets: &[Exported]) -> Result<String, CliError> {
         match self {
-            Self::Dotenv => render_dotenv(secrets),
+            // `?` rather than a bare call: this one fails only on a name, and the
+            // signature now carries the delimiter failure the Actions form can have.
+            Self::Dotenv => Ok(render_dotenv(secrets)?),
             Self::ActionsEnv => {
                 let (masks, assignments) = render_actions_env(secrets)?;
                 Ok(format!("{masks}{assignments}"))
@@ -94,6 +98,63 @@ pub(crate) fn render_dotenv(secrets: &[Exported]) -> Result<String, EnvNameError
     Ok(out)
 }
 
+/// How many random bytes a heredoc delimiter carries: 128 bits, hex-encoded.
+///
+/// The size is not about colliding with the word `EOF` — including the variable name
+/// already handled that. It is about a writer who knows this format. Finding F2 of
+/// `docs/review-2026-08-21-current-tree.md`: the delimiter was derived from the name, so a
+/// value containing that exact line closed its own assignment, and every line after it was
+/// read by the runner as further environment-file commands. An identity allowed to write
+/// one exported secret could therefore define environment variables for later steps of
+/// every workflow that reads it.
+///
+/// 128 bits is chosen so that guessing is not a strategy, which is what makes the
+/// verification below a formality rather than a retry loop anybody has to reason about.
+const DELIMITER_BYTES: usize = 16;
+
+/// How many candidates to draw before giving up.
+///
+/// A loop that can only end in success hides an entropy failure. Four attempts and then a
+/// named error, so a machine with no randomness produces a refusal rather than a delimiter
+/// somebody could have predicted.
+const DELIMITER_ATTEMPTS: usize = 4;
+
+/// A heredoc delimiter for one value: random, and then checked against that value.
+///
+/// Both halves, because neither is the property on its own. Randomness is what makes the
+/// delimiter unguessable to whoever wrote the value; the check is what keeps the guarantee
+/// from depending on the entropy source being everything it claims. GitHub's own
+/// documentation for `$GITHUB_ENV` asks for the same pair, and this is the one place in
+/// this project where a stored value crosses from data into command.
+///
+/// **Compared line by line and not with `contains`.** A delimiter closes a heredoc only
+/// when it stands alone on a line, so a substring test would refuse values that are
+/// perfectly safe — and a refusal here is an export that does not happen.
+fn heredoc_delimiter(name: &str, value: &str) -> Result<String, CliError> {
+    for _ in 0..DELIMITER_ATTEMPTS {
+        let mut bytes = [0u8; DELIMITER_BYTES];
+        if getrandom::fill(&mut bytes).is_err() {
+            return Err(CliError::ExportDelimiter {
+                name: name.to_owned(),
+                reason: "the operating system provided no entropy".to_owned(),
+            });
+        }
+
+        let candidate = format!("ciphr_{name}_{}", ciphr_core::hex::encode(&bytes));
+        if !value.lines().any(|line| line == candidate) {
+            return Ok(candidate);
+        }
+    }
+
+    // Reachable only for a value that already contains four unpredictable 128-bit strings
+    // somebody would have had to write into it. It is an error rather than a fifth attempt
+    // because at that point the assumption behind the whole function is wrong.
+    Err(CliError::ExportDelimiter {
+        name: name.to_owned(),
+        reason: format!("{DELIMITER_ATTEMPTS} random delimiters all occur in the value"),
+    })
+}
+
 /// The two halves of an Actions-style export: the mask commands, and the assignments.
 ///
 /// Returned separately because they go to different places — the masks to standard
@@ -102,13 +163,16 @@ pub(crate) fn render_dotenv(secrets: &[Exported]) -> Result<String, EnvNameError
 ///
 /// # Errors
 ///
-/// [`EnvNameError`] if the set has no usable names — checked before a single
-/// `::add-mask::` is produced, so a refused export has printed nothing at all.
+/// [`CliError::EnvName`] if the set has no usable names — checked before a single
+/// `::add-mask::` is produced, so a refused export has printed nothing at all. And
+/// [`CliError::ExportDelimiter`] if a multi-line value cannot be given a delimiter it
+/// could not close itself, which is the same discipline one line further out: the
+/// refusal happens before anything is written.
 // `format_push_string` fires on the two lines below. Building the heredoc block as one
 // string is clearer than three `writeln!` calls, and this function is not on a hot path
 // — it runs once per export.
 #[allow(clippy::format_push_string)]
-pub(crate) fn render_actions_env(secrets: &[Exported]) -> Result<(String, String), EnvNameError> {
+pub(crate) fn render_actions_env(secrets: &[Exported]) -> Result<(String, String), CliError> {
     let names = assign_names(secrets)?;
 
     let mut masks = String::new();
@@ -130,9 +194,10 @@ pub(crate) fn render_actions_env(secrets: &[Exported]) -> Result<(String, String
         let name = name.as_str();
         if secret.value.contains('\n') {
             // The heredoc form, which is the only way to put a multi-line value into
-            // `$GITHUB_ENV`. The delimiter includes the variable name so that a value
-            // containing the word "EOF" cannot terminate its own block.
-            let delimiter = format!("ciphr_{name}_EOF");
+            // `$GITHUB_ENV`. The delimiter is 128 random bits verified against this
+            // value, because a delimiter derived from the name is one the writer of
+            // the value could reproduce -- and then close (finding F2).
+            let delimiter = heredoc_delimiter(name, &secret.value)?;
             assignments.push_str(&format!(
                 "{name}<<{delimiter}\n{}\n{delimiter}\n",
                 secret.value
@@ -384,8 +449,73 @@ mod tests {
         assert!(masks.contains("::add-mask::-----BEGIN-----"));
         assert!(masks.contains("::add-mask::middle"));
 
-        assert!(assignments.starts_with("KEY<<ciphr_KEY_EOF\n"));
-        assert!(assignments.ends_with("ciphr_KEY_EOF\n"));
+        // The delimiter is random, so what is asserted is its shape and its use: the block
+        // opens with it, closes with it, and carries the value between them unchanged.
+        let lines: Vec<&str> = assignments.lines().collect();
+        let delimiter = lines
+            .first()
+            .expect("an opening line")
+            .strip_prefix("KEY<<")
+            .expect("the heredoc opens by naming its delimiter");
+        assert!(delimiter.starts_with("ciphr_KEY_"), "got {delimiter:?}");
+        assert_eq!(
+            delimiter.len(),
+            "ciphr_KEY_".len() + 32,
+            "128 bits, hex-encoded"
+        );
+        assert_eq!(lines.last(), Some(&delimiter), "and closes with it");
+        assert_eq!(lines[1..lines.len() - 1].join("\n"), secrets[0].value);
+    }
+
+    /// Finding F2: the value that used to close its own assignment.
+    ///
+    /// The delimiter was `ciphr_<NAME>_EOF` and nothing else, so a writer who knew the
+    /// format could put that line into a value and have the runner read everything after
+    /// it as further environment-file commands — which is influence over later steps of
+    /// every workflow that reads the secret. The payload below is that attack.
+    #[test]
+    fn a_value_cannot_close_its_own_heredoc() {
+        let payload = "harmless\nciphr_KEY_EOF\nINJECTED=owned\n::add-mask::whatever";
+        let secrets = [exported("a/KEY", payload)];
+        let (_, assignments) = render_actions_env(&secrets).expect("a usable name");
+
+        let lines: Vec<&str> = assignments.lines().collect();
+        let delimiter = lines[0]
+            .strip_prefix("KEY<<")
+            .expect("the heredoc opens by naming its delimiter");
+        assert_ne!(
+            delimiter, "ciphr_KEY_EOF",
+            "the delimiter must not be the one the value already contains"
+        );
+
+        // The property is that the payload stays *inside* the block, not that it was
+        // sanitized -- a value must go out as it was stored. So: exactly one line equals
+        // the delimiter, and it is the last one.
+        assert_eq!(
+            lines.iter().filter(|line| **line == delimiter).count(),
+            1,
+            "nothing in the value may equal the delimiter"
+        );
+        assert_eq!(lines.last(), Some(&delimiter));
+
+        let body = lines[1..lines.len() - 1].join("\n");
+        assert_eq!(body, payload, "the value is written unchanged");
+        assert!(
+            body.contains("INJECTED=owned"),
+            "and the injection attempt is data inside the block"
+        );
+    }
+
+    #[test]
+    fn two_exports_of_one_value_get_different_delimiters() {
+        // The delimiter comes from the OS CSPRNG rather than from the variable name, which
+        // is what makes it unguessable to whoever wrote the value. At 128 bits, a repeat
+        // here means the randomness is not actually there.
+        let secrets = [exported("a/KEY", "one\ntwo")];
+        let first = render_actions_env(&secrets).expect("a usable name").1;
+        let second = render_actions_env(&secrets).expect("a usable name").1;
+
+        assert_ne!(first, second, "two renders must not share a delimiter");
     }
 
     #[test]

@@ -71,6 +71,18 @@ pub(crate) enum CliError {
     /// An export cannot name a variable for one of its secrets, or two of them want
     /// the same name.
     EnvName(ciphr_core::EnvNameError),
+    /// A multi-line value could not be given a heredoc delimiter it cannot close.
+    ///
+    /// Either the machine had no entropy, or -- for a value that would have to contain
+    /// four unpredictable 128-bit strings -- every candidate was already in it. Refused
+    /// rather than written with a weaker delimiter: this is the one place a stored value
+    /// crosses from data into command (finding F2).
+    ExportDelimiter {
+        /// The variable that was being written.
+        name: String,
+        /// Which of the two happened.
+        reason: String,
+    },
     /// A configuration file could not be read as one.
     ///
     /// Distinct from [`Self::Io`], which covers a file that could not be *reached*, and
@@ -144,6 +156,12 @@ impl fmt::Display for CliError {
             Self::Path(error) => write!(f, "{error}"),
             Self::Rotation(error) => write!(f, "{error}"),
             Self::EnvName(error) => write!(f, "{error}"),
+            Self::ExportDelimiter { name, reason } => write!(
+                f,
+                "{name} could not be exported: {reason}. A multi-line value is written \
+                 with a heredoc, and a delimiter the value itself could close would let \
+                 that value define environment variables for later steps"
+            ),
             Self::Config { path, reason } => {
                 write!(f, "{path} is not a usable configuration: {reason}")
             }

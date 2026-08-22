@@ -205,8 +205,19 @@ readable by more people than the secret store is.
 `--format actions-env` therefore emits `::add-mask::` for every value **before** anything else, then
 writes the assignments. The order is the whole point: a mask registered after a value has been
 printed masks nothing that already went out. Multi-line values get one mask per line, because
-runners match literal strings, and are assigned with a heredoc whose delimiter includes the variable
-name so a value containing `EOF` cannot end its own block.
+runners match literal strings, and are assigned with a heredoc whose delimiter is **128 random
+bits**, drawn per value from the OS CSPRNG and checked against the value before it is used.
+
+That delimiter used to be `ciphr_<NAME>_EOF` and nothing more. Including the variable name kept
+a value containing the word `EOF` from ending its own block, and it did nothing about a writer
+who knew the format: a value carrying that exact line on its own closed its assignment, and
+every line after it was read by the runner as further environment-file commands. **An identity
+allowed to write one exported secret could therefore define environment variables for later
+steps of every workflow that reads it** — finding F2 of
+[../review-2026-08-21-current-tree.md](../review-2026-08-21-current-tree.md). A random
+delimiter cannot be reproduced by whoever wrote the value; the check is what keeps that
+guarantee from resting on the entropy source alone. Masking never covered this: masking and
+injection are different problems, and `::add-mask::` does not make a structured file safe.
 
 With `--github-env` the assignments go to the file named by `$GITHUB_ENV` and only the masks reach
 standard output.

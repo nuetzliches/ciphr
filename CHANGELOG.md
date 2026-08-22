@@ -150,6 +150,48 @@ three. Three unit tests for the claim set, which is the part the router cannot s
 deduplication the end state is identical, because the index already refused the second row, so the only
 place to assert that the work is not queued is where the decision is made.
 
+### Fixed — a stored value could close its own heredoc and write into a workflow's environment
+
+Finding F2 of [`docs/review-2026-08-21-current-tree.md`](docs/review-2026-08-21-current-tree.md) —
+high, certain — filed as [issue #8](https://github.com/nuetzliches/ciphr/issues/8).
+
+`export --format actions-env` wrote a multi-line value with the delimiter `ciphr_<NAME>_EOF`.
+Including the variable name kept a value containing the word `EOF` from ending its own block, and it
+did nothing about a writer who knows the format: a value carrying that exact line on its own **closed
+its own assignment**, and every line after it was read by the GitHub Actions runner as further
+environment-file commands. An identity allowed to write one exported secret could therefore define
+environment variables for later steps of every workflow that reads it — tool configuration, loader
+behaviour, credentials, command execution, depending on what those steps do.
+
+**The delimiter is now 128 bits from the OS CSPRNG, drawn per value and checked against that value.**
+Both halves, because neither is the property on its own: randomness is what makes the delimiter
+unguessable to whoever wrote the value, and the check is what keeps the guarantee from resting on the
+entropy source being everything it claims. Four candidates are drawn and then the export is refused
+with a message naming which of the two happened — a loop that can only end in success would hide a
+machine with no entropy behind a delimiter somebody could have predicted.
+
+**What is not done to the value: anything.** It is written out exactly as it was stored. The property
+is that the payload stays *inside* the block, and an export that sanitized a secret would be a
+different defect.
+
+Why this is worth the severity the review gave it rather than the severity of a CI convenience:
+`--format actions-env` exists because of the boundary `README.md` states in its own voice — no forge
+masks a value fetched at runtime, so masking is part of the product rather than of the documentation.
+[`docs/README.md`](docs/README.md) lists "a secret in a CI job log" as a risk area whose mitigation is
+this exact code path. So the one feature that exists because the pipeline is where the remaining risk
+lives was also the one place a value crossed from data into command. Masking never covered it:
+masking and injection are different problems, and `::add-mask::` does not make a structured file safe.
+
+`getrandom` is now a declared dependency of `ciphr-cli`. It adds nothing to the graph — `ciphr-crypto`
+is already a dependency there and already takes it for keys, nonces and tokens — and it is declared
+rather than reached through a re-export because a heredoc delimiter is not a cryptographic operation
+and hiding it behind one would suggest it is.
+
+**Tests.** The attack as a regression test: a value carrying `ciphr_KEY_EOF` and an `INJECTED=` line
+after it, asserting that exactly one line equals the delimiter, that it is the last one, and that the
+value went out unchanged. Plus one that two renders of the same value do not share a delimiter, which
+is what fails if the randomness is not there.
+
 ## [0.6.1] — 2026-08-22
 
 **The release that finishes `0.6.0`.** Same code, same schema, no configuration change — the one
