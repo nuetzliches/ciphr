@@ -59,6 +59,18 @@ All three forms now exit **`3`** for "listing complete, pre-flight failed", and 
 command failed. The report asked for `2`; `2` is what clap returns for a usage error, and a job
 branching on a status must not have to tell a misspelled flag from a pre-flight result.
 
+### Changed — a `ciphr backup` destination that cannot be written names its directory
+
+`unable to open database: /out/store-pre.sqlite` is one word away from what an unreadable *source*
+says, and the row above it in `backup.md` is that source failure. So the first guess is the store —
+while every other sentence at that moment is about the source too. The failure is also *created* by
+following the fix for the previous one: run as the service uid, into a directory owned by the
+operator's login ([`docs/field-report-2026-08-23.md`](docs/field-report-2026-08-23.md), finding 3).
+
+The message now names the destination and its directory and says which end to check. The refusal to
+overwrite an existing backup keeps SQLite's own words, which `backup.md` documents. A row for this
+failure is in *What breaks, and how it will look*, where the causal note belongs.
+
 ### Changed — the mirror cannot publish half a version either
 
 `0.7.0` closed this on `release.yml` and left it open where it was first observed. Finding 5 of

@@ -136,9 +136,11 @@ impl SqliteStore {
     /// # Errors
     ///
     /// Returns [`StoreError::Io`] if `destination` is not valid UTF-8, if the written
-    /// file cannot be measured, or if the copy fails its integrity check or disagrees
-    /// with the source about the schema version. Returns [`StoreError::Sqlite`] if the
-    /// destination exists, cannot be written, or cannot be read back.
+    /// file cannot be measured, if the copy fails its integrity check or disagrees with
+    /// the source about the schema version, or if the destination cannot be written — in
+    /// which case the message names its *directory*, for the reason in
+    /// [`destination_refused`]. Returns [`StoreError::Sqlite`] if the destination already
+    /// exists or cannot be read back.
     pub fn backup_into(&self, destination: impl AsRef<Path>) -> Result<BackupReport, StoreError> {
         let destination = destination.as_ref();
         // Bound as a parameter rather than interpolated: the filename in `VACUUM INTO`
@@ -157,7 +159,9 @@ impl SqliteStore {
             .connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))?;
 
-        self.connection.execute("VACUUM INTO ?1", params![target])?;
+        self.connection
+            .execute("VACUUM INTO ?1", params![target])
+            .map_err(|error| destination_refused(destination, error))?;
 
         let written = std::fs::metadata(destination)
             .map_err(|error| StoreError::Io {
@@ -742,6 +746,46 @@ fn subtree_bounds(prefix: &SecretPath) -> (String, String) {
         format!("{}/", prefix.as_str()),
         format!("{}0", prefix.as_str()),
     )
+}
+
+/// Say which end of a backup failed when `VACUUM INTO` will not write.
+///
+/// **The message named a file and the reader was thinking about the other one.** SQLite
+/// reports an unwritable destination as `unable to open database: <destination>`, which is
+/// one word away from what an unreadable *source* says — and at that moment every other
+/// sentence on the screen is about the source: the store, the service uid, the read-only
+/// mount. The deployment in `docs/field-report-2026-08-23.md` hit this immediately after
+/// following the advice that causes it — take the pre-upgrade copy *as the service uid*,
+/// into a directory owned by the operator's own login — and its first guess was that the
+/// store could not be read.
+///
+/// So this names the directory. That is the thing that has to change, one `chown` fixes
+/// it, and a path with no directory named leaves the reader inspecting a file that does
+/// not exist yet.
+///
+/// **The refusal to overwrite keeps SQLite's own words**, because it is already exact and
+/// `backup.md` documents that sentence: an existing destination is a decision the operator
+/// has to make, not a permission to fix.
+fn destination_refused(destination: &Path, error: rusqlite::Error) -> StoreError {
+    if destination.exists() {
+        return StoreError::Sqlite(error);
+    }
+
+    match destination
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        Some(parent) => StoreError::Io {
+            detail: format!(
+                "the backup could not be written to {}: {error}. The destination is the \
+                 thing to check, not the store: {} has to exist and be writable by the \
+                 uid running this command",
+                destination.display(),
+                parent.display()
+            ),
+        },
+        None => StoreError::Sqlite(error),
+    }
 }
 
 fn read_meta(connection: &Connection, key: &str) -> Result<Option<String>, StoreError> {

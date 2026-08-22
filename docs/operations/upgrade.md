@@ -120,6 +120,13 @@ is derived from `[storage] path` alone and is complete and correct, and its stat
 files it must not have. `2` is left to clap for a usage error, so the two cannot be confused. From
 `docs/field-report-2026-08-23.md`, finding 2.
 
+### A `ciphr backup` destination that cannot be written names its directory
+
+The message was `unable to open database: <destination>`, one word from what an unreadable *source*
+says, and it arrives while everything else on the screen is about the source. It now names the
+destination *and* its directory, and says which end to check. The refusal to overwrite an existing
+backup is unchanged, wording included.
+
 ## 0.7.0
 
 ### The container refuses to start where core dumps cannot be disabled

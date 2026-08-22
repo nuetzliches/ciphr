@@ -140,6 +140,42 @@ fn an_existing_destination_is_refused_rather_than_overwritten() {
     );
 }
 
+/// A destination that cannot be written names the *directory*, and says which end failed.
+///
+/// The message this replaces was `unable to open database: <destination>`, one word away
+/// from what an unreadable source says — and the row above it in `backup.md` is exactly
+/// that source failure. The deployment in `docs/field-report-2026-08-23.md` hit this while
+/// taking the pre-upgrade copy as the service uid into a directory owned by its operator's
+/// login, and read it as a store it could not open.
+#[test]
+fn an_unwritable_destination_names_the_directory_and_not_only_the_file() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let source = dir.path().join("store.db");
+    store_with_a_secret(&source);
+
+    // A directory that is not there stands in for one the uid cannot write: the same
+    // SQLite refusal, and portable, which a permission bit is not.
+    let unreachable = dir.path().join("not-a-directory").join("backup.db");
+    let refused = SqliteStore::open_read_only(&source)
+        .expect("open the source")
+        .backup_into(&unreachable)
+        .expect_err("the destination cannot be written");
+
+    let message = refused.to_string();
+    assert!(
+        message.contains("not-a-directory"),
+        "the directory is the thing to check, got: {message}"
+    );
+    assert!(
+        message.contains("uid"),
+        "and what about it has to change, got: {message}"
+    );
+    assert!(
+        message.contains("not the store"),
+        "the source is what the reader guesses first, so it is ruled out: {message}"
+    );
+}
+
 #[test]
 fn the_copy_stands_alone_without_a_write_ahead_log() {
     let dir = tempfile::tempdir().expect("a temporary directory");
