@@ -45,9 +45,10 @@ async fn stops_on(signal_name: &str) -> bool {
 
     for _ in 0..50 {
         raise(signal_name);
-        match tokio::time::timeout(Duration::from_millis(100), &mut waiting).await {
-            Ok(joined) => return joined.expect("the task did not panic"),
-            Err(_) => continue,
+        // A timeout is the ordinary case, not an error: the next iteration raises the
+        // signal again. Only a completed join answers the question.
+        if let Ok(joined) = tokio::time::timeout(Duration::from_millis(100), &mut waiting).await {
+            return joined.expect("the task did not panic");
         }
     }
     panic!("stop_requested did not complete after 50 {signal_name} signals");
