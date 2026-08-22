@@ -201,6 +201,18 @@ curl --cacert "$CIPHR_CA" -H "Authorization: Bearer $CIPHR_TOKEN" \
      https://ciphr.internal:4400/v1/honeypots
 ```
 
+**One thing a trip does not prove: that a value was served.** The trip is recorded and latched
+*before* retrieval, so bait that is deleted, missing, corrupt or undecryptable latches on an allowed
+read although nothing left the process. That is deliberate — "taking bait" here means *being allowed to
+read it*, and [ADR-15](../adr/0015-honeypots-and-what-a-tripwire-may-do.md) records why the alternative
+costs the fail-closed ordering. **The trail is where you see which of the two happened:** a read that
+served nothing carries a second entry under the same request id, `not-found` or `not-served`, beside
+the `honeypot-triggered` one.
+
+Treat that pair as worth a look rather than as noise. An identity no legitimate consumer's job requires
+was granted a path no legitimate consumer touches; that the bait was in that state is a second oddity,
+not an explanation for the first.
+
 **The audit entry is the record, not the flag and not the row.** Look for
 `honeypot-triggered`. Its `detail` says what was attempted (`attempted: read`), and:
 

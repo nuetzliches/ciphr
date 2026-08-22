@@ -92,6 +92,30 @@ secret is authorized exactly like any other path. There is no honeypot branch in
 new capability, and nothing about bait in the evaluator. One code path decides every access, or
 reasoning about that path stops being worth anything.
 
+**What "taking bait" means, decided 2026-08-22.** The trip is recorded and latched *before* the value
+is retrieved and decrypted, so an allowed read of bait that is deleted, missing, corrupt or
+undecryptable latches although nothing was served (claim note D10 of
+[../review-2026-08-21-current-tree.md](../review-2026-08-21-current-tree.md)). **The behaviour is
+kept, and this is where that is written down.** Two reasons, and the second is the one that decides it.
+
+Taking bait means *being allowed to read it*, not *receiving its value*. An identity that no legitimate
+consumer's job requires reached a path no legitimate consumer touches and was granted it; whether the
+storage layer then produced bytes is a fact about the store, not about the caller's intent, and the
+signal this tier exists to raise is about the caller.
+
+And closing it is not free in the direction that matters. It needs a store operation that establishes
+readability *before* the trip entry and without releasing the value before the audit write — which is
+the fail-closed ordering this whole record is built on. Paying that to remove a page whose subject is
+*somebody was allowed to read bait and could not get it* would be paying to suppress an event worth
+looking at: bait in that state is itself unusual.
+
+**What the operator gets instead**, and the reason this is not a silent trade: the trail already says
+no value was served. `read_secret` writes a correcting entry — `not-found` or `not-served` — under the
+same request id as the decision, so the pair reads as one event. What overstates the case is
+`/v1/health` and the open trip, which say `tripped` without a value having left, and
+[../operations/honeypots.md](../operations/honeypots.md) now names that where somebody responding to a
+page will read it.
+
 **3. Each tier is chosen with its false-positive cost written next to it.** `alert` costs a page.
 `disable-identity` costs one identity's deploys until a token is reissued on the host. `freeze` costs
 every deploy until an operator clears it on the host — and while frozen the service still serves

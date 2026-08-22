@@ -356,6 +356,37 @@ whoever measures carefully is worse than bait that announces itself* stays exact
 the standard this falls short of, and it is the argument for closing the gap rather than a description
 of the code.
 
+### Documentation — a trip is recorded before retrieval, and that stays the behaviour
+
+Claim note D10 of [`docs/review-2026-08-21-current-tree.md`](docs/review-2026-08-21-current-tree.md),
+the last part of [issue #7](https://github.com/nuetzliches/ciphr/issues/7) and a decision rather than a
+defect. The review found no authorization bypass; what it found is an ordering question: the trip is
+recorded and latched **before** the value is retrieved and decrypted, so an allowed read of bait that is
+deleted, missing, corrupt or undecryptable latches although nothing was served. The review's own words
+were that keeping the behaviour is a legitimate answer as long as it is written down. **It is kept, and
+this is it being written down.**
+
+**Taking bait means being allowed to read it, not receiving its value.** An identity that no legitimate
+consumer's job requires reached a path no legitimate consumer touches and was granted it. Whether the
+storage layer then produced bytes is a fact about the store; the signal this tier raises is about the
+caller.
+
+**And the alternative is not free in the direction that matters.** Closing it needs a store operation
+that establishes readability *before* the trip entry and without releasing the value before the audit
+write — which is the fail-closed ordering the whole design rests on. Paying that to remove a page whose
+subject is *somebody was allowed to read bait and could not get it* would be paying to suppress an event
+worth looking at.
+
+**What the operator gets instead, so this is not a silent trade.** The trail already distinguishes the
+two: a read that served nothing carries a correcting entry — `not-found` or `not-served` — under the
+same request id as the decision, so the pair reads as one event. What overstates the case is
+`/v1/health` and the open trip, which say `tripped` without a value having left, and that is now named
+in [`honeypots.md`](docs/operations/honeypots.md) under *When it fires*, where somebody answering a page
+will read it. ADR-15 carries the decision, and the D10 row in
+[`security-review.md`](docs/security-review.md) carries it with one thing for a reviewer to attack: the
+decision rests on the correcting entry existing on **every** failing branch, so a branch that latches
+and records nothing would take the argument with it.
+
 ## [0.6.1] — 2026-08-22
 
 **The release that finishes `0.6.0`.** Same code, same schema, no configuration change — the one
