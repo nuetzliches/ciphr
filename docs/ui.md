@@ -1,6 +1,6 @@
 # The viewer
 
-**Status:** current as of 2026-08-21, phase 5, released as `ui-v0.3.0`. Built and running: the five
+**Status:** current as of 2026-08-22, phase 5, released as `ui-v0.3.0`. Built and running: the five
 views below, the strict Content-Security-Policy, and the container that serves them. Sign-in is a
 pasted token; SSO is post-v1 (ADR-12). **This viewer requires a service at `0.3.0` or newer** — it
 reads the rotation class from `GET /v1/versions/{path}`, which returned a bare array before that.
@@ -114,7 +114,7 @@ The full check is `ciphr audit verify`. The one that survives a forward rewrite 
 | Strict CSP | `default-src 'none'`, `script-src 'self'`, `connect-src 'self'`, no `unsafe-inline`, no `unsafe-eval`. Defined once in `vite.config.ts`, sent as a header by the container (`nginx.conf`) and injected into the **built** document, so a bundle served by something else keeps it. CI fails if the built document loses it or gains an `unsafe-` keyword |
 | No `v-html`, no `innerHTML` | `ci/check-no-v-html.sh`, a blocking CI gate |
 | No inline styles | `style-src 'self'` refuses them; the build emits one stylesheet and the code uses classes, never `:style` |
-| No service worker, no offline cache | None is registered, `main.ts` unregisters any it finds from an earlier deployment, and the container refuses to serve one. A cached response to a secret read is a secret without an expiry date |
+| No service worker, no offline cache | None is registered, `main.ts` unregisters any it finds from an earlier deployment, and the container refuses to serve one. A cached response to a secret read is a secret without an expiry date. Since 2026-08-22 the *server* says so too: every `/v1` response carries `Cache-Control: no-store`, so this property no longer rests on one client asking politely (finding F3) |
 | Only documented v1 endpoints | ADR-11's consequent rule: an endpoint existing for the viewer alone would mean the CLI could not do something the viewer can |
 | Its own dependency budget | `ci/check-ui-budget.sh`: exactly one runtime dependency (`vue`), a ceiling on the whole tree, no install scripts, every package resolved from the public registry with an integrity hash |
 

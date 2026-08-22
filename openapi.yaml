@@ -58,6 +58,12 @@ info:
     client has to handle both, and the one that only handles text fails on the value
     it was never tested with.
 
+    **Every response carries `Cache-Control: no-store`**, including the errors and the
+    routes a deployment has turned off. A cached response to a secret read is a secret
+    without an expiry date, and a client, proxy or private browser cache left with its
+    defaults is a place one can end up. New in this version of the document; before it the
+    server emitted no cache directive at all.
+
     **`503` means the audit trail could not be written.** No secret is served and no
     change is made in that case. A full audit volume is therefore an outage rather
     than a logging gap, which is intended and needs monitoring.

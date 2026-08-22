@@ -254,6 +254,35 @@ configuration is read from the same function `build` uses — a test that rebuil
 itself could pass while the real one drifted — and a second test pins that a 301, 302, 307 and 308 all
 say what was not done.
 
+### Fixed — the server said nothing about caching, for plaintext reads as much as for anything else
+
+Finding F3 of [`docs/review-2026-08-21-current-tree.md`](docs/review-2026-08-21-current-tree.md) —
+medium, certain — filed as [issue #9](https://github.com/nuetzliches/ciphr/issues/9).
+
+There was no response-header layer on the router at all. Secret reads and exports went out with no
+cache directive, and the only mitigation in the tree was the viewer asking Fetch not to cache **its
+own** request — so the SDK, the CLI, browser private caches, reverse proxies and anything else in the
+path were left with their defaults. Caches usually treat an authenticated response conservatively, and
+"usually" is a convention rather than a guarantee; a permissive or misconfigured one retains a
+plaintext value past the token's lifetime and exposes it through local cache storage or an
+intermediary.
+
+**Every `/v1` response now carries `Cache-Control: no-store`.** The argument was already written one
+layer up, in [`docs/ui.md`](docs/ui.md): *a cached response to a secret read is a secret without an
+expiry date* — which is why no service worker is allowed anywhere near the viewer. The server made that
+argument only in the browser, and only for one client. Now the property is the server's, and the
+viewer's table row says so rather than resting on politeness.
+
+**Everything, and not only the value routes.** A `404` says a path does not exist, a `403` says an
+identity may not read it, and a route a deployment turned off answers from the fallback with no handler
+involved. All of them are worth keeping out of a shared cache, and a per-route list of which responses
+deserve the header is a list somebody has to keep correct forever. One layer, applied after the routes,
+so a route added later cannot forget it. `no-store` and not `no-cache`: the first says do not write it
+down, the second says revalidate before reuse, and only the first is the property wanted.
+
+`openapi.yaml` documents the header, and the test walks nine cases — a value, two metadata routes, the
+two unauthenticated ones, three refusals, and a path no build serves.
+
 ## [0.6.1] — 2026-08-22
 
 **The release that finishes `0.6.0`.** Same code, same schema, no configuration change — the one

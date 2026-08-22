@@ -27,7 +27,8 @@ use std::net::{IpAddr, SocketAddr};
 
 use axum::extract::{ConnectInfo, FromRequestParts, Path, Query, State};
 use axum::http::request::Parts;
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use axum::response::Response;
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use ciphr_audit::{Action, RequestContext};
@@ -107,7 +108,38 @@ pub fn router(state: AppState) -> Router {
         router = router.route("/v1/honeypots", get(read_honeypots));
     }
 
-    router.with_state(state)
+    // One response-header layer, over everything above: see `no_store`. Applied after
+    // the routes rather than per route, so a route added later cannot forget it.
+    router
+        .layer(axum::middleware::map_response(no_store))
+        .with_state(state)
+}
+
+/// Put `Cache-Control: no-store` on one response.
+///
+/// The router's only response-header layer, and it applies to every `/v1` response
+/// including the errors and the fallbacks. Finding F3 of
+/// `docs/review-2026-08-21-current-tree.md`: the server emitted no cache directive at all,
+/// for plaintext reads and exports as much as for anything else. The viewer asked Fetch not
+/// to cache *its own* request; the SDK, the CLI, browser private caches, reverse proxies and
+/// everything else in the path were left with their defaults.
+///
+/// Caches usually treat an authenticated response conservatively. "Usually" is a
+/// convention, and the argument against relying on it is already written one layer up, in
+/// `docs/ui.md`: **a cached response to a secret read is a secret without an expiry date** —
+/// which is why no service worker is allowed anywhere near the viewer. Until now the server
+/// made that argument only in the browser, and only for one client.
+///
+/// **Everything, not only the value routes.** A `404` says a path does not exist and a `403`
+/// says an identity may not read it; both are worth keeping out of a shared cache, and a
+/// list of which routes deserve the header is a list somebody has to maintain correctly
+/// forever. `no-store` and not `no-cache`: the first says do not write it down, the second
+/// says revalidate before reuse, and the second is not the property wanted here.
+async fn no_store(mut response: Response) -> Response {
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 // ---------------------------------------------------------------------------

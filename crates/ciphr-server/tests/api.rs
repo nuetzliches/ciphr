@@ -416,6 +416,71 @@ fn a_request_without_a_token_is_refused_and_says_how_to_authenticate() {
     );
 }
 
+/// Finding F3: every `/v1` response says `no-store`, including the ones that failed.
+///
+/// The server used to emit no cache directive at all — for plaintext reads and exports as
+/// much as for anything else — and the only mitigation in the tree was the viewer asking
+/// Fetch not to cache its own request. The SDK, the CLI, browser private caches, reverse
+/// proxies and everything else in the path were left with their defaults, and a permissive
+/// one retains a plaintext value past the token's lifetime.
+///
+/// The list below is deliberately not only the value routes. A `403` says an identity may
+/// not read a path and a `404` says it does not exist; both are worth keeping out of a
+/// shared cache, and a per-route list is one somebody has to keep correct forever.
+#[test]
+fn every_response_forbids_caching() {
+    let harness = Harness::new();
+    let deploy = harness.deploy_token.clone();
+    let auditor = harness.auditor_token.clone();
+
+    let cases: Vec<(&str, &str, Option<&str>)> = vec![
+        // A value, which is the case the whole finding is about.
+        (
+            "GET",
+            "/v1/secrets/infra/service-a/DB_PASSWORD",
+            Some(&deploy),
+        ),
+        // Metadata, which names paths even when it carries no value.
+        (
+            "GET",
+            "/v1/versions/infra/service-a/DB_PASSWORD",
+            Some(&deploy),
+        ),
+        ("GET", "/v1/list/infra", Some(&deploy)),
+        // Unauthenticated, and the one route a monitor polls.
+        ("GET", "/v1/health", None),
+        ("GET", "/v1/surface", Some(&deploy)),
+        // The refusals. `401` carries no body worth caching and is here anyway: the
+        // property is about the layer, not about which responses deserve it.
+        ("GET", "/v1/secrets/infra/service-a/DB_PASSWORD", None),
+        ("GET", "/v1/secrets/nowhere/at-all/KEY", Some(&deploy)),
+        ("GET", "/v1/audit", Some(&auditor)),
+        // A route this build does not have, answered from the fallback rather than by a
+        // handler -- so it exercises the layer where no handler runs at all.
+        ("GET", "/v1/not-a-route", Some(&deploy)),
+    ];
+
+    for (method, uri, token) in cases {
+        let request = Harness::build(method, uri, token, None);
+        let response = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+            .block_on(harness.router.clone().oneshot(request))
+            .expect("answer");
+
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CACHE_CONTROL)
+                .and_then(|value| value.to_str().ok()),
+            Some("no-store"),
+            "{method} {uri} (status {}) must forbid caching",
+            response.status()
+        );
+    }
+}
+
 #[test]
 fn every_kind_of_bad_token_gets_the_same_answer() {
     let harness = Harness::new();
