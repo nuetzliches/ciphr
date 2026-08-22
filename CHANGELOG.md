@@ -8,6 +8,19 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+## [0.6.1] — 2026-08-22
+
+**The release that finishes `0.6.0`.** Same code, same schema, no configuration change — the one
+difference is that the wrapper image and the release assets exist this time. `v0.6.0` published its
+server image and then failed to build `…/run`, because the asset rename in `1f82928` left
+`Dockerfile.run` copying a path the build no longer produces.
+
+**Which artefacts to use:** `0.6.1` for both images. `ghcr.io/nuetzliches/ciphr:0.6.0` is a valid
+server image and identical in code to this one, so a deployment already on it is not wrong — but a
+host that mounts `ciphr-run` cannot obtain a `0.6.0` copy, because there is none.
+[`docs/operations/upgrade.md`](docs/operations/upgrade.md) says it under `0.6.1`, and the tag `v0.6.0`
+is left where it is on purpose: a tag that moves is what this project pins digests against.
+
 ### Fixed — `v0.6.0` could not build its wrapper image, so it published half of its artefacts
 
 `1f82928` renamed the release asset to carry its target triple: in
@@ -3033,7 +3046,8 @@ first production use.
   decision.
 - `AGENTS.md` with the working rules, and `SECURITY.md` with the disclosure process and scope.
 
-[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.6.0...main
+[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.6.1...main
+[0.6.1]: https://github.com/nuetzliches/ciphr/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/nuetzliches/ciphr/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/nuetzliches/ciphr/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/nuetzliches/ciphr/compare/v0.4.0...v0.5.0

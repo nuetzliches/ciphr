@@ -268,7 +268,7 @@ dependencies = [
 
 [[package]]
 name = "ciphr-audit"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "ciphr-core",
  "serde",
@@ -279,7 +279,7 @@ dependencies = [
 
 [[package]]
 name = "ciphr-cli"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "ciphr-audit",
  "ciphr-core",
@@ -295,7 +295,7 @@ dependencies = [
 
 [[package]]
 name = "ciphr-core"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "proptest",
  "secrecy",
@@ -305,7 +305,7 @@ dependencies = [
 
 [[package]]
 name = "ciphr-crypto"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "aes-gcm",
  "ciphr-core",
@@ -321,7 +321,7 @@ dependencies = [
 
 [[package]]
 name = "ciphr-policy"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "ciphr-core",
  "proptest",
@@ -331,7 +331,7 @@ dependencies = [
 
 [[package]]
 name = "ciphr-run"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "axum",
  "axum-server",
@@ -350,7 +350,7 @@ dependencies = [
 
 [[package]]
 name = "ciphr-sdk"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "axum",
  "axum-server",
@@ -372,7 +372,7 @@ dependencies = [
 
 [[package]]
 name = "ciphr-server"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "axum",
  "axum-server",
@@ -392,7 +392,7 @@ dependencies = [
 
 [[package]]
 name = "ciphr-store"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "ciphr-audit",
  "ciphr-core",

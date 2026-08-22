@@ -5,7 +5,7 @@
 | **Written** | 2026-08-18 |
 | **Background** | Evaluated OpenBao, Vault Community, Infisical CE, Conjur OSS. Result: OpenBao meets the requirement completely. Building this is a product decision, not a workaround. |
 
-**Status:** current as of 2026-08-22, with `v0.6.0` released.
+**Status:** current as of 2026-08-22, with `v0.6.1` released.
 
 This paragraph deliberately carries **one** date and no other. `ci/check-doc-dates.sh` takes the
 latest date in the status paragraph as the claim, so a second date here — a release, a decision, a
