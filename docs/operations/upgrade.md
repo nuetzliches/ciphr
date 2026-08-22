@@ -1,6 +1,6 @@
 # Upgrading
 
-**Status:** current as of 2026-08-22, covering every released version up to `0.6.1`.
+**Status:** current as of 2026-08-22, covering every released version up to `0.6.1`, plus the unreleased changes on `main`.
 
 The changelog says what changed. This says what to *do* about it, and it exists because the two are
 not the same document: a changelog entry sinks under the next release, while the person upgrading two
@@ -69,6 +69,68 @@ deployment and most deployments should have `viewer_api` off. What it prints is 
 the binary knows and the mark against the ones this file did not name, which is the only place that
 question is answered — an entry that is off is absent from the router, so its `404` is byte-identical
 to a typo'd path.
+
+## Unreleased
+
+### The container refuses to start where core dumps cannot be disabled
+
+The entrypoint has always run `ulimit -c 0` before dropping privileges, and it used to log a line and
+carry on when that failed. It now **exits 1**, because a warning on a healthy start is not a defence
+and [threat-model.md](../threat-model.md) lists a secret in a core dump under what is explicitly
+defended against. A core dump of this process contains the master key, the root key and every value in
+flight.
+
+**Who this can affect:** a runtime that does not let the process lower its own core limit. On an
+ordinary Docker or Podman host the call succeeds and nothing changes — this is not a new requirement
+on the container definition, it is the existing one becoming visible when it is not met. The one
+failure that is *not* a refusal is the case where the protection already holds: a limit that cannot be
+set but reads back as `0` is accepted, with a line saying so.
+
+**What to do if it refuses:** set the limit in the container definition instead — `ulimits: core: 0`
+in Compose, `--ulimit core=0` for `docker run` — and start again. The message names both forms. Do not
+work around it by removing the entrypoint: everything after it runs as `ciphr` rather than as root,
+and the TLS key checks are in the same script.
+
+**Not affected:** the swap half of the same defence, which still warns rather than refusing. A process
+cannot change its own swap limit, and an unreadable cgroup file is not evidence that swap is on — so
+that check has honest false positives and this one does not.
+
+### A honeypot *token* now opens the tripwire — a monitor that never fired may start to
+
+Only with the `honeypot_alert` build entry. Presenting bait wrote its audit entry and latched nothing,
+so `/v1/health` answered `tripped: false` however often a planted credential was tried; it now latches
+the way secret bait always has. **If your monitor polls `tripped` and pages a human, that page is now
+reachable from a credential somebody is trying** — which is the event the entry exists to catch, and
+the reason to check that the alert route goes somewhere a person reads before taking this.
+
+**What to do:** nothing, if the monitoring described in [honeypots.md](honeypots.md) is in place. If a
+token was planted and the tripwire has been quiet, do not read that as "nobody tried" for any period
+before this release.
+
+`ciphr honeypot clear` clears a latch the way it always did, and the audit trail is unchanged — every
+presentation was already recorded, and still is.
+
+### Rotated audit archives carry the closing sequence in their name
+
+`audit.jsonl.2026-08-19T21-04-07.912Z` becomes `audit.jsonl.2026-08-19T21-04-07.912Z-273`, where 273
+is the last record in that file. Two rotations in the same millisecond used to aim at one name.
+
+**What to do:** check anything that matches archive names by pattern — a shipping job, a retention
+rule, a log collector. A `audit.jsonl*` glob is unaffected. A pattern that pins the exact timestamp
+length, or anchors at the end of the name, is not. `ciphr audit cut` and `audit verify` follow the new
+shape and still read the old one, so archives written by an earlier version stay in the set.
+
+### Two client-visible transport changes
+
+**Every `/v1` response now carries `Cache-Control: no-store`**, errors included. Nothing needs doing
+unless something in the path was deliberately caching responses from this service — which would have
+been caching secrets.
+
+**`ciphr-sdk` follows no redirects.** A `3xx` reaches the caller as an error naming what was not done,
+instead of being followed. If a deployment put this service behind something that answers a redirect —
+a rewriting proxy, a moved listener — the SDK stops working against it, and that is the intent: this
+API has no redirect contract, so following one was resolving a misconfiguration on the caller's behalf.
+Point the client at the service.
 
 ## 0.6.1
 

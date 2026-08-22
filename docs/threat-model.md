@@ -1,6 +1,6 @@
 # Threat model
 
-**Status:** current as of 2026-08-21, `v0.5.0` released, phases 0-3, 7 and 8 in it. The adversaries and boundaries are settled. **A3 gains an optional detection** rather than
+**Status:** current as of 2026-08-22, `v0.6.1` released, phases 0-3, 7 and 8 in it. The adversaries and boundaries are settled. **A3 gains an optional detection** rather than
 a new defence: the `honeypot_alert` entry (ADR-15, ADR-20) is absent from a default build, and where a
 deployment turns it on, taking bait is a signal that needs no interpretation. The boundary itself does
 not move — a compromised runner still holds a valid token and still reads what its policy allows. The cryptographic, storage, authorization, audit and transport defences
@@ -99,13 +99,18 @@ choice (ADR-1).
 **A secret in an error message.** Error types carry paths, identities, and error classes — never
 values.
 
-**A secret in a core dump or in swap.** Both halves are now reported rather than assumed: the
-entrypoint disables core dumps itself, and it now reads the cgroup swap limit and says so when swap
-is available to the container — a warning and not a refusal, because a process
-cannot change its own swap limit and an unreadable cgroup file is not evidence that swap is on.
-`ZeroizeOnDrop` on key material, memory limit equal to swap
-limit in the container runtime, core dumps disabled. The language cannot solve this alone; part of
-it is an operational requirement.
+**A secret in a core dump or in swap.** Both halves are handled, and differently on
+purpose. **Core dumps: the entrypoint disables them and refuses to start if it cannot**
+(changed 2026-08-22, finding F9 — it used to log a line and continue, and a warning on a
+healthy start is not a defence). The one exception is the case where the protection
+already holds: a limit that cannot be set but reads back as zero is verified rather than
+assumed. **Swap: reported, not refused** — the entrypoint reads the cgroup swap limit and
+says so when swap is available to the container, because a process cannot change its own
+swap limit and an unreadable cgroup file is not evidence that swap is on.
+The mitigations, unchanged: `ZeroizeOnDrop` on key material, memory limit equal to swap
+limit in the container runtime, core dumps disabled. The language cannot solve this alone;
+part of it is an operational requirement — and for core dumps that requirement is now
+checked rather than documented.
 
 **Ciphertext relocation.** A ciphertext cannot be moved from path A to path B, because the
 normalized path and the version are bound as additional authenticated data. An adversary with

@@ -16,7 +16,40 @@ set -eu
 # Set here rather than in the container definition because a limit belongs with
 # the process it protects: a deployment that forgets a `ulimits:` entry would
 # otherwise silently lose the protection.
-ulimit -c 0 2>/dev/null || echo "ciphr: could not disable core dumps" >&2
+#
+# **And refused rather than warned about, since 2026-08-22.** This used to log a
+# line and carry on, which is finding F9 of
+# `docs/review-2026-08-21-current-tree.md`: `docs/threat-model.md` lists "a secret
+# in a core dump or in swap" under what is *explicitly defended against*, and a
+# warning on a healthy start is not a defence. Nobody reads it, and where the
+# runtime permits dumps and the limit operation failed, a crash writes the master
+# key, the root key and every value in flight into a core image.
+#
+# The one case that is allowed through is the one where the protection already
+# holds: if the limit cannot be *set* but is already zero, there is nothing to
+# refuse. That is the "equivalent prohibition, positively verified" the review
+# asked for -- verified by reading it back, rather than assumed from the failure.
+#
+# Contrast with the swap check below, which reports rather than refusing. That one
+# is an observation about somebody else's container definition and has honest
+# false positives; this one is a limit this script owns, on the process it is about
+# to exec, and it either took effect or it did not.
+if ! ulimit -c 0 2>/dev/null; then
+    current=$(ulimit -c 2>/dev/null || echo unknown)
+    if [ "$current" = "0" ]; then
+        echo "ciphr: could not set the core-dump limit; it is already 0" >&2
+    else
+        echo "ciphr: refusing to start: core dumps could not be disabled" >&2
+        echo "       (the limit is '$current')." >&2
+        echo "       A core dump of this process contains the master key, the" >&2
+        echo "       root key and every value in flight, and ZeroizeOnDrop cannot" >&2
+        echo "       reach a snapshot taken while the process is alive." >&2
+        echo "       Set it in the container definition instead (Compose:" >&2
+        echo "       ulimits: core: 0; docker run: --ulimit core=0), or run in a" >&2
+        echo "       runtime that permits the process to set its own limit." >&2
+        exit 1
+    fi
+fi
 
 # ── Swap: the other half of the same defence ─────────────────────────────────
 # Key material in swap survives `ZeroizeOnDrop` exactly the way a core dump

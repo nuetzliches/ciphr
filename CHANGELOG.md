@@ -283,6 +283,34 @@ down, the second says revalidate before reuse, and only the first is the propert
 `openapi.yaml` documents the header, and the test walks nine cases — a value, two metadata routes, the
 two unauthenticated ones, three refusals, and a path no build serves.
 
+### Fixed — the core-dump limit failed open, and the entrypoint carried on
+
+Finding F9 of [`docs/review-2026-08-21-current-tree.md`](docs/review-2026-08-21-current-tree.md) —
+low, certain — filed as [issue #13](https://github.com/nuetzliches/ciphr/issues/13).
+
+`docker-entrypoint.sh` runs `ulimit -c 0` before it drops privileges, and when that failed it logged a
+line and continued. [`docs/threat-model.md`](docs/threat-model.md) lists "a secret in a core dump or in
+swap" under what is **explicitly defended against**, and says in the same breath that part of it is an
+operational requirement. A warning on a healthy start is not an operational requirement; it is a line
+nobody reads. Where the runtime permits dumps and the limit operation failed, a crash writes the master
+key, the root key and every value in flight into a core image.
+
+**It now refuses to start**, with a message that names both ways to set the limit in the container
+definition. The one case allowed through is the one where the protection already holds: a limit that
+cannot be *set* but reads back as `0` is accepted, verified rather than inferred from the failure.
+
+**And the contrast with the swap check beside it is now the point rather than an inconsistency.** That
+one still reports without refusing, because a process cannot change its own swap limit and an
+unreadable cgroup file is not evidence that swap is on — honest false positives. The core-dump limit is
+one this script owns, on the process it is about to exec: it either took effect or it did not.
+
+Both branches were exercised against a stubbed `ulimit` rather than reasoned about.
+[`upgrade.md`](docs/operations/upgrade.md) says who can be affected — a runtime that does not let a
+process lower its own core limit — and what to do about it.
+
+**Not in this release: F10**, the check-then-open on credential files, which is the other half of issue
+#13. It touches three crates through Unix-only code paths, and it is deferred rather than forgotten.
+
 ## [0.6.1] — 2026-08-22
 
 **The release that finishes `0.6.0`.** Same code, same schema, no configuration change — the one
