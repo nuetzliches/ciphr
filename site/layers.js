@@ -459,10 +459,11 @@ const ENTRIES = [
     activates: [],
     title: 'honeypot_alert',
     lead: 'Bait, die kein legitimer Konsument anfasst, macht aus einem Read ein Signal. Nur das Tier <code>alert</code>; die schweren Tiers sind entworfen und bewusst nicht gebaut.',
-    cost: 'Keine Erkennung von Bait. Ein Deployment, das keine pflanzt, zahlt für die Abwesenheit nichts und bekommt die stärkste Form der Ununterscheidbarkeits-Behauptung von ADR-15: Code, der nicht mitkompiliert ist, hat kein Timing, das falsch sein könnte.',
+    cost: 'Keine Erkennung von Bait. Ein Deployment, das keine pflanzt, zahlt für die Abwesenheit nichts und bekommt die stärkste Form der Ununterscheidbarkeits-Behauptung von ADR-15: Code, der nicht mitkompiliert ist, hat kein Timing, das falsch sein könnte. Mit dem Entry gilt die schwächere Form — siehe unten.',
     extra: [
       '<strong>Ein Build-Entry, und deshalb im Default-Build nicht vorhanden.</strong> Genau darum sitzt sein Bogen auf dem Auth-Ring: er fügt Code auf dem Authentifizierungspfad hinzu — Bait-Erkennung in der Token-Verifikation von <code>ciphr-store</code>, ein Tier-Lookup und ein Latch in <code>ciphr-server</code>.',
       '<strong>Neuer als das akzeptierte Review.</strong> Die Claims C11, C12 und D10 beschreiben ihn und sind als nicht abgedeckt markiert. Ihn anzuschalten ist eine Entscheidung darüber, ungeprüften Code auf dem Authentifizierungspfad zu akzeptieren.',
+      '<strong>Ununterscheidbar in der <em>Antwort</em>, nicht in der Arbeit</strong> (verengt am 2026-08-22, Claim C11). Status, Body und Header sind identisch und getestet. Was nicht angeglichen ist: ein kaputter Token kehrt vor jeder DB-Arbeit zurück, ein bekannter Identifier kostet eine Verifier-Query mehr, und erkannte Bait schreibt einen größeren Audit-Eintrag vor dem <code>401</code>. Wer ein Credential hält, dessen Secret passt, kann daran <em>Bait</em> von <em>abgelaufen</em> trennen — genau die Frage, die ein Angreifer stellt. Ob das über ein Netz messbar bleibt, ist nicht gemessen; was Enumeration begrenzt, ist der 48-Bit-Identifier.',
       'Ein Alarm, den niemand pollt, ist kein Alarm: das Signal ist ein Feld auf <code>/v1/health</code> und ein Eintrag im Trail. Nichts hier kann einen Menschen wecken.',
       'Bait unter einem Prefix, den etwas holt, geht in Woche zwei wieder aus — ein Prefix-Fetch liest jeden Pfad darunter.'
     ],

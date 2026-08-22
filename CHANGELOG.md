@@ -311,6 +311,51 @@ process lower its own core limit — and what to do about it.
 **Not in this release: F10**, the check-then-open on credential files, which is the other half of issue
 #13. It touches three crates through Unix-only code paths, and it is deferred rather than forgotten.
 
+### Documentation — the indistinguishability claim is narrowed to the response, in all four places that made it
+
+Claim notes C11 and C12 of [`docs/review-2026-08-21-current-tree.md`](docs/review-2026-08-21-current-tree.md),
+the part of [issue #7](https://github.com/nuetzliches/ciphr/issues/7) that was a decision rather than a
+defect. Written after the three fixes above rather than before them, so it describes the code that is
+now in the tree.
+
+**What was claimed:** that bait is indistinguishable from any other invalid credential *on every axis a
+caller can observe*, with "no timing difference" — and C11's own falsification column said "or work
+done". **What holds:** the response. Same `cph_` prefix, length and alphabet; the same `401` with the
+same body and the same `WWW-Authenticate`; no extra field anywhere on the value path; recognition is a
+flag read from a row the constant-time comparison already fetched, after that comparison, so nothing
+branches before it. Three tests hold that line.
+
+**What does not:** equal work. A malformed token returns before any database work. A known identifier
+costs one verifier query an unknown one skips — declined deliberately, because closing it means issuing
+a query nobody needs. And recognized bait writes a larger audit payload, synchronously, before the
+`401`. That third one is the one worth naming: it separates the two cases an attacker actually wants
+told apart — *this credential is bait* against *this credential is expired or revoked* — and it is
+reachable by whoever holds a credential whose secret matches, which is exactly the position somebody who
+found a credential is in.
+
+**Narrowed rather than equalized, deliberately.** Equalizing means issuing a database query nobody
+needs and padding every rejection entry in the trail with fields that mean nothing, to hide a difference
+nobody has measured — and the claim would then rest on an unmeasured assertion again, one layer along. So
+the three differences are named in C11's falsification column, where a reviewer can attack them, and the
+open question becomes "is this separable over a network" instead of "is it equal". Unmeasured, and what
+bounds useful enumeration in the meantime is the 48-bit random identifier rather than the timing.
+
+**C12 loses the half that rested on a defect.** "Taking bait writes nothing extra" was true of the
+request path and quietly untrue beside it: a token trip did not do the derived write at all, which was
+finding F1 rather than evidence for the claim, and the latch that does happen is a store write that
+contends for the store mutex. The claim is now about the path the caller waits on, and says that the
+contention is bounded by the number of planted references rather than by the traffic — which is what
+finding F5's fix bought.
+
+**Four places, one commit**, because `site/README.md` records that coupling as a rule:
+[`security-review.md`](docs/security-review.md) rows C11 and C12, ADR-15's property 1 as an amendment
+that leaves the original wording standing, [`honeypots.md`](docs/operations/honeypots.md) with a section
+saying what a caller can and cannot tell and what that means for where to plant, and the
+`honeypot_alert` panel in `site/layers.js`. ADR-15's sentence that *bait announcing itself only to
+whoever measures carefully is worse than bait that announces itself* stays exactly where it is: it is
+the standard this falls short of, and it is the argument for closing the gap rather than a description
+of the code.
+
 ## [0.6.1] — 2026-08-22
 
 **The release that finishes `0.6.0`.** Same code, same schema, no configuration change — the one

@@ -55,6 +55,31 @@ anywhere on the value path, and no timing difference — recognition happens on 
 with the existing constant-time comparison. Bait that announces itself is decoration, and bait that
 announces itself only to whoever measures carefully is worse, because it looks like it works.
 
+**Narrowed 2026-08-22, and the wording above is left as it was written.** Property 1 said "on every
+axis a caller can observe" and "no timing difference". The response half holds and is tested; the work
+half does not, and a second review of this surface
+([../review-2026-08-21-current-tree.md](../review-2026-08-21-current-tree.md), claim note C11) is what
+established that. Three differences remain, all after the constant-time comparison: a malformed token
+returns before any database work, a known identifier costs one verifier query an unknown one skips, and
+recognized bait writes a larger audit payload before the `401`. The third is the one that matters,
+because it separates the two cases an attacker actually wants told apart — *this credential is bait*
+versus *this credential is expired or revoked* — and it is reachable by whoever holds a credential whose
+secret matches.
+
+**What this record now claims, then:** bait is indistinguishable in the *response*, on every axis of it,
+and the work done is not equalized. The sentence two paragraphs up — that bait announcing itself only to
+whoever measures carefully is worse than bait that announces itself — is the standard this falls short
+of, and it stays where it is rather than being softened: it is the argument for closing the gap, not a
+description of the code.
+
+**Why narrowing rather than equalizing.** Equalizing means issuing a database query nobody needs and
+padding every rejection entry in the trail with fields that mean nothing, to hide a difference nobody
+has measured — and then the claim would rest on an unmeasured assertion again, one layer along.
+`docs/security-review.md` C11 now names the three differences in its falsification column, which is
+where a reviewer can attack them; that is the honest version until somebody measures remote
+separability. The 48-bit random identifier is what bounds useful enumeration in the meantime, and it
+does that whether or not the timings are equal.
+
 **Indistinguishable includes what follows the decision, not only the decision.** The sentence above is
 about recognition. A trip also writes a row, a marker file, a distinct audit entry and a flag on
 `/v1/health`, and none of that is work an ordinary invalid token causes. So the side effects happen

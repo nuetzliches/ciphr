@@ -1,6 +1,6 @@
 # site/ — die Sicherheitsschichten als Seite
 
-**Status:** current as of 2026-08-21, gegen `v0.5.1`. Die Seite existiert und läuft lokal.
+**Status:** current as of 2026-08-22, gegen `v0.5.1` (das Panel `honeypot_alert` trägt die am 2026-08-22 verengte Behauptung C11). Die Seite existiert und läuft lokal.
 **Sie ist nicht veröffentlicht**, und der Workflow, der sie veröffentlichen würde, existiert
 absichtlich nicht — siehe *Veröffentlichung* unten.
 

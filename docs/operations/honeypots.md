@@ -1,9 +1,10 @@
 # Honeypots: planting bait, and what to do when it fires
 
-**Status:** written 2026-08-21, revised 2026-08-22 (step 3 says that revoking stops the service, and
-step 2 now runs while it is up), describing the `alert` tier as built. The severe tiers of
-[ADR-15](../adr/0015-honeypots-and-what-a-tripwire-may-do.md) are designed and not built, and
-[freeze.md](freeze.md) says why.
+**Status:** written 2026-08-21, revised 2026-08-22 (step 3 says that revoking stops the
+service, step 2 now runs while it is up, and "What a caller can and cannot tell" narrows the
+indistinguishability claim to the response), describing the `alert` tier as built. The severe
+tiers of [ADR-15](../adr/0015-honeypots-and-what-a-tripwire-may-do.md) are designed and not
+built, and [freeze.md](freeze.md) says why.
 
 A honeypot turns one class of silent failure into a loud one. The audit trail records every
 access and *notices* nothing: a compromised deploy runner holding a valid token reads what
@@ -144,6 +145,29 @@ the flag appears. It is absent from `ciphr list`, `ciphr get`, `GET /v1/list` an
 `GET /v1/versions`, because bait that announces itself to a caller is not bait. The
 administrative view exists for the opposite failure: a colleague who cannot tell bait from a
 real secret eventually rotates it or builds a service on it, and either destroys it.
+
+
+### What a caller can and cannot tell
+
+Worth knowing before you decide where to plant, because it is the one property the whole idea rests
+on. **The response is identical**: a honeypot token gets the same `401` with the same body and the same
+`WWW-Authenticate` as any other invalid credential, and reading bait returns the value with no extra
+field anywhere. Three tests hold that line.
+
+**The work is not identical, and as of 2026-08-22 this document says so rather than implying
+otherwise.** Recognizing bait writes a larger audit entry before the `401`, and a trip then schedules a
+latch. So somebody **holding a credential whose secret actually matches** can in principle separate
+*this is bait* from *this is expired or revoked* by how long the refusal takes — which is the question
+an attacker who found a credential wants answered. Whether that difference survives a network has not
+been measured; what bounds enumeration meanwhile is the 48-bit random identifier, not the timing.
+[../security-review.md](../security-review.md), claim C11, has the three differences in full and is
+where a reviewer should attack them.
+
+**What follows for planting.** Bait works against the adversary it was designed for — whoever scraped a
+place credentials end up in, and whoever is inside enumerating what they can reach. It is weaker
+against one who benchmarks the refusals with a credential in hand. That is not a reason to skip it: the
+audit trail records every attempt either way, and a tripwire that is measurable is still a tripwire
+somebody has to know to measure.
 
 ## What does not trip
 
