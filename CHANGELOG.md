@@ -8,6 +8,28 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Changed — the mirror cannot publish half a version either
+
+`0.7.0` closed this on `release.yml` and left it open where it was first observed. Finding 5 of
+[`docs/field-report-2026-08-22.md`](docs/field-report-2026-08-22.md) named **the mirror** — *"the mirror
+this deployment pulls from shows the same gap, because it builds the two images in two steps of one job
+the same way"* — and that is the registry a deployment actually pulls from. Fixing only the GitHub side
+answered the report's argument and not its subject.
+
+**Measured before changing anything**, through the Forgejo package API: `nuts/ciphr:0.6.0` is in that
+registry and `nuts/ciphr/run:0.6.0` is not. So the mirror did run for `v0.6.0` and did fail the same
+way, which until now was a hypothesis in a handoff note.
+
+`.forgejo/workflows/build-images.yml` now **builds both images before pushing either**. One job, so this
+is cheaper than the gate on the other side: no second build, no cache to warm, and nothing reaches the
+registry until the pair exists locally. What remains possible is a push that fails after its image
+built — a registry or credential problem rather than a build that was never going to work, and that one
+cannot be designed away.
+
+Both `0.7.0` references are in the mirror, and were before this change: `nuts/ciphr:0.7.0` at
+21:09:27Z and `nuts/ciphr/run:0.7.0` at 21:09:53Z.
+
+
 ## [0.7.0] — 2026-08-22
 
 **The release that answers a review and a field report.** Six findings of the source review of

@@ -103,41 +103,62 @@ jobs:
           fi
           printf '%s' "$REGISTRY_PASSWORD" | docker login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
 
-      # One tag, and deliberately no `:latest`. This is the one service in the
-      # fleet that can read every secret in it; an image reference that can move
-      # under the deployment's feet is exactly what it must not have. Every
-      # running container therefore corresponds to a tag someone signed off.
-      - name: Build and push
+      # ── Both images are built before either is pushed ────────────────────────
+      # The order is the whole point, and it is not the order this had. Building
+      # the service image, pushing it, and then building the wrapper is how
+      # `v0.6.0` came to exist as one image and not the other: `Dockerfile.run`
+      # copied a path the build no longer produced, and by the time that failed
+      # the service image was already in the registry under a tag that must not
+      # move. This registry is the one a deployment pulls from, so it saw the same
+      # half-published version -- `nuts/ciphr:0.6.0` exists here and
+      # `nuts/ciphr/run:0.6.0` does not, which is how the failure was confirmed
+      # rather than assumed (`docs/field-report-2026-08-22.md`, finding 5).
+      #
+      # `release.yml` answers this with a job that builds the wrapper image and
+      # pushes nothing, which both publishing jobs wait for. Here it is cheaper
+      # than that: one job, so the two builds are simply both done first and the
+      # pushes follow. No second build, no cache to warm, and nothing reaches the
+      # registry until the pair exists locally.
+      #
+      # One tag each, and deliberately no `:latest`. The service is the one thing
+      # in the fleet that can read every secret in it; an image reference that can
+      # move under the deployment's feet is exactly what it must not have. For the
+      # wrapper the reason is sharper still: this file gets mounted into
+      # containers built by other people, and a tag that can move is a way to
+      # change those bytes without anything recording that it happened.
+      #
+      # `Dockerfile.run` runs `ci/build-wrapper.sh` in its builder stage, so the
+      # static-linkage check and the size budget are enforced here as well -- this
+      # runner needs no Rust toolchain of its own for that to hold.
+      - name: Build both images, pushing neither
         run: |
           set -eu
           cd workspace
+          revision=$(git rev-parse HEAD)
+
           docker build \
             --label "org.opencontainers.image.source=https://github.com/nuetzliches/ciphr" \
             --label "org.opencontainers.image.version=${VERSION#v}" \
-            --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \
+            --label "org.opencontainers.image.revision=$revision" \
             -t "${IMAGE}:${VERSION#v}" \
             .
-          docker push "${IMAGE}:${VERSION#v}"
 
-      # The wrapper, as the only file in its own image. No `:latest` here either,
-      # and for a sharper reason than the service has: this file gets mounted
-      # into containers built by other people, and a tag that can move is a way
-      # to change those bytes without anything recording that it happened.
-      #
-      # `Dockerfile.run` runs `ci/build-wrapper.sh` in its builder stage, so the
-      # static-linkage check and the size budget are enforced here as well --
-      # this runner needs no Rust toolchain of its own for that to hold.
-      - name: Build and push the wrapper image
-        run: |
-          set -eu
-          cd workspace
           docker build \
             -f Dockerfile.run \
             --label "org.opencontainers.image.source=https://github.com/nuetzliches/ciphr" \
             --label "org.opencontainers.image.version=${VERSION#v}" \
-            --label "org.opencontainers.image.revision=$(git rev-parse HEAD)" \
+            --label "org.opencontainers.image.revision=$revision" \
             -t "${IMAGE}/run:${VERSION#v}" \
             .
+
+      # Only now, and both. A failure here leaves a tag half-published the way the
+      # old order did -- but a push failing after its image built is a registry or
+      # credential problem, not a build that was never going to work, and that is
+      # the failure this cannot design away.
+      - name: Push both
+        run: |
+          set -eu
+          docker push "${IMAGE}:${VERSION#v}"
           docker push "${IMAGE}/run:${VERSION#v}"
 
       # The checksum of the file this image carries, taken the same way a
