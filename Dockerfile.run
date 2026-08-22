@@ -54,10 +54,23 @@ COPY ci/build-wrapper.sh ci/
 # The script, not a bare `cargo build`: the static-linkage check and the size
 # budget are the two properties that make this file safe to mount into somebody
 # else's container, and duplicating them here would let them drift from the ones
-# CI enforces. It writes a checksum next to the binary as well; that copy stays
-# in this stage, because the image below holds one file and the checksum of a
-# file that sits beside it is worth nothing anyway.
-RUN sh ci/build-wrapper.sh /out
+# CI enforces.
+#
+# It names the binary after its target triple, and the two lines after the build
+# undo that here rather than naming the triple in the `COPY` below. The triple is
+# then defined in `ci/build-wrapper.sh` and nowhere else, which is the whole point:
+# `1f82928` renamed the asset in that script and in `release.yml` and left this
+# file copying `/out/ciphr-run`, so `v0.6.0` published its server image and failed
+# to build its wrapper. The path *inside* the image is fixed by ADR-14 and by every
+# document that says `docker cp …:/ciphr-run`, so it must not follow the asset name.
+#
+# The checksum is removed rather than kept: it would otherwise match the glob, and
+# the checksum of a file sitting beside the file is worth nothing anyway. A glob
+# that ever matches two binaries makes `mv` fail loudly, which is the right
+# direction for the day a second architecture appears.
+RUN sh ci/build-wrapper.sh /out && \
+    rm -f /out/*.sha256 && \
+    mv /out/ciphr-run-* /out/ciphr-run
 
 # ── Stage 2: the artefact ────────────────────────────────────────────────────
 FROM scratch

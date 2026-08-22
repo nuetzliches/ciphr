@@ -1,6 +1,7 @@
 # Upgrading
 
-**Status:** current as of 2026-08-22, covering every released version up to `0.6.0`.
+**Status:** current as of 2026-08-22, covering every released version up to `0.6.0` plus the
+unreleased change below.
 
 The changelog says what changed. This says what to *do* about it, and it exists because the two are
 not the same document: a changelog entry sinks under the next release, while the person upgrading two
@@ -69,6 +70,22 @@ deployment and most deployments should have `viewer_api` off. What it prints is 
 the binary knows and the mark against the ones this file did not name, which is the only place that
 question is answered — an entry that is off is absent from the router, so its `404` is byte-identical
 to a typo'd path.
+
+## Unreleased
+
+### `0.6.0` is a partial release — take `0.6.1`
+
+The wrapper image `…/run:0.6.0` does not exist, and neither do the `v0.6.0` release assets: that build
+failed after the server image had already been published. Nothing is wrong with the server image —
+`0.6.1` is the same code — but a host that mounts `ciphr-run` cannot obtain the `0.6.0` copy, and the
+fetch sequence in [wrapper.md](wrapper.md) needs `0.6.1`.
+
+**What to do:** pin `0.6.1` for both images. There is no schema move and no configuration difference
+between them, so if the server is already on `0.6.0` this is an ordinary re-pin at the next
+convenient moment rather than something to hurry.
+
+**Not affected:** anything already mounted. A wrapper file on a host keeps working; this is about
+where a *new* copy comes from.
 
 ## 0.6.0
 

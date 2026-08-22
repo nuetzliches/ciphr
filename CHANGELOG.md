@@ -8,6 +8,35 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — `v0.6.0` could not build its wrapper image, so it published half of its artefacts
+
+`1f82928` renamed the release asset to carry its target triple: in
+[`ci/build-wrapper.sh`](ci/build-wrapper.sh), which derives the name from `$TARGET`, and in
+`release.yml`, which declares it once for three steps. **`Dockerfile.run` was the third consumer and
+kept copying `/out/ciphr-run`** — a path that stops existing the moment the script runs. Nothing
+caught it, because nothing builds that file except a release: CI builds the wrapper *binary* with the
+same script and holds it to its linkage and size budget, while the image around it is built only by
+the release workflow and the mirror.
+
+So `v0.6.0` is a partial release. The server image `0.6.0` was published and `:latest` moved to it;
+the wrapper image and both release assets were not. **`v0.6.1` publishes the same code with the
+wrapper included, and the tag `v0.6.0` stays where it is** — a tag that moves is the thing this
+project pins digests against, and rebuilding that tag would overwrite a server image already
+published from it. The same answer `ui-v0.1.1` gave to the same question.
+
+**The fix leaves the triple named in one place instead of three.** The builder stage normalizes the
+file name after running the script, so `Dockerfile.run` names no target at all, and the path *inside*
+the image stays `/ciphr-run` — which it has to, because ADR-14 and every document that says
+`docker cp …:/ciphr-run` depend on it. The checksum the script writes is deleted rather than kept, so
+it cannot match the glob, and a glob that ever matches two binaries makes the build fail loudly
+instead of picking one. Verified by building the image, not by reading it.
+
+**What would have caught this is a CI step that builds `Dockerfile.run`**, and that is a decision with
+a price: the wrapper job roughly doubles, on every push, to exercise a file that changes rarely. It is
+recorded here as a choice rather than made quietly — the same shape of argument `31732b7` made when it
+added the default-build configuration to CI, and that one was worth its cost because it ran on every
+release.
+
 ## [0.6.0] — 2026-08-22
 
 **The release where operating a deployment stops being a procedure and starts being a command.**
