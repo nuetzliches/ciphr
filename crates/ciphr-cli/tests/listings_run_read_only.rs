@@ -234,10 +234,7 @@ fn a_listing_writes_no_audit_entry() {
     // politeness rather than access. The server's `list` entries are unaffected.
     let trail = std::fs::read_to_string(&audit).expect("audit file");
     assert_eq!(
-        trail
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .count(),
+        trail.lines().filter(|line| !line.trim().is_empty()).count(),
         before,
         "a listing must leave the trail exactly as it was: {trail}"
     );
