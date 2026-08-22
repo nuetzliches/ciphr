@@ -1,7 +1,6 @@
 # Upgrading
 
-**Status:** current as of 2026-08-22, covering every released version up to `0.5.1` plus the
-unreleased changes below.
+**Status:** current as of 2026-08-22, covering every released version up to `0.6.0`.
 
 The changelog says what changed. This says what to *do* about it, and it exists because the two are
 not the same document: a changelog entry sinks under the next release, while the person upgrading two
@@ -71,7 +70,7 @@ the binary knows and the mark against the ones this file did not name, which is 
 question is answered — an entry that is off is absent from the router, so its `404` is byte-identical
 to a typo'd path.
 
-## Unreleased
+## 0.6.0
 
 ### Use `ciphr backup` for the backup this document asks for
 

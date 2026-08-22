@@ -58,7 +58,7 @@ documented, and that does not change a line here.
 
 Two phases are planned and not built, and as of 2026-08-20 they are in different states.
 
-**Phase 8**, honeypots and tripwires, is **built and unreleased as of 2026-08-21**, in the `alert`
+**Phase 8**, honeypots and tripwires, is **released in `v0.5.0`**, in the `alert`
 tier only. `disable-identity` and `freeze` remain designed and deliberately absent, because the severe
 tiers are worth their cost only once one machine identity no longer serves every deploy target. It
 ships behind the `honeypot_alert` surface entry (ADR-20) and is therefore **absent from a default

@@ -1,8 +1,8 @@
 # Backups and restores
 
-**Status:** current as of 2026-08-21. Every procedure below uses a command that exists. `ciphr
-backup` is **unreleased** as of this date — it lands in the next release, and a deployment on `0.5.1`
-or earlier has the file-level procedure below and nothing else.
+**Status:** current as of 2026-08-22. Every procedure below uses a command that exists. `ciphr
+backup` **is released in `0.6.0`** — a deployment on `0.5.1` or earlier has the file-level procedure
+below and nothing else.
 
 The rule about the master key was written down first, in [master-key.md](master-key.md), because it
 is the one whose violation is unrecoverable. This document is the rest of it: what a backup has to
@@ -222,8 +222,8 @@ committed write — but it is data, and copying `store.db` alone throws it away.
 
 **Up to and including `0.5.1`, the ordinary stop was the abrupt one.** The graceful shutdown awaited
 `tokio::signal::ctrl_c`, which on Unix is SIGINT and nothing else, while a container stop sends
-SIGTERM — so the process was terminated and the database was not closed. That is fixed in the same
-unreleased change that adds `ciphr backup`, and it does not change what to do here: check for the
+SIGTERM — so the process was terminated and the database was not closed. That is fixed in `0.6.0`, the same
+release that adds `ciphr backup`, and it does not change what to do here: check for the
 `-wal` rather than reasoning about which kind of stop happened. A killed container still leaves one,
 and that is not a case any release removes.
 

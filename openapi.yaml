@@ -35,14 +35,14 @@ openapi: 3.1.0
 info:
   title: ciphr
   # Tracks the release, not the path prefix. The paths are `/v1/…` and that prefix is
-  # stable; the product is 0.5.1, and calling this document 1.0.0 would claim a
+  # stable; the product is 0.6.0, and calling this document 1.0.0 would claim a
   # stability guarantee that has not been earned. Two reasons now, and the second is
   # new with this release: the external review of the crypto and authorization crates
   # happened on 2026-08-21 and read three crates rather than this API — the server,
   # its configuration and its TLS setup are on that record's own list of what it did
   # not read — and the honeypot surface added afterwards is newer than that review's
   # acceptance, which `docs/security-review.md` marks where it stands.
-  version: "0.5.1"
+  version: "0.6.0"
   summary: A secret manager for machine identities.
   description: |
     Key/value secrets, gap-free access auditing, and path-based authorization.

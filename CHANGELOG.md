@@ -8,6 +8,32 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-08-22
+
+**The release where operating a deployment stops being a procedure and starts being a command.**
+`ciphr backup` takes the copy ADR-7 promised in the first week and nothing implemented; `ciphr state`
+derives the files a deployment has to keep from that deployment's own configuration instead of from a
+table somebody maintains; and the metadata listings answer *while the service runs*, where before the
+question "is this token still valid" cost the outage it was asked during. Nothing migrates — the
+schema stays at 6 — so a rollback to `0.5.1` needs neither a restore nor a configuration edit.
+
+**One fix here is the kind only a new artefact can deliver.** `docker stop` sends SIGTERM and the
+graceful shutdown awaited SIGINT, so an ordinary container stop terminated the process: a request
+already recorded in the audit trail and not yet answered was dropped, leaving an entry for an access
+the client never received. Every running `0.5.1` behaves that way and no configuration changes it.
+
+**Two things to do rather than merely know**, both in [`docs/operations/upgrade.md`](docs/operations/upgrade.md).
+The release asset is now `ciphr-run-x86_64-unknown-linux-musl`: a fetch script naming the old file
+fails loudly, deliberately, with no compatibility copy published beside it. And the CLI's metadata
+listings no longer write audit entries (ADR-22), so an alert or report that counted host-side listing
+entries counts zero from here on — the note says what stays audited, and why that count was never the
+measure it looked like.
+
+**What this release does not change** is the coverage debt: `honeypot_alert` is still absent from the
+default build, and the three claims in [`docs/security-review.md`](docs/security-review.md) marked
+newer than the accepted review — C11, C12, D10 — are still newer than it. Turning that entry on is
+still a decision to run unreviewed code on the authentication path.
+
 **A review of `v0.5.1` by the deployment that filed the report it answers**, recorded in
 [`docs/review-0.5.1-2026-08-21.md`](docs/review-0.5.1-2026-08-21.md). It confirms all four findings
 answered and the corrected `bulk_export` sentence accurate against the code it describes — read end
@@ -2978,7 +3004,8 @@ first production use.
   decision.
 - `AGENTS.md` with the working rules, and `SECURITY.md` with the disclosure process and scope.
 
-[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.5.1...main
+[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.6.0...main
+[0.6.0]: https://github.com/nuetzliches/ciphr/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/nuetzliches/ciphr/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/nuetzliches/ciphr/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/nuetzliches/ciphr/compare/v0.3.0...v0.4.0

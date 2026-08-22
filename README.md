@@ -4,7 +4,7 @@ A small secret manager for machine identities: key/value secrets, gap-free acces
 and path-based authorization. The name contains *CI* — the primary consumer is a build and
 deploy pipeline, not a human.
 
-> **Status: v0.5.1 released.** Usable end to end: envelope encryption with master key rotation,
+> **Status: v0.6.0 released.** Usable end to end: envelope encryption with master key rotation,
 > SQLite with migrations, the policy evaluator, the fail-closed hash-chained audit trail, the HTTPS
 > API with token authentication, and the `ciphr` CLI. Since v0.1.0: the audit anchor and the
 > retention cut that bounds the trail (`ciphr audit anchor`, `ciphr audit cut`), one rule for
@@ -15,7 +15,18 @@ deploy pipeline, not a human.
 > on the wire and in the viewer, and setting one is recorded in the audit trail. Since v0.3.0: issuing
 > and revoking a credential is in the audit trail, and the six findings of the external review are
 > answered — two fixed as defects, two more found by the same reading, two answered as prose that
-> claimed more than the code did. Since v0.4.0: optional surface entries, and honeypots.
+> claimed more than the code did. Since v0.4.0: optional surface entries, and honeypots. Since
+> v0.5.1: a backup command, a report of the files a deployment has to keep, and listings that
+> answer while the service runs.
+>
+> **v0.6.0 is the release that makes operating this a matter of commands.** `ciphr backup` takes a
+> copy that cannot be torn and needs neither the store lock nor the master key; `ciphr state`
+> derives the files to keep from the deployment's own configuration and exits non-zero when one it
+> requires is missing; a container stop runs the graceful shutdown at last (SIGTERM was never
+> handled); and the metadata listings answer read-only while the service runs — which also means
+> they no longer appear in the audit trail (ADR-22). Two things to do rather than know: the release
+> asset is now `ciphr-run-x86_64-unknown-linux-musl`, and an alert that counted host-side listing
+> entries counts zero from here on. Nothing migrates; the schema stays at 6.
 >
 > **v0.5.1 is a correction release**, and the correction worth knowing about is a claim this project
 > made about itself: `bulk_export`'s recorded cost said that turning the entry off removes fetched
