@@ -52,8 +52,9 @@ use std::path::{Path, PathBuf};
 use crate::chain::{HASH_LEN, hash_payload};
 use crate::verify::StoredRecord;
 
-/// Length of the suffix [`crate::FileDevice`] gives a rotated file: an RFC 3339
-/// timestamp with its colons replaced, as in `2026-08-19T21-04-07.912Z`.
+/// Length of the timestamp part of the suffix [`crate::FileDevice`] gives a rotated
+/// file: an RFC 3339 timestamp with its colons replaced, as in
+/// `2026-08-19T21-04-07.912Z`. The closing sequence follows it after a dash.
 const STAMP_LEN: usize = 24;
 
 /// Which records an archive holds, and which it does not.
@@ -94,14 +95,19 @@ impl Coverage {
 
 /// The files belonging to one file device: the live file and its rotated siblings.
 ///
-/// A rotated file is the live path plus `.` and the timestamp
+/// A rotated file is the live path plus `.`, the timestamp and the sequence
 /// [`crate::FileDevice`] renames with, so the set is recognized by that shape rather
 /// than by "everything beside it". The narrower rule is deliberate: a compressed or
 /// archived copy is not JSON Lines, and reading one as text would count garbage lines
 /// as records.
 ///
-/// The live file is first; the rotated ones follow in name order, which for this stamp
-/// is time order. A path that does not exist yields an empty set rather than an error —
+/// The live file is first; the rotated ones follow in name order, which the timestamp
+/// makes time order down to the millisecond. Two archives *inside* one millisecond sort
+/// by their sequence as text rather than as a number, so `-9` follows `-10`; nothing
+/// here depends on their relative order, and saying so is cheaper than padding every
+/// name in every archive to fix a tie that only a burst produces.
+///
+/// A path that does not exist yields an empty set rather than an error —
 /// a device that has never written is not a broken one.
 ///
 /// # Errors
@@ -157,16 +163,30 @@ pub fn rotation_set(path: impl AsRef<Path>) -> std::io::Result<Vec<PathBuf>> {
     Ok(set)
 }
 
-/// Whether a suffix is the timestamp a rotation appends.
+/// Whether a suffix is one a rotation appends.
 ///
-/// Shape only, not a date: `2026-13-45T99-99-99.999Z` passes. This decides which files
-/// to read, and a reader that rejected a file because a clock had once been wrong would
-/// be refusing to look at evidence over a formatting opinion.
+/// Two shapes, because the name gained a part: the timestamp alone, which is what
+/// rotation wrote up to `0.6.1`, and the timestamp followed by `-` and the sequence the
+/// archive closes at, which is what it writes since finding F6. Both are recognized, and
+/// that is not politeness — an archive written by an older build is evidence, and a reader
+/// that skipped it would report records as unarchived and tell an operator to keep
+/// something they already have.
+///
+/// Shape only, not a date: `2026-13-45T99-99-99.999Z` passes. This decides which files to
+/// read, and a reader that rejected a file because a clock had once been wrong would be
+/// refusing to look at evidence over a formatting opinion.
 fn is_rotation_stamp(suffix: &str) -> bool {
-    if suffix.len() != STAMP_LEN || !suffix.ends_with('Z') {
+    // `get` rather than slicing: a suffix shorter than the stamp, or one whose bytes do
+    // not divide there, is simply not a rotation.
+    let (Some(stamp), Some(tail)) = (suffix.get(..STAMP_LEN), suffix.get(STAMP_LEN..)) else {
+        return false;
+    };
+
+    if !stamp.ends_with('Z') {
         return false;
     }
-    suffix.chars().enumerate().all(|(index, character)| {
+
+    let shaped = stamp.chars().enumerate().all(|(index, character)| {
         match index {
             4 | 7 | 13 | 16 => character == '-',
             10 => character == 'T',
@@ -176,7 +196,32 @@ fn is_rotation_stamp(suffix: &str) -> bool {
             // RFC 3339 and are dashes in a file name.
             _ => character.is_ascii_digit(),
         }
-    })
+    });
+
+    shaped && is_archive_tail(tail)
+}
+
+/// What may follow the timestamp in an archive name.
+///
+/// Nothing, for a file written before the sequence was part of the name. Or `-` and the
+/// closing sequence. Or that, plus `.` and a counter — which rotation only ever reaches if
+/// something outside this process took the name first, and which is recognized here so
+/// that such a file is still read rather than silently left out of the set.
+fn is_archive_tail(tail: &str) -> bool {
+    if tail.is_empty() {
+        return true;
+    }
+
+    let Some(rest) = tail.strip_prefix('-') else {
+        return false;
+    };
+    let (sequence, counter) = match rest.split_once('.') {
+        Some((sequence, counter)) => (sequence, Some(counter)),
+        None => (rest, None),
+    };
+
+    let digits = |text: &str| !text.is_empty() && text.chars().all(|c| c.is_ascii_digit());
+    digits(sequence) && counter.is_none_or(digits)
 }
 
 /// Which of `wanted` appear in `files`, byte for byte.
@@ -455,7 +500,6 @@ mod tests {
         assert!(is_rotation_stamp("0000-01-01T00-00-00.000Z"));
         assert!(!is_rotation_stamp("2026-08-19T21:04:07.912Z"), "colons");
         assert!(!is_rotation_stamp("2026-08-19T21-04-07.912"), "no Z");
-        assert!(!is_rotation_stamp("2026-08-19T21-04-07.912Z0"), "too long");
         assert!(!is_rotation_stamp(""));
         assert_eq!(
             crate::time::rfc3339_millis(1_767_225_600_000)
@@ -463,6 +507,36 @@ mod tests {
                 .len(),
             super::STAMP_LEN,
             "the expected length has to be what a rotation actually writes"
+        );
+    }
+
+    /// The sequence half of the name, which is what finding F6 added.
+    ///
+    /// A reader that took the timestamp alone would stop seeing archives the moment
+    /// rotation started naming them after the record they close at — every one of them,
+    /// which is a worse failure than the collision it was fixing.
+    #[test]
+    fn an_archive_named_after_its_closing_sequence_is_still_a_rotation() {
+        assert!(is_rotation_stamp("2026-08-19T21-04-07.912Z-273"));
+        assert!(is_rotation_stamp("2026-08-19T21-04-07.912Z-1"));
+        // The counter, for a name something outside this process had already taken.
+        assert!(is_rotation_stamp("2026-08-19T21-04-07.912Z-273.1"));
+
+        // And the older shape stays a rotation, because an archive an earlier build wrote
+        // is evidence: skipping it would report its records as unarchived and tell an
+        // operator to keep what they already have.
+        assert!(is_rotation_stamp("2026-08-19T21-04-07.912Z"));
+
+        // Not everything after the stamp is a sequence.
+        assert!(!is_rotation_stamp("2026-08-19T21-04-07.912Z0"), "no dash");
+        assert!(!is_rotation_stamp("2026-08-19T21-04-07.912Z-"), "no digits");
+        assert!(
+            !is_rotation_stamp("2026-08-19T21-04-07.912Z-273.gz"),
+            "a compressed archive is not JSON Lines and must not be read as text"
+        );
+        assert!(
+            !is_rotation_stamp("2026-08-19T21-04-07.912Z-abc"),
+            "a sequence is digits"
         );
     }
 }

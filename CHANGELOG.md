@@ -192,6 +192,41 @@ after it, asserting that exactly one line equals the delimiter, that it is the l
 value went out unchanged. Plus one that two renders of the same value do not share a delimiter, which
 is what fails if the randomness is not there.
 
+### Fixed — two audit rotations in one millisecond aimed at one file name
+
+Finding F6 of [`docs/review-2026-08-21-current-tree.md`](docs/review-2026-08-21-current-tree.md) —
+medium, high confidence — filed as [issue #11](https://github.com/nuetzliches/ciphr/issues/11).
+
+A rotated audit file was named after the timestamp of the record that triggered the rotation, and
+nothing else. Two rotations sharing a millisecond therefore targeted one path, and `fs::rename`
+answers that differently on each platform: **it replaces the earlier archive on Unix and refuses on
+Windows.** One loses a segment of the trail; the other takes the file device down. Getting there needs
+only a small rotation threshold, a burst of records, or a clock that steps backwards.
+
+That is worse here than a name collision usually is. The trail is one of the four assets this project
+protects, `audit verify` walks a chain and `--anchor` compares it against a head recorded outside the
+store — so a replaced archive is a gap that verification finds *later*, during whatever made somebody
+look. And auditing is fail-closed per device: requests keep succeeding while one device has quietly
+stopped being complete, which is the case `docs/ui.md` argues is worth putting on a screen.
+
+**The name now carries the sequence the archive closes at**, after the timestamp:
+`audit.jsonl.2026-08-19T21-04-07.912Z-273` is the file whose last record is number 273. Sequences are
+unique per record, so two archives cannot collide however fast they rotate — and the name says
+something an operator wants anyway. **And rotation never replaces a file:** if the name is somehow
+taken, it takes the next free one and refuses after a hundred rather than overwriting.
+
+**The reader follows, and keeps reading the old shape.** `rotation_set` recognizes an archive by the
+shape of its suffix, so the sequence had to be added there too — and the timestamp-only name stays
+recognized, because an archive written by an earlier build is evidence. A reader that skipped it would
+report its records as unarchived and tell an operator to keep what they already have.
+
+**Tests.** Six records at one hard-coded millisecond, forcing several rotations at the same timestamp:
+every archive name distinct, and every record still on disk exactly once across the set. One that the
+name carries the sequence of the last record *in* the archive rather than the first of the next file.
+And the recognizer's boundaries: the new shape, the collision counter, the old shape, and the things
+that only look like a sequence — `-abc`, a bare `-`, and `.gz`, which must stay out because a
+compressed archive read as text would count garbage lines as records.
+
 ## [0.6.1] — 2026-08-22
 
 **The release that finishes `0.6.0`.** Same code, same schema, no configuration change — the one

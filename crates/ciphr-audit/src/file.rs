@@ -28,6 +28,14 @@ use crate::chain::EncodedRecord;
 use crate::device::AuditDevice;
 use crate::time::rfc3339_millis;
 
+/// How many archives may share one timestamp-and-sequence suffix before rotation
+/// refuses.
+///
+/// Reachable only if something outside this process is creating files with these
+/// names, because the sequence is unique per record. A bound rather than an unbounded
+/// loop, so that case ends in an error naming the path instead of spinning.
+const ATTEMPTS_PER_STAMP: u32 = 100;
+
 /// An audit device that appends JSON Lines to a file.
 pub struct FileDevice {
     name: String,
@@ -71,13 +79,59 @@ impl FileDevice {
         self.written
     }
 
-    fn rotate(&mut self, now_millis: i64) -> std::io::Result<()> {
+    /// Move the current file aside and start a new one.
+    ///
+    /// The name carries the timestamp **and** the sequence of the last record in the file
+    /// being closed, and it never replaces a file that is already there. Finding F6 of
+    /// `docs/review-2026-08-21-current-tree.md`: the name was the timestamp alone, so two
+    /// rotations in the same millisecond targeted one path — which `fs::rename` answers by
+    /// replacing the earlier archive on Unix and by failing on Windows. One loses a
+    /// segment of the trail; the other takes the device down. A small rotation threshold,
+    /// a burst of records, or a clock that steps backwards is all it takes to get there.
+    ///
+    /// That matters more here than a name collision usually would. `ciphr audit verify`
+    /// walks a chain and `--anchor` compares it against a head recorded outside the store,
+    /// so a replaced archive is a gap that verification finds *later* — and auditing is
+    /// fail-closed per device, so requests keep succeeding while one device has quietly
+    /// stopped being complete.
+    fn rotate(&mut self, now_millis: i64, next_seq: u64) -> std::io::Result<()> {
         // A timestamp rather than a rolling `.1`, `.2`: renaming a chain of files
         // is more moving parts, and a name that says when the file was closed is
         // more useful when someone is looking for a particular day.
         let stamp = rfc3339_millis(now_millis).replace(':', "-");
-        let mut rotated = self.path.clone().into_os_string();
-        rotated.push(format!(".{stamp}"));
+
+        // The sequence of the last record that is *in* the file being closed. Rotation
+        // happens before the record that would overflow the limit, so that is one below
+        // the record about to be written. `saturating_sub` for a case that cannot occur --
+        // rotation requires a non-empty file, so `next_seq` is at least two -- rather than
+        // an underflow that would name an archive after `u64::MAX`.
+        let closing = next_seq.saturating_sub(1);
+        let suffix = format!(".{stamp}-{closing}");
+
+        // Never replace an archive. `fs::rename` overwrites silently on Unix and refuses
+        // on Windows, so "that name is taken" is a case this has to answer itself instead
+        // of inheriting one of two bad answers from the platform.
+        //
+        // Not the racy shape a check-then-act on a shared file would be: one process
+        // writes this file at a time, and the store lock is what guarantees it. Anything
+        // that could take the name between these two lines is outside the deployment, and
+        // for that the loop is what protects the archive rather than the check.
+        let mut rotated = self.archive_path(&suffix);
+        for attempt in 1..=ATTEMPTS_PER_STAMP {
+            if !rotated.exists() {
+                break;
+            }
+            rotated = self.archive_path(&format!("{suffix}.{attempt}"));
+        }
+        if rotated.exists() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                format!(
+                    "{ATTEMPTS_PER_STAMP} archives already exist for {}{suffix}",
+                    self.path.display()
+                ),
+            ));
+        }
 
         std::fs::rename(&self.path, &rotated)?;
         self.file = OpenOptions::new()
@@ -86,6 +140,16 @@ impl FileDevice {
             .open(&self.path)?;
         self.written = 0;
         Ok(())
+    }
+
+    /// The live path with one suffix appended.
+    ///
+    /// Built through `OsString` rather than `with_extension`, which would replace
+    /// `.jsonl` instead of adding to it.
+    fn archive_path(&self, suffix: &str) -> PathBuf {
+        let mut name = self.path.clone().into_os_string();
+        name.push(suffix);
+        PathBuf::from(name)
     }
 }
 
@@ -106,7 +170,7 @@ impl AuditDevice for FileDevice {
             && self.written > 0
             && self.written + line_len > limit
         {
-            self.rotate(record.ts_millis)
+            self.rotate(record.ts_millis, record.seq)
                 .map_err(|error| format!("could not rotate {}: {error}", self.path.display()))?;
         }
 
@@ -267,6 +331,104 @@ mod tests {
                 "a record went missing"
             );
         }
+    }
+
+    /// Finding F6: two rotations in one millisecond used to be one file name.
+    ///
+    /// Every record here carries the *same* timestamp, so the name that used to be the
+    /// whole suffix is the same for all of them. What that produced depended on the
+    /// platform, and both answers were wrong: `fs::rename` replaces silently on Unix — the
+    /// earlier archive, and the records in it, gone — and refuses on Windows, which takes
+    /// the device down. The trail is a protected asset in its own right, and a segment that
+    /// disappears is a gap `audit verify` finds later, during whatever made somebody look.
+    #[test]
+    fn rotations_in_the_same_millisecond_do_not_overwrite_each_other() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("audit.jsonl");
+
+        let mut sink = AuditSink::new(
+            vec![Box::new(FileDevice::open(&path, Some(200)).expect("open"))],
+            Chain::new(),
+        )
+        .expect("sink");
+
+        // One clock reading for all of them: a burst inside a millisecond, or a clock that
+        // stepped back onto one.
+        let mut hashes = Vec::new();
+        for _ in 0..6 {
+            hashes.push(
+                sink.record(&Entry::allowed(Action::Read), 1_700_000_000_000)
+                    .expect("write")
+                    .hash,
+            );
+        }
+
+        let archives: Vec<_> = std::fs::read_dir(directory.path())
+            .expect("read dir")
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name() != "audit.jsonl")
+            .map(|entry| entry.path())
+            .collect();
+        assert!(
+            archives.len() > 1,
+            "the point of this test is more than one rotation at one timestamp, got {archives:?}"
+        );
+
+        // The closing sequence is what separates them, so no two share a name.
+        let mut names: Vec<_> = archives
+            .iter()
+            .map(|path| path.file_name().expect("a name").to_owned())
+            .collect();
+        names.sort();
+        names.dedup();
+        assert_eq!(names.len(), archives.len(), "archive names must be unique");
+
+        // And nothing was lost, which is the property the names exist to protect.
+        let mut lines = read_lines(&path);
+        for archive in &archives {
+            lines.extend(read_lines(archive));
+        }
+        assert_eq!(lines.len(), 6, "no line may be lost to a rotation");
+        for hash in hashes {
+            assert!(
+                lines
+                    .iter()
+                    .any(|line| hash_payload(line.as_bytes()) == hash),
+                "a record went missing"
+            );
+        }
+    }
+
+    /// The archive is named after the last record in it, not the first of the next file.
+    #[test]
+    fn the_archive_name_carries_the_sequence_it_closes_at() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("audit.jsonl");
+
+        let mut sink = AuditSink::new(
+            vec![Box::new(FileDevice::open(&path, Some(200)).expect("open"))],
+            Chain::new(),
+        )
+        .expect("sink");
+
+        // Two records, one rotation: the archive holds sequence 1 and the live file gets 2.
+        for tick in 1..=2_i64 {
+            sink.record(&Entry::allowed(Action::Read), tick)
+                .expect("write");
+        }
+
+        let archive = std::fs::read_dir(directory.path())
+            .expect("read dir")
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .find(|name| name != "audit.jsonl")
+            .expect("one rotation");
+
+        assert!(
+            archive.ends_with("-1"),
+            "the name says which record the archive ends at, got {archive:?}"
+        );
+        assert_eq!(read_lines(&path).len(), 1, "the live file holds the second");
     }
 
     #[test]
