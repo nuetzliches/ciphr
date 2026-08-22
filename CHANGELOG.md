@@ -13,6 +13,58 @@ This file is updated in the same commit as the change it describes.
 answered and the corrected `bulk_export` sentence accurate against the code it describes — read end
 to end, not taken from the changelog. Three things it asked for, and four smaller ones.
 
+### Fixed — the changelog lost the section saying what `0.5.1` shipped, and a gate now holds that line
+
+`15191e1` deleted the line `## [0.5.1] — 2026-08-21` while inserting its own entries at that
+position, and nothing here noticed: `cargo fmt`, `clippy`, the tests and every gate are indifferent
+to a markdown heading, and [`ci/check-changelog.sh`](ci/check-changelog.sh) only asks whether the
+file was touched at all. The result was a tree whose `Cargo.toml` said `0.5.1` while the changelog's
+newest release was `0.5.0` — so **everything `0.5.1` shipped sat under `[Unreleased]`, where this
+release's heading would have claimed it**, and the only remaining record of what that release
+contained was a commit body. The section is restored verbatim from the tag.
+
+**The release commit had left the other half undone from the start.** `[0.5.1]` never got a compare
+link, and `[Unreleased]` kept comparing from `v0.5.0` — so the link a reader follows for "what is not
+released yet" returned one release too much, which is also why the deleted heading stayed invisible.
+Both are corrected.
+
+**`ci/check-changelog-releases.sh` makes the state unreachable**, and the invariant it checks needs
+neither a tag nor a network because it holds in both states this repository is ever in: between
+releases `Cargo.toml` carries the last released version, and in a release commit it carries the new
+one. Either way that version has a section, and that section is the newest. It also checks both
+directions of the link section — a heading without a definition, a definition without a heading — and
+that `[Unreleased]` compares from the newest release.
+
+**Measured against the history rather than reasoned about.** It passes on `v0.1.0` through `v0.5.0` as
+those tags were published, fails on the tree before this commit naming the missing section, and fails
+on `v0.5.1` as published naming the missing link *and* the stale `[Unreleased]` — so it would have
+caught this at the moment it was made, which is the only test of a gate that matters. It runs in the
+job that runs on a tag push too, unlike the range gates: "does the version in this tree have a
+section of its own" is exactly the question a release asks.
+
+**What it does not check**, in the same spirit as the gates around it: whether the entries under a
+heading describe what that version actually shipped (a reader's job), whether a section's date is the
+day the tag was pushed, and anything about git tags at all — a gate that passes because a shallow
+clone gave it nothing to compare is worse than no gate.
+
+### Documentation — the two unreleased changes that had no upgrade note
+
+[`docs/operations/upgrade.md`](docs/operations/upgrade.md) carried notes for the backup command, the
+SIGTERM fix, the rotation class and the renamed release asset, and none for the two changes with the
+most for an operator to do or know.
+
+**The read-only listings needed one most**, because the thing to do is not in the code: `ciphr list`,
+`versions`, `rotation <path>` and `token list` stop writing audit entries, so an alert or a report
+that counted host-side listing entries counts zero from this version on. The note says that, says
+what stays audited and why (`get` spends the master key; the API's `list` still records an
+authorization a caller cannot route around), and says that the count was never the measure it looked
+like — the same rows are readable with `sqlite3` and leave nothing behind. The lock refusal that now
+names the live route is there too, with the reason it announces rather than routes.
+
+**`ciphr state` gets the ordering that is its whole value:** run it *before* the service is stopped.
+A file the configuration requires and does not have is a service that will not start, and finding it
+while the old one is still serving is a correction rather than an outage.
+
 ### Added — `ciphr state`, so the file set is derived from the configuration instead of remembered
 
 *What do I have to keep* had no machine-readable answer. The file set lived in a table in
@@ -517,6 +569,8 @@ with the answer itself. Bypassability breaks the tie, it does not carry the deci
 2026-08-21 field report moved from supporting evidence to the load-bearing kind: the second
 `sqlite3` connection an operator opened beside the running server is the "channel that records
 less" the original comment warned about — manufactured by the rule that warned about it.
+
+## [0.5.1] — 2026-08-21
 
 **The release that corrects `0.5.0` rather than adding to it**, and the first patch release here.
 Nothing breaks, nothing migrates, the schema stays at 6 and no interface moves — a rollback to `0.5.0`
@@ -2924,7 +2978,8 @@ first production use.
   decision.
 - `AGENTS.md` with the working rules, and `SECURITY.md` with the disclosure process and scope.
 
-[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.5.0...main
+[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.5.1...main
+[0.5.1]: https://github.com/nuetzliches/ciphr/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/nuetzliches/ciphr/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/nuetzliches/ciphr/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/nuetzliches/ciphr/compare/v0.2.0...v0.3.0

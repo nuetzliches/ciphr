@@ -136,6 +136,16 @@ jobs:
       - name: Documented commands exist
         run: sh ci/check-doc-commands.sh
 
+      # The changelog's release bookkeeping, which nothing noticed was missing:
+      # the commit that tagged `0.5.1` never added its compare link, and a later
+      # commit deleted the heading itself while inserting entries at that
+      # position. This runs on a tag push too -- unlike the range gates in the
+      # job below, which a tag deliberately skips -- because "does the version in
+      # this tree have a section of its own" is exactly the question a release
+      # asks.
+      - name: The released version has its own changelog section
+        run: sh ci/check-changelog-releases.sh
+
       # The gates above are shell scripts, and until 2026-08-20 nothing checked
       # them. That is the wrong way round: they are what enforces every other
       # rule here, so a defect in one silently stops enforcing something. Two of

@@ -1,6 +1,7 @@
 # Honeypots: planting bait, and what to do when it fires
 
-**Status:** written 2026-08-21, describing the `alert` tier as built. The severe tiers of
+**Status:** written 2026-08-21, revised 2026-08-22 (step 3 says that revoking stops the service, and
+step 2 now runs while it is up), describing the `alert` tier as built. The severe tiers of
 [ADR-15](../adr/0015-honeypots-and-what-a-tripwire-may-do.md) are designed and not built, and
 [freeze.md](freeze.md) says why.
 

@@ -1,6 +1,6 @@
 # Upgrading
 
-**Status:** current as of 2026-08-21, covering every released version up to `0.5.1` plus the
+**Status:** current as of 2026-08-22, covering every released version up to `0.5.1` plus the
 unreleased changes below.
 
 The changelog says what changed. This says what to *do* about it, and it exists because the two are
@@ -89,6 +89,27 @@ Verifying an existing backup is `ciphr --database <copy> audit verify`, which ne
 **Not affected:** the restore side. A backup taken either way restores the same way, and
 [backup.md](backup.md) has the procedure.
 
+### `ciphr state` answers what has to be kept, and doubles as a pre-flight check
+
+`ciphr state <config>` derives the file set a deployment has to back up from that deployment's own
+configuration, rather than from the table in [backup.md](backup.md) that somebody has to remember to
+edit. **A non-zero exit means a file the configuration requires is not there** — a store before
+`init`, a policy file that did not mount, TLS material that is not where the configuration says. Each
+of those is a service that will not start.
+
+**What to do:** run it before the service is stopped, not after. That ordering is the whole value: a
+missing file found while the old service is still serving is a correction, and the same file found on
+the first start of the new one is an outage. It needs no key and takes no lock.
+
+**Two absences it deliberately reports without failing:** the write-ahead log, which exists only
+between checkpoints, and the audit archive, which the file device creates on its first record — so a
+fresh deployment that has never started legitimately has none. Nothing here can tell that apart from
+an archive somebody deleted, so it says so rather than failing on every new deployment.
+
+**Not affected:** anything running. The command reads a configuration file and stats the paths it
+names; it never opens the store and never reads the master key, and a test asserts the key's value
+does not reach the output.
+
 ### A container stop now runs the graceful shutdown
 
 `docker stop` sends SIGTERM. The graceful shutdown awaited `tokio::signal::ctrl_c`, which on Unix is
@@ -112,8 +133,37 @@ Worth knowing rather than doing: *what has nobody classified yet?* is now answer
 running service — `GET /v1/list/{prefix}?rotation=unclassified` — where before it needed
 `ciphr list --rotation unclassified` on the host with the service **stopped**, because the CLI took
 the exclusive store lock. If a rotation review was scheduled around a maintenance window for that
-reason, it no longer has to be. (Since 2026-08-22 the CLI listing itself runs read-only and answers
-live as well — ADR-22.)
+reason, it no longer has to be. (The CLI listing answers live too now, for a different reason and
+with one thing to do about it — the note below.)
+
+### The CLI's metadata listings answer live now, and stop appearing in the trail
+
+`ciphr list` (including `--rotation`), `ciphr versions`, `ciphr rotation <path>` without a class, and
+`ciphr token list` open the store read-only: no exclusive lock, no master key, **and no audit entry**.
+They answer while the service runs, which is the point — "is this token still valid" and "what has
+nobody classified" are questions asked during an incident, and until now both required stopping the
+secrets service to ask. The reasoning is [ADR-22](../adr/0022-the-trail-records-what-consumed-an-authority.md):
+those columns are plaintext in the database file, so an entry only the polite reader writes measures
+politeness rather than access.
+
+**What to do — one thing, and only if the trail is monitored for them.** A host-side listing stops
+producing an audit entry, so an alert or a report that counted them counts zero from this version on.
+Adjust or retire it, and note why the count was never the measure it looked like: whoever can run
+`ciphr list` can read the same rows with `sqlite3` on the same file and leave nothing behind.
+
+**What did not change:** `get` and every mutation stay audited and session-bound — `get` spends the
+master key, and that entry measures something nobody affected can route around. **The API's `list`
+entries are untouched**, because an API caller cannot read the file; there the entry still records an
+authorization. The audited, authenticated answer to "is this token valid" remains a proposed endpoint,
+not this command.
+
+**Also new, and worth knowing before an incident:** a refusal under the store lock on `get`, `put`,
+`delete` and `export` now also names the equivalent live route (`GET /v1/secrets/{path}` and so on).
+It names it and never calls it — a CLI that silently routed to the API when it found a lock file would
+make one command mean two identities, decided by whether a file exists.
+
+**Not affected:** rollback. An older binary takes the lock and writes the entries again. Nothing in
+the store changes and the schema stays at 6.
 
 ### The `ciphr-run` release asset has a new name
 

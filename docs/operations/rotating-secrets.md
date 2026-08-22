@@ -1,6 +1,6 @@
 # Rotating secrets that do not want to be rotated
 
-**Status:** current as of 2026-08-21. The classification is implemented, stored, readable and
+**Status:** current as of 2026-08-22. The classification is implemented, stored, readable and
 filterable from the CLI, returned by the API, settable over the API since 2026-08-21, filterable
 over the API since 2026-08-21, and shown by the viewer.
 

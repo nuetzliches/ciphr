@@ -160,6 +160,7 @@ sh ci/check-sdk-reexports.sh     # a ciphr-sdk consumer needs no dependency on c
 sh ci/check-docs.sh              # every doc under docs/ carries a date
 sh ci/check-doc-commands.sh      # a command a document tells you to run exists
 sh ci/check-changelog.sh         # a commit touching crates/ also touches CHANGELOG.md
+sh ci/check-changelog-releases.sh # the released version has a section, and every section a link
 sh ci/build-wrapper.sh           # ciphr-run: static musl, verified linkage, size budget
 ```
 
