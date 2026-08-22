@@ -541,13 +541,7 @@ impl ClientBuilder {
             .root_certs(ureq::tls::RootCerts::from(authorities))
             .build();
 
-        let config = ureq::Agent::config_builder()
-            .tls_config(tls)
-            .timeout_global(Some(self.timeout))
-            // Status codes are not errors here: a `403` body says which class of refusal
-            // it is, and this client reads it rather than throwing it away.
-            .http_status_as_error(false)
-            .build();
+        let config = agent_config(tls, self.timeout);
 
         Ok(Client {
             agent: config.new_agent(),
@@ -555,6 +549,39 @@ impl ClientBuilder {
             authorization: SecretString::from(format!("Bearer {}", self.token.expose_secret())),
         })
     }
+}
+
+/// The agent configuration, in one place so that a test can read the same one `build`
+/// uses.
+///
+/// Extracted for exactly that reason: the two settings below are the client's transport
+/// contract, and a test that rebuilt the chain itself could pass while this one drifted.
+fn agent_config(tls: ureq::tls::TlsConfig, timeout: Duration) -> ureq::config::Config {
+    ureq::Agent::config_builder()
+        .tls_config(tls)
+        .timeout_global(Some(timeout))
+        // Status codes are not errors here: a `403` body says which class of refusal
+        // it is, and this client reads it rather than throwing it away.
+        .http_status_as_error(false)
+        // **No redirects**, and that is a transport decision rather than a preference.
+        // Finding F7 of `docs/review-2026-08-21-current-tree.md`: the builder refused a
+        // non-`https` base URL and installed only the deployment CA, and then followed
+        // whatever redirect it was handed. `ureq` strips the authorization header across
+        // those boundaries, so the token was never at risk — but a redirected plaintext
+        // response substituted for a secret is an integrity failure, and a consumer that
+        // fetches its own secrets at startup is the code path least likely to notice one.
+        //
+        // ADR-19 makes a point of what this client cannot do: built without
+        // `webpki-roots`, so a client trusting the public CA set cannot be constructed at
+        // all. Redirects were the one door left open in that story, and **this API has no
+        // redirect contract** — so following one preserves nothing and can only turn a
+        // configuration failure into a substituted value.
+        //
+        // Zero rather than "https only": there is nothing to keep working. A 3xx from this
+        // service is a misconfiguration or an interception, and either way the caller
+        // should see it rather than have it resolved on their behalf.
+        .max_redirects(0)
+        .build()
 }
 
 /// `https://host:port`, without a trailing slash.
@@ -669,6 +696,17 @@ fn status_error(status: u16, body: &str, subject: &str) -> SdkError {
             path: subject.to_owned(),
         },
         503 => SdkError::AuditUnavailable,
+        // A redirect, which `max_redirects(0)` turns into a response instead of a hop.
+        // Named here rather than falling into `Unexpected`, which would report an "error
+        // class" for a body that carries none -- and this is the one status where the
+        // useful thing to tell an operator is what was *not* done.
+        300..=399 => SdkError::Unexpected {
+            status: Some(status),
+            detail: "the service answered with a redirect, which was not followed: this \
+                     API has no redirect contract, so a 3xx is a transport or \
+                     configuration failure rather than a hop to take"
+                .to_owned(),
+        },
         other => SdkError::Unexpected {
             status: Some(other),
             detail: wire.map_or_else(
@@ -692,6 +730,44 @@ mod tests {
     use super::{normalize_base_url, read_authorities, status_error};
     use crate::SdkError;
 
+    /// Finding F7: the client used to follow redirects it had validated nothing about.
+    ///
+    /// Asserted on the configuration rather than against a redirecting server, and that is
+    /// the stronger form here: at zero there is no code path that looks at the target, so
+    /// "HTTPS to HTTP" and "same origin" are the same test — a redirect is not followed
+    /// because redirects are not followed. A pair of behavioural tests would be asserting
+    /// two branches of a decision nothing makes any more.
+    ///
+    /// Read from the same function `build` uses, so the two cannot drift.
+    #[test]
+    fn the_agent_follows_no_redirects() {
+        let tls = ureq::tls::TlsConfig::builder()
+            .provider(ureq::tls::TlsProvider::Rustls)
+            .build();
+        let config = super::agent_config(tls, std::time::Duration::from_secs(5));
+
+        assert_eq!(config.max_redirects(), 0, "no redirect may be followed");
+        // The other half of the transport contract, pinned in the same place: a `403` body
+        // is read rather than thrown away as an error.
+        assert!(!config.http_status_as_error());
+    }
+
+    #[test]
+    fn a_redirect_says_it_was_not_followed() {
+        // What arrives at `decode` once nothing follows the hop. `Unexpected` would report
+        // an "error class" for a 3xx body that has none, and an operator reading that would
+        // look for a broken response instead of a redirect they did not configure.
+        for status in [301, 302, 307, 308] {
+            let error = status_error(status, "", "infra/service-a/DB_PASSWORD");
+            let SdkError::Unexpected { detail, .. } = &error else {
+                panic!("a {status} has to be reported as unexpected, got {error:?}");
+            };
+            assert!(
+                detail.contains("redirect"),
+                "the message has to name what happened, got {detail:?}"
+            );
+        }
+    }
     #[test]
     fn plaintext_transport_is_refused_at_construction() {
         // Not a preference: the payload is plaintext secrets.

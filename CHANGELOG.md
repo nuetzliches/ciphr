@@ -227,6 +227,33 @@ And the recognizer's boundaries: the new shape, the collision counter, the old s
 that only look like a sequence — `-abc`, a bare `-`, and `.gz`, which must stay out because a
 compressed archive read as text would count garbage lines as records.
 
+### Fixed — `ciphr-sdk` followed redirects it had validated nothing about
+
+Finding F7 of [`docs/review-2026-08-21-current-tree.md`](docs/review-2026-08-21-current-tree.md) —
+medium, high confidence — filed as [issue #12](https://github.com/nuetzliches/ciphr/issues/12).
+
+The builder refuses a non-`https` base URL and installs only the deployment CA, and then handed the
+agent its default of ten redirects. `ureq` strips the authorization header across the relevant
+boundaries, so **the bearer token was never at risk** — the failure is the other direction: a
+trusted-but-compromised endpoint or proxy redirects a read to plaintext and substitutes the value the
+application consumes. An integrity failure rather than a disclosure one, in the code path least likely
+to notice: a consumer fetching its own secrets at startup.
+
+**The agent is now built with `max_redirects(0)`.** Zero rather than "https only", because there is
+nothing to keep working: this API has no redirect contract, so any 3xx is a transport or configuration
+failure, and following one can only resolve it on the caller's behalf. The response reaches the caller
+instead, reported as a redirect that was not taken rather than as a body of the wrong shape.
+
+Why the severity is not "a CI convenience": ADR-19 makes a point of what this client *cannot* do — built
+without `webpki-roots`, so a client that trusts the public CA set cannot be constructed at all.
+Redirects were the one door left open in that story, and the ADR now names it.
+
+**One test, not two, and deliberately.** The review asked for HTTPS-to-HTTP and same-origin cases; at
+zero redirects there is no code path that looks at the target, so both are the same assertion. The
+configuration is read from the same function `build` uses — a test that rebuilt the builder chain
+itself could pass while the real one drifted — and a second test pins that a 301, 302, 307 and 308 all
+say what was not done.
+
 ## [0.6.1] — 2026-08-22
 
 **The release that finishes `0.6.0`.** Same code, same schema, no configuration change — the one

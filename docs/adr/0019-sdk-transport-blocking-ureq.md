@@ -43,6 +43,19 @@ Agent". The trust anchor is consequently a required constructor argument in
 future — that reaches the public root set, because the public root set is not linked into the binary.
 ADR-17 becomes a property of the build instead of a rule someone has to remember.
 
+**No redirects, added 2026-08-22.** The transport story above was about which certificates
+the client will accept, and it left the client following whatever redirect it was handed —
+finding F7 of [../review-2026-08-21-current-tree.md](../review-2026-08-21-current-tree.md).
+`ureq` strips the authorization header across those boundaries, so the bearer token was never
+at risk; a redirected plaintext response substituted for a secret is the failure, and a
+consumer that fetches its own secrets at startup is the code path least likely to notice one.
+The agent is now built with `max_redirects(0)`. This API has no redirect contract, so
+following a 3xx preserves nothing and can only resolve a transport failure on the caller's
+behalf; the response reaches them instead, named as a redirect that was not taken.
+
+This amends the record rather than changing the decision: the reason for a narrow transport
+is the one written above, and this is a door in it that the original entry did not name.
+
 The crypto provider is passed to the client explicitly rather than installed as the process default.
 A library that installs a process-wide `CryptoProvider` overrides a decision the consuming
 application may have made for itself.
