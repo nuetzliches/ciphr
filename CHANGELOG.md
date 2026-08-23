@@ -8,6 +8,34 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-08-23
+
+**The release that makes a recommended check into a usable gate.** `0.9.0` made a policy edit
+mandatory and named `--check-config` in review as the way to catch a file that still has the old form.
+Review is the one host that deliberately has no store — and a host with no store and a policy file the
+binary refuses both exited `1`, so the pipeline that was supposed to protect the mandatory edit could
+not tell the finding it runs for from the host it runs on. **A host that is not ready is exit `3` now**,
+the number `ciphr state` already uses for the same shape, and `1` means the files are unusable and
+nothing else. Anything that branches on this command's status wants a look; nothing else in this
+release asks a deployment to do anything.
+
+**Nothing migrates and nothing breaks in the API:** the schema stays at 6, no route changed, no
+capability changed, no default moved. A rollback to `0.9.0` needs the image tag and nothing else.
+
+Three smaller things, all from the same report. `--check-config` now says when a surface entry is on
+and no identity can call it — the case being `token_revoke`, whose bootstrap is an outage this project
+had documented nowhere. An audit device that cannot be opened names the requirement instead of only
+the OS error. And the runbooks say to issue the revoking identity's token before the incident that
+needs it.
+
+**The viewer moves separately, as `ui-v0.3.1`**, and closes issue #10: it refuses to mount while a
+service worker controls its page.
+
+All of it answers
+[`docs/field-report-2026-08-23-b.md`](docs/field-report-2026-08-23-b.md) — three findings, all of them
+about a report that was read rather than acted on. **What to do rather than know is in
+[`docs/operations/upgrade.md`](docs/operations/upgrade.md), section `0.10.0`.**
+
 ### Fixed — the viewer refuses to mount while a service worker controls its page (`ui-v0.3.1`)
 
 **Finding F4 of [`docs/review-2026-08-21-current-tree.md`](docs/review-2026-08-21-current-tree.md),
@@ -3799,7 +3827,8 @@ first production use.
   decision.
 - `AGENTS.md` with the working rules, and `SECURITY.md` with the disclosure process and scope.
 
-[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.9.0...main
+[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.10.0...main
+[0.10.0]: https://github.com/nuetzliches/ciphr/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/nuetzliches/ciphr/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/nuetzliches/ciphr/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/nuetzliches/ciphr/compare/v0.6.1...v0.7.0

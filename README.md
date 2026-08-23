@@ -4,7 +4,7 @@ A small secret manager for machine identities: key/value secrets, gap-free acces
 and path-based authorization. The name contains *CI* — the primary consumer is a build and
 deploy pipeline, not a human.
 
-> **Status: v0.9.0 released.** Usable end to end: envelope encryption with master key rotation,
+> **Status: v0.10.0 released.** Usable end to end: envelope encryption with master key rotation,
 > SQLite with migrations, the policy evaluator, the fail-closed hash-chained audit trail, the HTTPS
 > API with token authentication, and the `ciphr` CLI. Since v0.1.0: the audit anchor and the
 > retention cut that bounds the trail (`ciphr audit anchor`, `ciphr audit cut`), one rule for
@@ -21,9 +21,26 @@ deploy pipeline, not a human.
 > findings of a source review answered. Since v0.7.0: a configuration check that answers without a
 > store, an exit code a backup job can branch on, and credential files opened once. Since v0.8.0: the
 > control plane has capabilities of its own, revocation has a route, and the listener speaks HTTP/1.1
-> only.
+> only. Since v0.9.0: the configuration check has a status a pipeline can fail on.
 >
-> **v0.9.0 breaks one thing on purpose, and it is the reason to take it.** `read` authorized a
+> **v0.10.0 turns a recommended check into a usable gate.** `v0.9.0` made a policy edit mandatory and
+> named `ciphr-server --check-config` in review as the way to catch a file that still has the old form.
+> Review is the one host that deliberately has no store — and a host with no store and a policy file
+> the binary refuses both exited `1`, so the pipeline that was supposed to protect the mandatory edit
+> could not tell the finding it runs for from the host it runs on. **A host that is not ready is exit
+> `3` now**, the number `ciphr state` already uses for the same shape, and `1` means the files are
+> unusable and nothing else. Anything branching on that status wants a look; nothing else here asks a
+> deployment to do anything, nothing migrates, and no route or default moved.
+>
+> Three smaller things from the same field report: `--check-config` says when a surface entry is on and
+> no identity can call it, an audit device that cannot be opened names the requirement rather than only
+> the OS error, and the runbooks say to issue the revoking identity's token before the incident that
+> needs it — turning on outage-free revocation costs that outage once, and that belonged written down.
+>
+> **Pin `0.10.0`.** The viewer moves separately as `ui-v0.3.1`: it refuses to mount while a service
+> worker controls its page.
+>
+> **v0.9.0 broke one thing on purpose, and it is the reason to take it.** `read` authorized a
 > secret's value *and* the control plane — `sys/audit`, `sys/identities`, `sys/policies` — with only
 > the path separating them, so `path = "**"` with `read`, the rule somebody writes for a break-glass
 > identity meaning *all the secrets*, granted the audit trail and the map of the authorization model
@@ -41,8 +58,6 @@ deploy pipeline, not a human.
 > transitive dependency feature and not through any decision here; the ALPN list is now ours and says
 > `http/1.1`. Nothing migrates; the schema stays at 6. What to do rather than know is in
 > [`docs/operations/upgrade.md`](docs/operations/upgrade.md).
->
-> **Pin `0.9.0`.**
 >
 > **v0.8.0 answered a field report, and its two main findings were the same shape.** A check whose
 > verdict was about something other than what the caller asked. `ciphr-server --check-config` printed
