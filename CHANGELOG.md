@@ -25,6 +25,19 @@ about something other than what the caller asked — and the two commands now ag
 Anything branching on this command's status wants a look; the table is in `upgrade.md`, section
 `0.10.0`. From [`docs/field-report-2026-08-23-b.md`](docs/field-report-2026-08-23-b.md), finding 1.
 
+### Fixed — an audit device that cannot be opened names the requirement, not only the OS error
+
+`audit device: cannot open /var/log/ciphr/audit.jsonl: Read-only file system (os error 30)` reads as a
+broken device. What it means is that the file device is opened for append and its directory was mounted
+read-only — the safe instinct for a command whose name says *check*, which is exactly where this
+message is read. It now says that the device appends and that its directory has to be writable, in the
+shape the rest of this project's messages have.
+
+The behaviour is unchanged and is the defensible half: the device is checked by opening it the way it
+will be opened. `ciphr`'s own file device carried the same sentence and got the same clause, naming
+the user running the command rather than the service user. From
+[`docs/field-report-2026-08-23-b.md`](docs/field-report-2026-08-23-b.md), finding 2.
+
 ## [0.9.0] — 2026-08-23
 
 **The release that closes four issues and breaks one thing on purpose.** `read` authorized a secret's

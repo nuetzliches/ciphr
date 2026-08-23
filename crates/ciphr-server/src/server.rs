@@ -359,8 +359,23 @@ fn open_devices(config: &Config) -> Result<Vec<Box<dyn AuditDevice>>, StartupErr
                 devices.push(Box::new(device));
             }
             AuditConfig::File { path, .. } => {
+                // **The message names the requirement, not only the OS error.** It read
+                // `cannot open <path>: Read-only file system (os error 30)`, whose first
+                // reading is "the audit device is broken" when the fact is "this needs
+                // the directory writable and it was mounted read-only". Read-only is the
+                // safe instinct for a command whose name says *check*, so the person who
+                // sees this is pre-flighting a host they have deliberately given as
+                // little access as possible -- and the sentence they need is what the
+                // device requires (`docs/field-report-2026-08-23-b.md`, finding 2). The
+                // behaviour is unchanged and is the defensible half: the device is
+                // checked by opening it the way it will be opened, and that is an append.
                 let device = FileDevice::open(path, rotate_at).map_err(|error| {
-                    StartupError::Audit(format!("cannot open {}: {error}", path.display()))
+                    StartupError::Audit(format!(
+                        "cannot open {} for append: {error}\n  the file device appends \
+                         every entry, so its directory has to be writable by the \
+                         service user",
+                        path.display()
+                    ))
                 })?;
                 devices.push(Box::new(device));
             }

@@ -381,6 +381,45 @@ fn the_host_half_reports_a_store_it_can_open() {
     unsafe { std::env::remove_var("CIPHR_CHECK_HOST_HALF_KEY") };
 }
 
+/// An audit device that cannot be opened says what the device needs.
+///
+/// **The message was the finding, not the behaviour.** `cannot open <path>: Read-only file
+/// system (os error 30)` reads as a broken device, when what happened is that the
+/// directory was mounted read-only — the safe instinct for a command whose name says
+/// *check*, and one that costs whoever is pre-flighting a host they gave as little access
+/// as possible (`docs/field-report-2026-08-23-b.md`, finding 2).
+///
+/// An absent directory rather than a read-only one, because that fails the same way on
+/// every platform this runs on and the claim here is about the sentence.
+#[test]
+fn an_audit_device_that_cannot_be_opened_names_the_requirement() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    write_policies(directory.path());
+    let key = "11".repeat(32);
+    initialize(directory.path(), &key);
+
+    let text = config_text(directory.path(), "CIPHR_CHECK_AUDIT_DEVICE_KEY", "")
+        .replace("audit.jsonl", "no-such-directory/audit.jsonl");
+    let config = Config::parse(&text).expect("a usable configuration");
+    unsafe { std::env::set_var("CIPHR_CHECK_AUDIT_DEVICE_KEY", &key) };
+
+    let check = Server::check(&config).expect("the files are usable");
+    let Err(error) = check.store else {
+        panic!("a device that cannot be opened is not readiness")
+    };
+    let said = error.to_string();
+    unsafe { std::env::remove_var("CIPHR_CHECK_AUDIT_DEVICE_KEY") };
+
+    assert!(
+        said.contains("for append"),
+        "the message says how the device is opened, got: {said}"
+    );
+    assert!(
+        said.contains("writable"),
+        "and what that requires of the directory, got: {said}"
+    );
+}
+
 /// The check runs while something else holds the store's writer lock.
 ///
 /// **This is the half of the finding that has nothing to do with review hosts.** The old
