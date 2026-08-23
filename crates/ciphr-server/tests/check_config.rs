@@ -381,6 +381,94 @@ fn the_host_half_reports_a_store_it_can_open() {
     unsafe { std::env::remove_var("CIPHR_CHECK_HOST_HALF_KEY") };
 }
 
+/// A policy file with the grant `token_revoke` needs, on the path it is authorized
+/// against.
+const POLICIES_WITH_REVOKE: &str = r#"
+[[identity]]
+name     = "break-glass"
+kind     = "human"
+policies = ["break-glass"]
+
+[[policy]]
+name = "break-glass"
+
+  [[policy.rule]]
+  path         = "sys/tokens"
+  capabilities = ["revoke"]
+"#;
+
+/// An entry that is on and that nobody can call is said out loud.
+///
+/// **The case this is for is a deployment mid-incident.** `token_revoke` exists so that
+/// revoking a leaked credential does not stop the service, and the token that calls it can
+/// only be issued on the host, under the store lock — so turning the entry on and issuing
+/// nothing leaves the job half done, and the operator who finds out is the one who reached
+/// for it (`docs/field-report-2026-08-23-b.md`, finding 3).
+///
+/// Through the real binary, because the claim is about the report an operator reads. Not
+/// through the exit code: naming the entry before the identity exists is a legitimate order
+/// of work, and this is a note.
+#[test]
+fn an_entry_that_is_on_and_unreachable_is_named_in_the_report() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let path = directory.path();
+    let config = path.join("ciphr.toml");
+    let entry = "[[surface]]
+entry = \"token_revoke\"
+accepted = \"2026-08-23\"
+reason = \"the revoke step must not take the service down\"";
+    std::fs::write(
+        &config,
+        config_text(path, "CIPHR_CHECK_UNREACHABLE_KEY", entry),
+    )
+    .expect("write the configuration");
+
+    // The policy file this deployment already had: no identity is authorized to revoke.
+    write_policies(path);
+    let reported = check_config(&config, None);
+    let report = String::from_utf8_lossy(&reported.stdout);
+    // Under the entry's own line, so that the note is read with the thing it is about.
+    let noted = report
+        .lines()
+        .position(|line| line.contains("note:"))
+        .expect("the note is printed");
+    let entry_line = report
+        .lines()
+        .position(|line| line.contains("on   token_revoke"))
+        .expect("the entry is on");
+    assert_eq!(
+        noted,
+        entry_line + 1,
+        "the note belongs under its own entry, got: {report}"
+    );
+
+    // The grant, because the reader has to write a rule afterwards.
+    // Wrapped for a terminal, so the claim is about the words and not their line breaks.
+    let flowed = report.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        flowed.contains("authorized for 'revoke' on 'sys/tokens'"),
+        "the note names the edit that is missing, got: {report}"
+    );
+    assert!(
+        report.contains("planned stop"),
+        "and says why finishing the job is not an edit, got: {report}"
+    );
+    assert_eq!(
+        reported.status.code(),
+        Some(3),
+        "and it is a note: the status is still only about this host"
+    );
+
+    // The same configuration once an identity holds the grant.
+    std::fs::write(path.join("policies.toml"), POLICIES_WITH_REVOKE).expect("the grant");
+    let reported = check_config(&config, None);
+    let report = String::from_utf8_lossy(&reported.stdout);
+    assert!(
+        !report.contains("note:"),
+        "an entry that can be called is not worth a line, got: {report}"
+    );
+}
+
 /// An audit device that cannot be opened says what the device needs.
 ///
 /// **The message was the finding, not the behaviour.** `cannot open <path>: Read-only file

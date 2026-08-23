@@ -10,6 +10,7 @@
 use std::net::SocketAddr;
 
 use ciphr_audit::{AuditDevice, AuditSink, FileDevice};
+use ciphr_core::{Capability, SecretPath};
 use ciphr_policy::PolicySet;
 use ciphr_store::{SqliteAuditDevice, SqliteStore, Store, StoreLock};
 
@@ -140,6 +141,7 @@ impl Server {
         Ok(Check {
             identities: policies.identities().count(),
             rules: policies.policies().map(|policy| policy.rules().len()).sum(),
+            unreachable: unreachable_entries(&policies, &surface),
             surface,
             store: store_state(config),
         })
@@ -250,6 +252,11 @@ pub struct Check {
     pub identities: usize,
     /// Rules across every policy in it.
     pub rules: usize,
+    /// Entries this configuration turned on that no identity in it can call.
+    ///
+    /// A function of the two files and of nothing on this host, so it belongs to the
+    /// half of the report that holds in review. See [`unreachable_entries`].
+    pub unreachable: Vec<Unreachable>,
     /// The surface this configuration resolves to, against this binary.
     pub surface: crate::surface::Active,
     /// This host's store, seal and audit devices — or the reason they are not ready.
@@ -269,6 +276,75 @@ pub struct StoreReady {
     pub key_source: String,
     /// Every audit device that opened, by name.
     pub devices: Vec<String>,
+}
+
+/// What an entry needs before anybody can call it, where that is one grant.
+///
+/// **Not a field on [`ENTRIES`](crate::surface::ENTRIES), deliberately.** `viewer_api`
+/// serves several control-plane paths and an identity that reaches one of them is a
+/// legitimate deployment, so "what does this entry require" has no single answer there —
+/// and a table where some entries carry a requirement and others carry `None` reads as
+/// *this one needs nothing*, which would be false. The two below are the entries whose
+/// requirement is a single literal grant, and this list says so rather than implying
+/// anything about the rest.
+const REACHABILITY: &[(&str, &str, Capability)] = &[
+    ("token_status", "sys/tokens", Capability::Inspect),
+    ("token_revoke", "sys/tokens", Capability::Revoke),
+];
+
+/// Entries that are on and that no identity in this policy file can call.
+///
+/// **An entry that is on and unreachable is the same class of quiet as a stanza that was
+/// forgotten**, which is the mistake the surface report exists to catch
+/// (`docs/field-report-2026-08-23-b.md`, finding 3). The case that prompted it is
+/// `token_revoke`: a deployment turns the entry on to take the outage out of revoking a
+/// leaked credential, and the token that calls it can only be issued on the host, under
+/// the lock, in a planned stop. An entry on with nobody able to reach it is that job left
+/// half done, and the operator who finds out is mid-incident.
+///
+/// Not a refusal. Naming the entry before the identity exists is a legitimate order of
+/// work, and this is the report that says the second half is still owed.
+///
+/// **The evaluator answers the question**, rather than this walking rules and matching
+/// patterns itself: there is one place in this workspace that decides whether an identity
+/// may do something, and a second implementation of that reasoning — even one that only
+/// reports — is the thing ADR-9 forbids for path normalization, for the same reason.
+fn unreachable_entries(policies: &PolicySet, surface: &crate::surface::Active) -> Vec<Unreachable> {
+    REACHABILITY
+        .iter()
+        .filter(|(name, path, capability)| {
+            surface.has(name) && !anyone_may(policies, path, *capability)
+        })
+        .map(|(name, path, capability)| Unreachable {
+            entry: name,
+            path,
+            capability: *capability,
+        })
+        .collect()
+}
+
+/// One entry that is on, and the grant nobody in the policy file holds.
+///
+/// The grant is carried rather than only the entry name, because the report is read by
+/// somebody who then has to write a rule: *no identity is authorized for `revoke` on
+/// `sys/tokens`* names the edit, and *nobody can call this* does not.
+pub struct Unreachable {
+    /// The entry that is on.
+    pub entry: &'static str,
+    /// The path its capability is authorized against.
+    pub path: &'static str,
+    /// The capability no identity holds there.
+    pub capability: Capability,
+}
+
+/// Whether any identity in this policy file is authorized for `capability` on `path`.
+fn anyone_may(policies: &PolicySet, path: &str, capability: Capability) -> bool {
+    let path = SecretPath::parse(path).expect("the reserved paths are valid by construction");
+    policies.identities().any(|identity| {
+        policies
+            .evaluate(identity.name(), &path, capability)
+            .is_allowed()
+    })
 }
 
 /// Everything startup can learn from the configuration and the policy file alone.

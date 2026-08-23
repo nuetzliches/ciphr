@@ -3,7 +3,8 @@
 **Status:** written 2026-08-21, revised 2026-08-22 (step 3 says that revoking stops the
 service, step 2 now runs while it is up, and "What a caller can and cannot tell" narrows the
 indistinguishability claim to the response), revised 2026-08-23 for the revoke endpoint
-(step 3 no longer stops the service where the `token_revoke` entry is on), describing the
+(step 3 no longer stops the service where the `token_revoke` entry is on, and says to issue
+the revoking identity's token before the incident that needs it), describing the
 `alert` tier as built. The severe tiers of
 [ADR-15](../adr/0015-honeypots-and-what-a-tripwire-may-do.md) are designed and not built, and
 [freeze.md](freeze.md) says why.
@@ -251,6 +252,14 @@ finding was fixed before this shipped.
    The caller needs `revoke` on `sys/tokens`, the revocation takes effect on the leaked
    credential's **next request**, and the trail records who revoked and whose token it
    was. Retrying is safe: a second call reports `revoked_now: false` and changes nothing.
+
+   **Issue that caller's token before you need it — it needs the same stop that revocation
+   used to need.** `ciphr token issue` holds the master key and *creates* a credential, so
+   it stays on the host and takes the store lock the running server holds (ADR-3, narrowed
+   for revoking and nothing else). Turning on the entry that removes the outage from
+   revocation therefore costs that outage once. Doing it here, mid-incident with a leaked
+   credential in play, is the worst moment to find out; `--check-config` says so when the
+   entry is on and no identity is authorized for `revoke`.
 
    **With the entry off, this step stops the service.** `ciphr token revoke <id>` for one
    credential, `ciphr token revoke-all <identity>` for all of an identity's. Both write a

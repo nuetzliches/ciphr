@@ -10,7 +10,7 @@
 use std::process::ExitCode;
 
 use ciphr_server::surface::{ActiveEntry, ENTRIES, Entry};
-use ciphr_server::{ActiveSurface, Check, Config, Server};
+use ciphr_server::{ActiveSurface, Check, Config, Server, Unreachable};
 
 fn main() -> ExitCode {
     let mut arguments = std::env::args().skip(1);
@@ -123,7 +123,7 @@ fn check_report(config_path: &str, check: &Check) -> Vec<String> {
         ),
     ];
 
-    lines.extend(surface_report(&check.surface));
+    lines.extend(surface_report(&check.surface, &check.unreachable));
 
     // Its own labelled section, because it answers a different question from everything
     // above it: not *is this the file I meant* but *is this host ready to run it*. A
@@ -147,6 +147,40 @@ fn check_report(config_path: &str, check: &Check) -> Vec<String> {
         }
     }
     lines
+}
+
+/// An entry that is on and that nobody in this policy file can call.
+///
+/// **Part of the file half, and nothing about the exit code.** Both inputs are the two
+/// `.toml` files, so this answers in review; and naming an entry before the identity that
+/// uses it exists is a legitimate order of work, which is why this is a note rather than a
+/// refusal. What it prevents is that order of work being *forgotten*: an entry on with
+/// nobody able to reach it is the same class of quiet as a stanza that was never named,
+/// which is the mistake the surface report exists to catch
+/// (`docs/field-report-2026-08-23-b.md`, finding 3).
+///
+/// **Under the entry's own line rather than in a block of its own**, where the cost
+/// sentences of the inactive entries already sit: a note about `token_revoke` printed
+/// after two paragraphs about entries that are off is a note somebody scrolls past.
+///
+/// It names the grant, because the reader has to write a rule afterwards — *no identity is
+/// authorized for `revoke` on `sys/tokens`* names the edit, *nobody can call this* does
+/// not. And it names issuing, because that is the part that is not free: the token for
+/// such an identity is created on the host, under the store lock, so the half that is
+/// still owed is a planned stop rather than an edit.
+fn unreachable_lines(unreachable: &Unreachable) -> Vec<String> {
+    wrap(
+        &format!(
+            "note: on, and no identity in this policy file is authorized for \
+             '{}' on '{}' -- nobody can call it. Issuing a token for one needs the master \
+             key and the store lock, so what is left is a planned stop rather than an edit.",
+            unreachable.capability, unreachable.path
+        ),
+        68,
+    )
+    .into_iter()
+    .map(|line| format!("       {line}"))
+    .collect()
 }
 
 /// A count with the right noun beside it.
@@ -176,7 +210,7 @@ fn counted(count: usize, one: &str, many: &str) -> String {
 /// answer rather than needing a search, and this is the interface that prints it.
 ///
 /// Lines rather than direct printing, so the shape is testable without capturing stdout.
-fn surface_report(active: &ActiveSurface) -> Vec<String> {
+fn surface_report(active: &ActiveSurface, unreachable: &[Unreachable]) -> Vec<String> {
     // **The headline says how many of the total this binary could offer at all**, because
     // the bare count cannot. "2 of 3 entries on" reads as though a third were available to
     // switch on, and for a build entry this binary lacks it is not -- that needs a
@@ -202,6 +236,9 @@ fn surface_report(active: &ActiveSurface) -> Vec<String> {
     // to a decision this deployment has already made.
     for entry in active.entries() {
         lines.push(active_line(entry));
+        if let Some(note) = unreachable.iter().find(|note| note.entry == entry.name) {
+            lines.extend(unreachable_lines(note));
+        }
     }
 
     for known in ENTRIES {
@@ -297,6 +334,7 @@ mod tests {
             &Check {
                 identities: 4,
                 rules: 7,
+                unreachable: Vec::new(),
                 surface: ActiveSurface::default(),
                 store: Err(StartupError::Store(ciphr_store::StoreError::NotInitialized)),
             },
@@ -328,6 +366,7 @@ mod tests {
             &Check {
                 identities: 1,
                 rules: 1,
+                unreachable: Vec::new(),
                 surface: ActiveSurface::default(),
                 store: Ok(ciphr_server::StoreReady {
                     schema_version: 6,
@@ -353,7 +392,7 @@ mod tests {
     /// all -- the exact case the `0.5.0` upgrade note recommends the command for.
     #[test]
     fn a_configuration_that_names_nothing_still_names_every_entry() {
-        let report = surface_report(&ActiveSurface::default()).join("\n");
+        let report = surface_report(&ActiveSurface::default(), &[]).join("\n");
 
         for entry in ciphr_server::SURFACE_ENTRIES {
             assert!(
@@ -375,7 +414,7 @@ mod tests {
     #[test]
     fn off_carries_the_cost_and_on_carries_the_record() {
         let active = ciphr_server::surface::only(&["viewer_api"]).expect("a known entry");
-        let report = surface_report(&active).join("\n");
+        let report = surface_report(&active, &[]).join("\n");
 
         assert!(report.contains("  on   viewer_api"), "{report}");
         assert!(report.contains("  off  bulk_export"), "{report}");
@@ -394,7 +433,7 @@ mod tests {
     #[cfg(not(feature = "honeypot_alert"))]
     #[test]
     fn a_build_entry_that_is_absent_says_the_binary_lacks_it() {
-        let report = surface_report(&ActiveSurface::default()).join("\n");
+        let report = surface_report(&ActiveSurface::default(), &[]).join("\n");
 
         assert!(
             report.contains(

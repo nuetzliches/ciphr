@@ -112,14 +112,28 @@ than what the caller asked.
 `ciphr state` and `--check-config` therefore agree: `3` means the command answered and this host is
 missing something ([field-report-2026-08-23-b.md](../field-report-2026-08-23-b.md), finding 1).
 
-### `--check-config` says when `token_revoke` is on and nobody can call it
+### `--check-config` says when an entry is on and nobody can call it
 
-**Nothing to do, and one new line to expect.** Where the `token_revoke` entry is on and no identity
-in the policy file is authorized for `revoke` on `sys/tokens`, the report says so under the surface
-list. The exit code does not change: an entry switched on before its identity exists is a legitimate
-order of work, and the note exists so that it does not stay that way unnoticed. An entry that is on
+**Nothing to do, and one new line to expect.** Under the entry's own line in the surface report:
+
+```
+  on   token_revoke    runtime  accepted 2026-08-23
+       note: on, and no identity in this policy file is authorized for
+       'revoke' on 'sys/tokens' -- nobody can call it. Issuing a token for
+       one needs the master key and the store lock, so what is left is a
+       planned stop rather than an edit.
+```
+
+Two entries are checked, `token_revoke` (`revoke` on `sys/tokens`) and `token_status` (`inspect` on
+the same path) — the two whose requirement is a single grant. `viewer_api` is deliberately not in the
+list: it serves several control-plane paths and an identity that reaches one of them is a legitimate
+deployment, so there is no single grant to check for.
+
+**The exit code does not change.** Naming an entry before the identity that uses it exists is a
+legitimate order of work; this is the line that says the second half is still owed. An entry that is on
 and unreachable is the same class of quiet as a stanza that was forgotten, which is the mistake the
-surface report exists to catch.
+surface report exists to catch
+([field-report-2026-08-23-b.md](../field-report-2026-08-23-b.md), finding 3).
 
 ### An audit device that cannot be opened names the requirement, not only the OS error
 
@@ -188,6 +202,15 @@ request, because the server already checked revocation per request. **This is th
 has ever had**, and the boundary is drawn in the record: issuing stays on the host because it needs
 the master key and creates a credential, and `revoke-all` stays there because one request that
 invalidates every credential of an identity is an availability weapon.
+
+**Turning this on costs the outage it removes, once.** The endpoint needs an identity with `revoke` on
+`sys/tokens` and a token for it — and `ciphr token issue` stays on the host, in a session, behind the
+store lock the running server holds, because it needs the master key and *creates* a credential
+(ADR-3, narrowed for revoking and nothing else). So issue that token as part of this upgrade, while a
+stop is planned anyway. The operator who reaches for this endpoint is mid-incident with a leaked
+credential and should not discover it there. From 0.10.0, `--check-config` says when the entry is on
+and no identity is authorized for `revoke`
+([field-report-2026-08-23-b.md](../field-report-2026-08-23-b.md), finding 3).
 
 **Worth reading before turning it on:** a token holder with that capability can invalidate credentials
 over the network. That is what the entry's `reason` field is for. `honeypots.md` step 3 now describes

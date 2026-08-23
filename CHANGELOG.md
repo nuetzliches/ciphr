@@ -8,6 +8,24 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — `--check-config` says when a surface entry is on and nobody can call it
+
+Under the entry's own line: *on, and no identity in this policy file is authorized for `revoke` on
+`sys/tokens` — nobody can call it.* Two entries are checked, `token_revoke` and `token_status`, the two
+whose requirement is a single grant; the evaluator answers the question rather than a second
+implementation of the same reasoning.
+
+**The case it is for is `token_revoke`, and it is a bootstrap problem.** The entry exists so that
+revoking a leaked credential does not stop the service — and the token that calls it is issued on the
+host, under the store lock, so turning the entry on and issuing nothing leaves the job half done. The
+operator who finds out is the one who reached for the endpoint mid-incident. An entry that is on and
+unreachable is the same class of quiet as a stanza that was forgotten.
+
+**Not a refusal, and the exit code is unchanged:** naming the entry before its identity exists is a
+legitimate order of work. `honeypots.md` step 3 and `upgrade.md`'s `token_revoke` note now say to issue
+that token before the incident that needs it. From
+[`docs/field-report-2026-08-23-b.md`](docs/field-report-2026-08-23-b.md), finding 3.
+
 ### Changed — `--check-config` has an exit code for "the files are usable, this host is not"
 
 **A check a pipeline cannot fail on is a check somebody remembers to read.** `--check-config` exited
