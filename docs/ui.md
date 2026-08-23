@@ -1,6 +1,6 @@
 # The viewer
 
-**Status:** current as of 2026-08-23, phase 5, released as `ui-v0.3.0`; the capability its token needs changed on 2026-08-23 (ADR-23). Built and running: the five
+**Status:** current as of 2026-08-23, phase 5, released as `ui-v0.3.1`; the capability its token needs changed on 2026-08-23 (ADR-23), and `ui-v0.3.1` closes finding F4 — the viewer now refuses to mount while a service worker controls its document. Built and running: the five
 views below, the strict Content-Security-Policy, and the container that serves them. Sign-in is a
 pasted token; SSO is post-v1 (ADR-12). **This viewer requires a service at `0.3.0` or newer** — it
 reads the rotation class from `GET /v1/versions/{path}`, which returned a bare array before that.
@@ -12,8 +12,9 @@ whose subject is missing — the column falls back to the path, which is every r
 That is why this release has **no deploy ordering constraint**, unlike `ui-v0.2.0`, which needed the
 service first because it read a response shape `0.2.0` did not produce.
 
-**Its own version, on its own cadence** (ADR-11). `ui-v0.3.0` is the third viewer release and pairs
-with service `0.4.0`; the numbers are not meant to line up, and they have not since `ui-v0.1.1`.
+**Its own version, on its own cadence** (ADR-11). `ui-v0.3.1` is the fourth viewer release; the
+numbers are not meant to line up with the service's, and they have not since `ui-v0.1.1`. It changes
+one thing, the service-worker refusal below, and needs no particular service version to do it.
 
 A read-only browser view of a ciphr deployment: the audit trail, secret metadata with a per-value
 reveal, identities, policies, and health. It is what makes the audit trail usable without the CLI,
@@ -120,13 +121,25 @@ The full check is `ciphr audit verify`. The one that survives a forward rewrite 
 | Strict CSP | `default-src 'none'`, `script-src 'self'`, `connect-src 'self'`, no `unsafe-inline`, no `unsafe-eval`. Defined once in `vite.config.ts`, sent as a header by the container (`nginx.conf`) and injected into the **built** document, so a bundle served by something else keeps it. CI fails if the built document loses it or gains an `unsafe-` keyword |
 | No `v-html`, no `innerHTML` | `ci/check-no-v-html.sh`, a blocking CI gate |
 | No inline styles | `style-src 'self'` refuses them; the build emits one stylesheet and the code uses classes, never `:style` |
-| No service worker, no offline cache | None is registered, `main.ts` unregisters any it finds from an earlier deployment, and the container refuses to serve one. A cached response to a secret read is a secret without an expiry date. Since 2026-08-22 the *server* says so too: every `/v1` response carries `Cache-Control: no-store`, so this property no longer rests on one client asking politely (finding F3) |
+| No service worker, no offline cache | None is registered. `main.ts` removes any registration it finds, **waits for that to finish, and refuses to mount while this document is still controlled by one** — unregistering does not end a worker's control of a page already loaded, so a controlled page gets a refusal and a reload instead of the viewer. The container refuses every registration attempt (`Service-Worker: script` on the script fetch, whatever the script is called) and the two conventional filenames; neither can stop a worker that is already installed, which is why the client fails closed. **The strongest form of this is an origin that has never hosted an application registering one** — see below. A cached response to a secret read is a secret without an expiry date. Since 2026-08-22 the *server* says so too: every `/v1` response carries `Cache-Control: no-store`, so this property no longer rests on one client asking politely (findings F3 and F4) |
 | Only documented v1 endpoints | ADR-11's consequent rule: an endpoint existing for the viewer alone would mean the CLI could not do something the viewer can |
 | Its own dependency budget | `ci/check-ui-budget.sh`: exactly one runtime dependency (`vue`), a ceiling on the whole tree, no install scripts, every package resolved from the public registry with an integrity hash |
 
 `frame-ancestors` is in the header only, deliberately: browsers ignore it in a `<meta>` element and
 log an error saying so, and a page that complains about its own policy on every load teaches whoever
 reads that console to ignore it. Framing is refused by the header and by `X-Frame-Options`.
+
+**Give the viewer an origin that has never hosted an application that registers a service worker.**
+This is an operating requirement rather than a preference, and it is the half of the property above
+that no code in this package can provide. A worker registered by an earlier application on the same
+origin can intercept `/v1` requests — bearer token, revealed value, everything — and unregistering it
+does not end its control of a page that is already loaded. So the viewer refuses to mount while its
+document is controlled and asks for a reload, which is when the removal takes effect; and the
+container refuses registration attempts, which does nothing about a worker already installed. Both
+are recovery. A fresh origin, or one whose history you know, is the property itself. Recorded from
+finding F4 of [review-2026-08-21-current-tree.md](review-2026-08-21-current-tree.md), which found the
+old code unregistering asynchronously and mounting anyway, and this table claiming a filename refusal
+made registration impossible.
 
 **The dev server runs without the policy, and that is not a gap being tolerated quietly.** `npm run
 dev` does not serve the built artifact — it assembles the page in the browser, and Vite's HMR client

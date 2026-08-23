@@ -1,6 +1,6 @@
 {
   "name": "ciphr-ui",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Read-only viewer for a ciphr deployment: audit trail, secret metadata, identities, policies, health.",
   "license": "MIT OR Apache-2.0",

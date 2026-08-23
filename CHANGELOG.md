@@ -8,6 +8,33 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — the viewer refuses to mount while a service worker controls its page (`ui-v0.3.1`)
+
+**Finding F4 of [`docs/review-2026-08-21-current-tree.md`](docs/review-2026-08-21-current-tree.md),
+and issue #10.** `main.ts` started unregistering existing service workers and mounted immediately —
+two mistakes. The cleanup is asynchronous, so the app could issue `/v1` requests while a worker was
+still installed; and unregistering does not end a worker's control of a page that is already loaded,
+which lasts until every controlled page closes or reloads. A worker left by an earlier application on
+the viewer's origin could therefore read bearer tokens and revealed values out of a page that had just
+"cleaned up".
+
+The cleanup is awaited now, and the viewer mounts only when `navigator.serviceWorker.controller` is
+absent. A controlled page gets a refusal and a request to reload, which is the point at which the
+removal takes effect.
+
+**The container's refusal stopped being about filenames.** A worker may be registered from any
+same-origin URL, so refusing `/service-worker.js` and `/sw.js` never made registration impossible —
+`nginx.conf` refuses any request carrying `Service-Worker: script`, which is what a browser sends when
+it fetches a script in order to register it. The two filenames stay beside it. Neither can stop a
+worker that is already installed, which is why the client fails closed.
+
+**And `docs/ui.md` stopped claiming otherwise.** The security table said the property held in three
+places, two of which were weaker than stated. It now says what each layer does, and says the operating
+requirement out loud: give the viewer an origin that has never hosted an application that registers a
+service worker. That is the half no code in this package can provide.
+
+`ui/package.json` and `ui/package-lock.json` move to `0.3.1` together.
+
 ### Added — `--check-config` says when a surface entry is on and nobody can call it
 
 Under the entry's own line: *on, and no identity in this policy file is authorized for `revoke` on
