@@ -1,7 +1,8 @@
 # `ciphr-run`: getting the wrapper, and mounting it
 
 **Status:** implemented and tested as of 2026-08-20, scope guidance added 2026-08-21, release
-asset renamed to carry its target triple 2026-08-21 (phase 7,
+asset renamed to carry its target triple 2026-08-21, the token file's trust requirement written
+down 2026-08-23 (phase 7,
 [ADR-14](../adr/0014-ciphr-run-injects-into-a-child-process.md)).
 The wrapper works and ships; where a deployment keeps the token file and which entrypoint it pins
 are decisions this document does not make for it.

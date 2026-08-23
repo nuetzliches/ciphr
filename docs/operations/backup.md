@@ -1,6 +1,6 @@
 # Backups and restores
 
-**Status:** current as of 2026-08-22. Every procedure below uses a command that exists. `ciphr
+**Status:** current as of 2026-08-23. Every procedure below uses a command that exists. `ciphr
 backup` **is released in `0.6.0`** — a deployment on `0.5.1` or earlier has the file-level procedure
 below and nothing else.
 

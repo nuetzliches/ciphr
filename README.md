@@ -4,7 +4,7 @@ A small secret manager for machine identities: key/value secrets, gap-free acces
 and path-based authorization. The name contains *CI* — the primary consumer is a build and
 deploy pipeline, not a human.
 
-> **Status: v0.7.0 released.** Usable end to end: envelope encryption with master key rotation,
+> **Status: v0.8.0 released.** Usable end to end: envelope encryption with master key rotation,
 > SQLite with migrations, the policy evaluator, the fail-closed hash-chained audit trail, the HTTPS
 > API with token authentication, and the `ciphr` CLI. Since v0.1.0: the audit anchor and the
 > retention cut that bounds the trail (`ciphr audit anchor`, `ciphr audit cut`), one rule for
@@ -18,9 +18,26 @@ deploy pipeline, not a human.
 > claimed more than the code did. Since v0.4.0: optional surface entries, and honeypots. Since
 > v0.5.1: a backup command, a report of the files a deployment has to keep, and listings that
 > answer while the service runs. Since v0.6.1: a machine-readable form of that report, and six
-> findings of a source review answered.
+> findings of a source review answered. Since v0.7.0: a configuration check that answers without a
+> store, an exit code a backup job can branch on, and credential files opened once.
 >
-> **v0.7.0 answers a source review and a field report.** Six findings of the review of 2026-08-21 and
+> **v0.8.0 answers a field report, and its two main findings are the same shape.** A check whose
+> verdict was about something other than what the caller asked. `ciphr-server --check-config` printed
+> its whole report — the surface report included, which is a pure function of the file — only after
+> opening, locking and writing to the store, so the one report that catches a *forgotten* surface
+> stanza was unreachable in review, where a configuration edit is actually read. It now reports the
+> file first and this host last; on the way it stopped taking the writer lock, stopped migrating the
+> store, and stopped appending to the audit trail. And `ciphr state` exited non-zero about files a
+> backup job must not have: a complete listing with a missing required file is `3` now, and `1` still
+> means the command failed. Also: a `ciphr backup` destination that cannot be written names its
+> directory rather than only the file, and the master key and token files are opened once and read
+> through that descriptor (F10 of the source review, issue #13) — which also means a named pipe where
+> a credential belongs is refused rather than read forever. Nothing migrates; the schema stays at 6.
+> What to do rather than know is in [`docs/operations/upgrade.md`](docs/operations/upgrade.md).
+>
+> **Pin `0.8.0`.**
+>
+> **v0.7.0 answered a source review and a field report.** Six findings of the review of 2026-08-21 and
 > the three asks of the deployment that rebuilt its nightly backup around `0.6.0`. The two that reach a
 > running deployment: `export --format actions-env` used a predictable heredoc delimiter, so a value
 > could close its own assignment and define environment variables for later workflow steps; and a
@@ -33,7 +50,7 @@ deploy pipeline, not a human.
 > [`docs/operations/upgrade.md`](docs/operations/upgrade.md) — including that the honeypot fixes sit
 > behind a build entry, so a deployment that plants bait rebuilds its derived image.
 >
-> **Pin `0.7.0`.** And a note that outlives it: `v0.6.0` published its server image and then
+> And a note that outlives its release: `v0.6.0` published its server image and then
 > failed to build the wrapper image, so `…/run:0.6.0` and the `v0.6.0` release assets do not
 > exist. `0.6.1` is the same code with both artefacts published, and `a14d143` added the gate
 > that makes half a release unreachable.

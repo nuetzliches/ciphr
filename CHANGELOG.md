@@ -8,6 +8,35 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-08-23
+
+**The release that answers a field report, and two of its findings are the same shape.** The fourth
+report from a private deployment ([`docs/field-report-2026-08-23.md`](docs/field-report-2026-08-23.md))
+names it better than a summary can: *"two of the four findings are about a check whose verdict is
+about something other than what the caller asked."* **Nothing migrates:** the schema stays at 6, so a
+rollback to `0.7.0` needs neither a restore nor a configuration edit.
+
+**A gate satisfiable by fabrication protects nothing.** `--check-config` printed its whole report —
+the surface report included, which is a pure function of the configuration file — only after the store
+had been opened, locked and written to. The mistake it exists to catch is a *forgotten* surface stanza,
+and that file is legal, so nothing else answers it. The deployment therefore built a store on every
+deploy to get past the gate. The report is now in two halves, file first and host last, and the check
+stopped taking the writer lock, stopped migrating the store, and stopped appending to the trail — three
+side effects that each made it unrunnable somewhere it was wanted.
+
+**An exit code about files the caller must not have.** `ciphr state --exclude` derives its rows from
+`[storage] path` alone, so a backup container that follows `backup.md` and cannot see the TLS material
+or the master key got a complete, correct list and a non-zero status about the files it was right not to
+have. That is `3` now, distinct from `1` for a command that failed and from clap's `2` for a usage
+error.
+
+**Two things to check rather than know**, both in
+[`docs/operations/upgrade.md`](docs/operations/upgrade.md): anything that branches on `ciphr state`'s
+exit status, and anything that parses `--check-config`'s output, whose shape changed. And one refusal
+that is new rather than moved: a named pipe or a directory where a credential file is expected is
+refused for what it is, because the master key and token files are now opened once and read through
+that one descriptor (F10 of the source review, issue #13).
+
 ### Changed — `--check-config` answers about the file before it looks at the host
 
 **The gate was satisfiable by fabrication, so it protected nothing.** `ciphr-server --check-config`
@@ -3564,7 +3593,8 @@ first production use.
   decision.
 - `AGENTS.md` with the working rules, and `SECURITY.md` with the disclosure process and scope.
 
-[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.7.0...main
+[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.8.0...main
+[0.8.0]: https://github.com/nuetzliches/ciphr/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/nuetzliches/ciphr/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/nuetzliches/ciphr/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/nuetzliches/ciphr/compare/v0.5.1...v0.6.0

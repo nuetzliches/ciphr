@@ -1,6 +1,6 @@
 # Upgrading
 
-**Status:** current as of 2026-08-22, covering every released version up to `0.7.0`.
+**Status:** current as of 2026-08-23, covering every released version up to `0.8.0`.
 
 The changelog says what changed. This says what to *do* about it, and it exists because the two are
 not the same document: a changelog entry sinks under the next release, while the person upgrading two

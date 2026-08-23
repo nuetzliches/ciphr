@@ -1,6 +1,6 @@
 # The `ciphr` command
 
-**Status:** implemented and tested as of 2026-08-22, released in `v0.7.0`. Every command below
+**Status:** implemented and tested as of 2026-08-23, released in `v0.8.0`. Every command below
 works and every one of them is in a release. Deployment
 — containers, reverse proxy, certificates — is documented in `docs/operations/` and in the
 deployment's own repository, not here.
