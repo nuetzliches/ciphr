@@ -4,7 +4,7 @@ A small secret manager for machine identities: key/value secrets, gap-free acces
 and path-based authorization. The name contains *CI* — the primary consumer is a build and
 deploy pipeline, not a human.
 
-> **Status: v0.8.0 released.** Usable end to end: envelope encryption with master key rotation,
+> **Status: v0.9.0 released.** Usable end to end: envelope encryption with master key rotation,
 > SQLite with migrations, the policy evaluator, the fail-closed hash-chained audit trail, the HTTPS
 > API with token authentication, and the `ciphr` CLI. Since v0.1.0: the audit anchor and the
 > retention cut that bounds the trail (`ciphr audit anchor`, `ciphr audit cut`), one rule for
@@ -19,9 +19,32 @@ deploy pipeline, not a human.
 > v0.5.1: a backup command, a report of the files a deployment has to keep, and listings that
 > answer while the service runs. Since v0.6.1: a machine-readable form of that report, and six
 > findings of a source review answered. Since v0.7.0: a configuration check that answers without a
-> store, an exit code a backup job can branch on, and credential files opened once.
+> store, an exit code a backup job can branch on, and credential files opened once. Since v0.8.0: the
+> control plane has capabilities of its own, revocation has a route, and the listener speaks HTTP/1.1
+> only.
 >
-> **v0.8.0 answers a field report, and its two main findings are the same shape.** A check whose
+> **v0.9.0 breaks one thing on purpose, and it is the reason to take it.** `read` authorized a
+> secret's value *and* the control plane — `sys/audit`, `sys/identities`, `sys/policies` — with only
+> the path separating them, so `path = "**"` with `read`, the rule somebody writes for a break-glass
+> identity meaning *all the secrets*, granted the audit trail and the map of the authorization model
+> along with them. Now **`inspect` reads the control plane and `revoke` revokes a token**; the five
+> existing capabilities mean secrets and only secrets, and a rule under `sys/` that still says `read`
+> is refused when the policy file loads, naming the replacement. One edit per file, findable in review
+> with `--check-config` (no store, no key).
+>
+> **Three things become possible.** Revoking a leaked credential no longer needs an outage —
+> `POST /v1/tokens/{token_id}/revoke`, the first and only write this API has ever had, behind an entry
+> that is off until a deployment names it, with no master key in reach. `GET /v1/tokens` answers *"is
+> this credential still valid"* to an authenticated caller, so the trail names an identity rather than
+> `cli:$USER`. And a handshake against the listener used to negotiate **HTTP/2** — a second framing
+> implementation on the connection path of the process that holds plaintext, arrived through a
+> transitive dependency feature and not through any decision here; the ALPN list is now ours and says
+> `http/1.1`. Nothing migrates; the schema stays at 6. What to do rather than know is in
+> [`docs/operations/upgrade.md`](docs/operations/upgrade.md).
+>
+> **Pin `0.9.0`.**
+>
+> **v0.8.0 answered a field report, and its two main findings were the same shape.** A check whose
 > verdict was about something other than what the caller asked. `ciphr-server --check-config` printed
 > its whole report — the surface report included, which is a pure function of the file — only after
 > opening, locking and writing to the store, so the one report that catches a *forgotten* surface
@@ -34,8 +57,6 @@ deploy pipeline, not a human.
 > through that descriptor (F10 of the source review, issue #13) — which also means a named pipe where
 > a credential belongs is refused rather than read forever. Nothing migrates; the schema stays at 6.
 > What to do rather than know is in [`docs/operations/upgrade.md`](docs/operations/upgrade.md).
->
-> **Pin `0.8.0`.**
 >
 > **v0.7.0 answered a source review and a field report.** Six findings of the review of 2026-08-21 and
 > the three asks of the deployment that rebuilt its nightly backup around `0.6.0`. The two that reach a

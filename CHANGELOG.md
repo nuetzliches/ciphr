@@ -8,6 +8,33 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-08-23
+
+**The release that closes four issues and breaks one thing on purpose.** `read` authorized a secret's
+value *and* the control plane, with only the path separating them — so the rule somebody writes for a
+break-glass identity meaning *all the secrets* granted the audit trail and the map of the
+authorization model along with them. That is fixed by changing what a capability means, which is a
+breaking change, and **it is the one thing to do before starting this version**: a rule under `sys/`
+that grants `read` becomes `inspect`, one edit per policy file, and the server refuses to start on the
+old form rather than accepting a grant that would authorize nothing.
+
+**Nothing migrates:** the schema stays at 6, so a rollback to `0.8.0` needs a policy file edited back
+and nothing else.
+
+**Three things become possible that were not.** Revoking a leaked credential no longer needs an
+outage — `POST /v1/tokens/{token_id}/revoke`, the first and only write this API has ever had, behind
+an entry that is off until a deployment names it. The token inventory has an authenticated answer,
+`GET /v1/tokens`, where the trail can name who asked instead of `cli:$USER`. And the listener no
+longer advertises HTTP/2: a handshake against it used to negotiate `h2`, which no decision in this
+repository had ever made.
+
+Issues #5, #14, #3 and #6 are answered, two of them by
+[ADR-23](docs/adr/0023-the-control-plane-is-its-own-capability.md) and
+[ADR-24](docs/adr/0024-revocation-is-the-one-write-the-api-may-do.md), one by an amendment to
+[ADR-9](docs/adr/0009-http-stack-axum-but-narrow.md). **What to do rather than know is in
+[`docs/operations/upgrade.md`](docs/operations/upgrade.md), section `0.9.0`** — five notes, of which
+one is mandatory and four are switches a deployment may leave alone.
+
 ### Added — the token inventory over the API, as the authenticated answer
 
 `GET /v1/tokens`, behind the new **`token_status`** surface entry and `inspect` on `sys/tokens`.
@@ -3697,7 +3724,8 @@ first production use.
   decision.
 - `AGENTS.md` with the working rules, and `SECURITY.md` with the disclosure process and scope.
 
-[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.8.0...main
+[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.9.0...main
+[0.9.0]: https://github.com/nuetzliches/ciphr/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/nuetzliches/ciphr/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/nuetzliches/ciphr/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/nuetzliches/ciphr/compare/v0.6.0...v0.6.1
