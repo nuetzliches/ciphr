@@ -8,6 +8,15 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Changed — the viewer image refuses to build on an nginx configuration nginx refuses
+
+`RUN nginx -t` after the configuration is copied in, for the same reason `vue-tsc` runs inside the
+build stage: an image that cannot be produced from a file nginx rejects is better than a container that
+discovers it at deploy time, with nothing serving the viewer. Nothing else in this repository can catch
+it — `nginx -t` needs nginx, and neither a developer machine nor the CI runner has one. Prompted by the
+`Service-Worker: script` refusal added for `ui-v0.3.1`, which is the first non-trivial directive in
+that file.
+
 ## [0.10.0] — 2026-08-23
 
 **The release that makes a recommended check into a usable gate.** `0.9.0` made a policy edit

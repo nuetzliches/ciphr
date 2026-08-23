@@ -55,6 +55,14 @@ FROM nginxinc/nginx-unprivileged:1.29-alpine@sha256:0c79d56aee561a1d81c63f00eee5
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /build/dist/ /usr/share/nginx/html/
 
+# The configuration is checked where it is assembled, for the same reason
+# `vue-tsc` runs in the stage above: an image that cannot be produced from a file
+# nginx refuses is better than a container that discovers it at deploy time, in
+# front of the reverse proxy, with nothing serving the viewer. Nothing else in
+# this repository can catch it -- `nginx -t` needs nginx, and the gate scripts run
+# on a developer machine and on a runner that has neither.
+RUN nginx -t
+
 # This container holds nothing: no volume, no configuration file to mount, no
 # access to the database or the master key (plan section 15). Not deploying it
 # costs nothing but the viewer.
