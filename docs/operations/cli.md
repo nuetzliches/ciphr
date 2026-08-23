@@ -60,6 +60,15 @@ class, `import`, `dump`, `rotate-master-key`, and the token commands that change
 issuing as a scheduled operation with a short outage; for what revocation's outage means during an
 incident, [honeypots.md](honeypots.md) now says it where it is needed.
 
+**One of those three has an alternative that needs no outage, and it is not this command.** Where a
+deployment names the `token_revoke` surface entry, `POST /v1/tokens/{token_id}/revoke` revokes one
+token over the API — authorized as `revoke` on `sys/tokens`, recorded under the authenticated
+identity, and the leaked credential stops working on its next request
+([ADR-24](../adr/0024-revocation-is-the-one-write-the-api-may-do.md)). The CLI does not call it: it
+announces the alternative and never takes it, so one command cannot mean the local operator with the
+master key or an authenticated identity depending on whether a lock file exists. `revoke-all` and
+`issue` stay here in every configuration.
+
 **The metadata listings are not session commands** (ADR-22, since 2026-08-22): `list`, `versions`,
 `rotation <path>` without a class, and `token list` open the store read-only — no lock, no master
 key, no audit entry. Path, class, version history and token records are plaintext columns in the

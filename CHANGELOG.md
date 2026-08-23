@@ -8,6 +8,61 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Changed — the control plane is its own capability, and a policy file that says otherwise is refused
+
+**BREAKING for a policy file that reaches `sys/` through a secret capability.** `read` authorized a
+secret's value **and** the control plane — `sys/audit`, `sys/identities`, `sys/policies`,
+`sys/surface`, `sys/honeypots` — with only the path separating them. So `path = "**"` with `read`,
+the shape somebody writes for a break-glass identity meaning *all the secrets*, granted the audit
+trail and the map of the authorization model along with them. Issue #5 filed it; nobody wrote down
+that they wanted it, and *"which identities can read the audit trail"* was answerable only by
+evaluating every rule against every reserved path.
+
+[ADR-23](docs/adr/0023-the-control-plane-is-its-own-capability.md): **`inspect` reads a control-plane
+path, `revoke` revokes a token.** Seven capabilities, and the five that existed mean secrets and only
+secrets. A rule that names `sys/` and grants one of them is **refused when the policy file loads**,
+with the capability that is meant instead — not accepted and quietly denied, because the reader who
+would find out that way is a monitoring identity that silently stopped seeing anything.
+
+**The evaluator did not learn the reserved prefix, and that distinction is load-bearing.** Deciding
+an access is still one code path with no special case; the refusal is a *load-time validation*, which
+is a different job and the one that can afford to know that `sys/` is not an ordinary prefix.
+`--check-config` runs it with no store and no master key, so the edit is findable in review rather
+than on the host.
+
+**What to change**, and it is one edit per file: `capabilities = ["read"]` becomes
+`["inspect"]` on a rule under `sys/`. Affected are the identities that read the control plane — the
+viewer's token, a monitoring identity polling `GET /v1/audit`, anything reading `/v1/identities`,
+`/v1/policies`, `/v1/surface`, `/v1/honeypots`. **Unaffected:** every identity with only secret
+grants, however broad, including `**`. The trail's vocabulary is unchanged too: reading `sys/audit`
+is still recorded as `read`, because the capability answers *who may* and the action answers *what
+happened*.
+
+### Added — revocation is the one write the API may do, behind an entry that is off by default
+
+Revoking a leaked credential meant stopping the secrets service: `ciphr token revoke` takes the
+exclusive store lock the running server holds, so the host sequence is stop, revoke, start — an outage
+at the one moment nobody planned for, and `honeypots.md` step 3 fires exactly then. The server has
+always checked revocation on every request, so the mechanism for instant revocation was built and only
+the path that writes the row was missing (issue #14).
+
+`POST /v1/tokens/{token_id}/revoke`, behind the new **`token_revoke`** surface entry
+([ADR-24](docs/adr/0024-revocation-is-the-one-write-the-api-may-do.md)). **ADR-3 is narrowed by a
+named exception, not repealed**, and the boundary is the record's own list: one token per request,
+authorized as `revoke` on `sys/tokens` and reachable through no other capability, **no master key
+involved**, idempotent by the `COALESCE` that was already in the SQL, and the audit entry names the
+authenticated caller as principal and the revoked token as subject — the same shape the CLI records,
+so a trail reader does not have to know which side a revocation came from.
+
+**Issuing stays on the host** because it needs the master key and *creates* a credential, and
+`revoke-all` stays there because one request that invalidates every credential of an identity is an
+availability weapon. **Off means absent:** a deployment that does not name the entry has no privileged
+write path at all — not a handler that refuses — and turning it on records a date and a reason like
+every other entry.
+
+The surface list therefore has a fourth entry, so `--check-config`, `ciphr surface show` and
+`GET /v1/surface` each gained a row.
+
 ## [0.8.0] — 2026-08-23
 
 **The release that answers a field report, and two of its findings are the same shape.** The fourth

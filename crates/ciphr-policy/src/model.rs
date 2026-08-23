@@ -280,6 +280,25 @@ fn build_policy(raw: RawPolicy) -> Result<Policy, PolicyError> {
                     capability: name,
                 });
             }
+
+            // **A secret capability on a rule that names `sys/` is refused here, at load
+            // time, and this is the only place in this crate that knows the reserved
+            // prefix exists** (ADR-23). Deciding an access stays one code path with no
+            // special case; refusing a *file* before any access is decided is a
+            // different job, and it is the one that can afford to know that `sys/` is
+            // not an ordinary prefix.
+            //
+            // The alternative was accepting the file and denying at request time, which
+            // is what the new capability meaning does anyway — and that is exactly the
+            // failure worth refusing: a monitoring identity that silently sees nothing
+            // after an upgrade, with the grant still sitting in the file looking correct.
+            if pattern.names_reserved_prefix() && !capability.is_control_plane() {
+                return Err(PolicyError::SecretCapabilityOnControlPlane {
+                    policy: raw.name.clone(),
+                    pattern: pattern.as_str().to_owned(),
+                    capability,
+                });
+            }
         }
 
         rules.push(Rule {
@@ -432,6 +451,71 @@ policies = ["does-not-exist"]
             PolicyError::UnknownPolicy { ref identity, ref policy }
                 if identity == "runner" && policy == "does-not-exist"
         ));
+    }
+
+    /// ADR-23's refusal, and the three cases that decide its shape.
+    ///
+    /// The one that matters most is the third: `**` keeps loading. Refusing every broad
+    /// grant would break every ordinary policy file, and it is not what changed — a broad
+    /// `read` simply no longer *reaches* the control plane. What is refused is the file
+    /// that names `sys/` and asks for a capability about secrets, because that grant used
+    /// to mean something and now means nothing.
+    #[test]
+    fn a_secret_capability_that_names_the_control_plane_is_refused() {
+        let refused = PolicySet::from_toml(
+            r#"
+[[policy]]
+name = "audit"
+  [[policy.rule]]
+  path         = "sys/audit"
+  capabilities = ["read"]
+"#,
+        )
+        .expect_err("`read` on a reserved path no longer authorizes it");
+
+        let message = refused.to_string();
+        assert!(message.contains("'read'"), "{message}");
+        assert!(
+            message.contains("inspect"),
+            "the message names the capability that is meant instead: {message}"
+        );
+
+        // Control-plane capabilities load, and so does an explicit denial — the
+        // belt-and-braces rule a deployment may want in its own file.
+        for accepted in [
+            r#"
+[[policy]]
+name = "audit"
+  [[policy.rule]]
+  path         = "sys/audit"
+  capabilities = ["inspect"]
+  [[policy.rule]]
+  path         = "sys/tokens"
+  capabilities = ["inspect", "revoke"]
+"#,
+            r#"
+[[policy]]
+name = "closed"
+  [[policy.rule]]
+  path         = "sys/**"
+  capabilities = []
+"#,
+            // The case that must keep working: a broad secret grant. It no longer reaches
+            // `sys/` at all, which is the decision, and refusing it here would be a
+            // different and much larger change.
+            r#"
+[[policy]]
+name = "everything"
+  [[policy.rule]]
+  path         = "**"
+  capabilities = ["read", "write", "delete", "list", "undelete"]
+"#,
+        ] {
+            assert!(
+                PolicySet::from_toml(accepted).is_ok(),
+                "this file has to load:\n{accepted}"
+            );
+        }
     }
 
     #[test]

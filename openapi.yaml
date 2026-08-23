@@ -11,7 +11,7 @@
 # the plan), and `POST /v1/report` with `GET /v1/leaks` for leak reports (section 23,
 # ADR-16).
 #
-# **Five routes are optional**, which is a third state beside "exists" and "reserved" and
+# **Six routes are optional**, which is a third state beside "exists" and "reserved" and
 # one this document could not express before 2026-08-21. Each belongs to a surface entry
 # (ADR-20) and answers 404 where a deployment did not turn that entry on -- the same status
 # a reserved path gives, for a different reason. `GET /v1/health` lists the entries a given
@@ -19,7 +19,12 @@
 #
 #   `viewer_api`      GET /v1/audit, /v1/identities, /v1/policies
 #   `bulk_export`     POST /v1/export
+#   `token_revoke`    POST /v1/tokens/{token_id}/revoke
 #   `honeypot_alert`  GET /v1/honeypots
+#
+# `token_revoke` is the only one of them that *writes*, and the only write in this
+# document that is not about a secret: ADR-3 keeps administration off the API, and ADR-24
+# narrows that to one named exception rather than repealing it.
 #
 # The first two were unconditional until 2026-08-21 and are a **breaking change** for a
 # deployment that does not name them: see `docs/operations/upgrade.md`. They became entries
@@ -337,7 +342,7 @@ paths:
         this from the store with no network hop, so turning the entry off costs the viewer
         and nothing else.
 
-        Authorized as the virtual path `sys/audit` through the ordinary policy
+        Requires `inspect` on the virtual path `sys/audit`, through the ordinary policy
         evaluator. There is no `admin` capability and no second authorization
         mechanism.
 
@@ -406,7 +411,7 @@ paths:
         this from the store with no network hop, so turning the entry off costs the viewer
         and nothing else.
 
-        Authorized as `sys/identities`. Read-only: identities are defined in the policy
+        Requires `inspect` on `sys/identities`. Read-only: identities are defined in the policy
         file, which is authoritative (ADR-3). This endpoint makes misconfiguration
         visible without making it creatable.
       responses:
@@ -438,7 +443,7 @@ paths:
         this from the store with no network hop, so turning the entry off costs the viewer
         and nothing else.
 
-        Authorized as `sys/policies`. Includes each rule's specificity — the number of
+        Requires `inspect` on `sys/policies`. Includes each rule's specificity — the number of
         literal segments — because that is what decides between two matching rules, and
         a reader working out why an access was refused needs it.
       responses:
@@ -452,6 +457,76 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404":
           description: This deployment did not turn on the `viewer_api` entry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503": { $ref: "#/components/responses/AuditUnavailable" }
+
+  /v1/tokens/{token_id}/revoke:
+    parameters:
+      - name: token_id
+        in: path
+        required: true
+        schema: { type: string }
+        description: |
+          The token's non-secret identifier, as `ciphr token list` and the audit trail
+          spell it. Never the token itself.
+    post:
+      x-surface-entry: token_revoke
+      tags: [administration]
+      summary: Revoke one token.
+      description: |
+        **Optional route**, belonging to the `token_revoke` surface entry (ADR-20), and
+        **the only write this API may do** (ADR-24). It answers `404` from the router's
+        fallback where a deployment did not name that entry, and `GET /v1/health` lists
+        the entries a given instance has.
+
+        Requires `revoke` on the virtual path `sys/tokens`. No secret capability reaches
+        it and neither does `inspect`: revoking is not reading the inventory (ADR-23).
+
+        **Why it exists.** `ciphr token revoke` takes the exclusive store lock the running
+        server holds, so on the host the sequence is stop, revoke, start — an outage at the
+        one moment nobody planned for. The server already checks revocation on every
+        request, so only the path that writes the row was missing.
+
+        **What stays outside it.** Issuing a token needs the master key and *creates* a
+        credential, so it remains a host operation with a planned window. `revoke-all` for
+        an identity remains one too: a single request that invalidates every credential of
+        an identity is an availability weapon, and repeating this call has the same effect
+        with one audit entry per token.
+
+        **Idempotent.** A second call succeeds and reports `revoked_now: false`, leaving the
+        original timestamp — so a retry after a network failure is safe.
+
+        The audit entry names the authenticated caller as the principal and the revoked
+        token as the subject, which is the same shape the CLI records for the same
+        operation.
+      responses:
+        "200":
+          description: The token is revoked. It authenticates nothing from its next request.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token_id, identity, revoked_now]
+                properties:
+                  token_id: { type: string }
+                  identity:
+                    type: string
+                    description: Whose credential this was.
+                  revoked_now:
+                    type: boolean
+                    description: |
+                      True when this call revoked it, false when it already was. The
+                      request succeeds either way.
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: |
+            No token with this identifier — or this deployment did not turn on the
+            `token_revoke` entry. The two are deliberately the same status: whether a
+            token id exists is not answerable without `revoke` on `sys/tokens`.
           content:
             application/json:
               schema:
@@ -534,7 +609,7 @@ paths:
       tags: [administration]
       summary: Which optional surface entries this deployment turned on, and why.
       description: |
-        Requires `read` on the virtual path `sys/surface` (ADR-20). No new capability:
+        Requires `inspect` on the virtual path `sys/surface` (ADR-20). No new capability:
         the same evaluator and the same mechanism as `sys/audit`.
 
         Each entry carries the date the deployment accepted the cost, the reason an
@@ -573,7 +648,7 @@ paths:
         from serving. `GET /v1/health` lists the entries an instance has, which is how a
         client learns this rather than inferring it from a status code.
 
-        Requires `read` on the virtual path `sys/honeypots` (plan section 22).
+        Requires `inspect` on the virtual path `sys/honeypots` (plan section 22).
 
         **This is the only place the honeypot flag is ever visible.** It does not appear
         on a secret read, in `GET /v1/list`, or in `GET /v1/versions`, because bait that
@@ -869,7 +944,7 @@ components:
             Here rather than behind a token because *which entries are active* is what
             the process enforces, and an unauthenticated endpoint may report that. The
             date a deployment accepted the cost and the reason it wrote down are prose
-            about somebody's environment, so they stay behind `read` on `sys/surface`.
+            about somebody's environment, so they stay behind `inspect` on `sys/surface`.
 
             A monitor that cannot see the shape of the thing it monitors is watching a
             different system -- which is the whole reason this field is not authenticated.
@@ -1298,7 +1373,7 @@ components:
                       type: array
                       items:
                         type: string
-                        enum: [read, write, delete, list, undelete]
+                        enum: [read, write, delete, list, undelete, inspect, revoke]
                       description: An empty array is an explicit denial.
                     specificity:
                       type: integer

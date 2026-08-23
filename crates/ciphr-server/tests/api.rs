@@ -46,25 +46,33 @@ name = "infra"
 [[policy]]
 name = "audit"
 
+  # `inspect` rather than `read` since ADR-23: these are control-plane paths, and a
+  # capability about a secret on a rule that names `sys/` is refused at load time.
   [[policy.rule]]
   path         = "sys/audit"
-  capabilities = ["read"]
+  capabilities = ["inspect"]
 
   [[policy.rule]]
   path         = "sys/identities"
-  capabilities = ["read"]
+  capabilities = ["inspect"]
 
   [[policy.rule]]
   path         = "sys/policies"
-  capabilities = ["read"]
+  capabilities = ["inspect"]
 
   [[policy.rule]]
   path         = "sys/surface"
-  capabilities = ["read"]
+  capabilities = ["inspect"]
 
   [[policy.rule]]
   path         = "sys/honeypots"
-  capabilities = ["read"]
+  capabilities = ["inspect"]
+
+  # The one control-plane mutation (ADR-24). `inspect` is deliberately *not* here:
+  # the revoke tests then also show that revoking needs no read of the inventory.
+  [[policy.rule]]
+  path         = "sys/tokens"
+  capabilities = ["revoke"]
 "#;
 
 /// A running API, plus what a test needs to talk to it.
@@ -2139,4 +2147,204 @@ fn the_trail_records_the_address_the_listener_saw() {
         addresses.contains(&None),
         "a request with no connection information records no address, got {addresses:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// `POST /v1/tokens/{token_id}/revoke` — the one write this API may do (ADR-24)
+// ---------------------------------------------------------------------------
+
+/// The token id of a token, as the store and the trail spell it.
+fn token_id_of(text: &str) -> String {
+    Token::parse(text)
+        .expect("a token this harness issued")
+        .id()
+        .as_text()
+}
+
+/// A harness whose surface has the revoke route on, plus the routes the assertions
+/// below read the trail through.
+fn revoking_harness() -> Harness {
+    Harness::with_surface(&["viewer_api", "token_revoke"])
+}
+
+/// Off means absent, and for a *write* route that is the property worth pinning first:
+/// a deployment that has not named this entry has no privileged write path at all, not
+/// a handler that decides to refuse (ADR-20, ADR-24).
+#[test]
+fn the_revoke_route_is_absent_until_the_entry_names_it() {
+    let harness = Harness::new();
+    let target = token_id_of(&harness.deploy_token);
+
+    let (status, _) = harness.send(Harness::build(
+        "POST",
+        &format!("/v1/tokens/{target}/revoke"),
+        Some(&harness.auditor_token.clone()),
+        None,
+    ));
+
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "an unnamed entry is a route axum answers from the fallback"
+    );
+}
+
+/// The whole point of the endpoint: a leaked credential stops working, and the service
+/// keeps running while it happens.
+#[test]
+fn revoking_over_the_api_stops_the_token_authenticating() {
+    let harness = revoking_harness();
+    let target = token_id_of(&harness.deploy_token);
+
+    // It works before.
+    let (status, _) = harness.get("/v1/list/infra", Some(&harness.deploy_token.clone()));
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, body) = harness.send(Harness::build(
+        "POST",
+        &format!("/v1/tokens/{target}/revoke"),
+        Some(&harness.auditor_token.clone()),
+        None,
+    ));
+    assert_eq!(status, StatusCode::OK, "got {body}");
+    assert_eq!(body["identity"], "deploy", "whose credential it was");
+    assert_eq!(body["revoked_now"], true, "this call is what revoked it");
+
+    // And not afterwards. `AppState::authenticate` checks revocation per request, which
+    // is why writing the row was the only thing missing.
+    let (status, _) = harness.get("/v1/list/infra", Some(&harness.deploy_token.clone()));
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "a revoked token authenticates nothing, on the next request"
+    );
+}
+
+/// A retry is safe, and says which call did the work.
+#[test]
+fn a_second_revoke_succeeds_and_reports_that_it_changed_nothing() {
+    let harness = revoking_harness();
+    let target = token_id_of(&harness.deploy_token);
+    let uri = format!("/v1/tokens/{target}/revoke");
+
+    let (status, first) = harness.send(Harness::build(
+        "POST",
+        &uri,
+        Some(&harness.auditor_token.clone()),
+        None,
+    ));
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(first["revoked_now"], true);
+
+    let (status, second) = harness.send(Harness::build(
+        "POST",
+        &uri,
+        Some(&harness.auditor_token.clone()),
+        None,
+    ));
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "a retry after a network failure must not be an error"
+    );
+    assert_eq!(
+        second["revoked_now"], false,
+        "the store's COALESCE keeps the original timestamp, and the response says so"
+    );
+}
+
+/// The entry names who acted *and* whose credential stopped working — the second half is
+/// what makes "when did this credential stop working" answerable, and it is the same
+/// shape the CLI records for the same operation.
+#[test]
+fn a_revocation_is_recorded_with_the_token_as_its_subject() {
+    let harness = revoking_harness();
+    let target = token_id_of(&harness.deploy_token);
+
+    let (status, _) = harness.send(Harness::build(
+        "POST",
+        &format!("/v1/tokens/{target}/revoke"),
+        Some(&harness.auditor_token.clone()),
+        None,
+    ));
+    assert_eq!(status, StatusCode::OK);
+
+    let payloads = harness.audit_payloads();
+    let entry = payloads
+        .iter()
+        .find(|payload| payload.contains("\"revoke-token\""))
+        .unwrap_or_else(|| panic!("a revocation writes an entry, got {payloads:?}"));
+
+    assert!(
+        entry.contains("\"principal\":{\"name\":\"auditor\""),
+        "the authenticated identity acted, not `cli:$USER`: {entry}"
+    );
+    assert!(
+        entry.contains(&format!("\"token_id\":\"{target}\"")),
+        "the subject names the credential: {entry}"
+    );
+    assert!(
+        entry.contains("\"path\":\"sys/tokens\""),
+        "authorized as the reserved path: {entry}"
+    );
+}
+
+/// `revoke` is the only capability that reaches it — a broad secret grant does not, which
+/// is ADR-23's property doing its work at the route it was needed for.
+#[test]
+fn an_identity_without_the_capability_cannot_revoke() {
+    let harness = revoking_harness();
+    let target = token_id_of(&harness.auditor_token);
+
+    // `deploy` holds read and list across `infra/**` and nothing under `sys/`.
+    let (status, _) = harness.send(Harness::build(
+        "POST",
+        &format!("/v1/tokens/{target}/revoke"),
+        Some(&harness.deploy_token.clone()),
+        None,
+    ));
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // And the credential still works, because nothing was written.
+    let (status, _) = harness.get("/v1/audit?limit=1", Some(&harness.auditor_token.clone()));
+    assert_eq!(status, StatusCode::OK);
+}
+
+/// Whether a token id exists is not answerable without the capability.
+///
+/// The handler looks the id up *before* it records the decision, so that the entry can
+/// name the credential — and this is the test that the order does not leak: an
+/// unauthorized caller gets the same `403` for an id that exists and one that does not,
+/// and only an authorized caller ever sees the `404`.
+#[test]
+fn a_missing_token_is_a_404_only_for_a_caller_that_may_revoke() {
+    let harness = revoking_harness();
+    let missing = "zzzzzzzz";
+    let existing = token_id_of(&harness.deploy_token);
+
+    let (status, _) = harness.send(Harness::build(
+        "POST",
+        &format!("/v1/tokens/{missing}/revoke"),
+        Some(&harness.auditor_token.clone()),
+        None,
+    ));
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "authorized, and nothing matched"
+    );
+
+    for id in [missing, existing.as_str()] {
+        let (status, _) = harness.send(Harness::build(
+            "POST",
+            &format!("/v1/tokens/{id}/revoke"),
+            Some(&harness.deploy_token.clone()),
+            None,
+        ));
+        assert_eq!(
+            status,
+            StatusCode::FORBIDDEN,
+            "existence must not be observable without `revoke`"
+        );
+    }
 }

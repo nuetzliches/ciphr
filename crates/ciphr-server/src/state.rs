@@ -426,6 +426,32 @@ impl AppState {
         path: &SecretPath,
         request: &RequestContext,
     ) -> Result<(), ApiError> {
+        self.authorize_and_record_subject(caller, action, capability, path, None, request)
+    }
+
+    /// The same gate, naming what the operation was performed *on*.
+    ///
+    /// One caller today: revoking a token (ADR-24). The principal is who acted and the
+    /// subject is whose credential stopped working, and the trail needs both — a revoke
+    /// entry that does not name the token cannot answer "when did *this* credential stop
+    /// working", which is the question `Action::RevokeToken` exists for.
+    ///
+    /// The shape matches what the CLI already records for the same operation, so a trail
+    /// reader does not have to know whether a revocation came from the host or over the
+    /// API to find the token id.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::authorize_and_record`].
+    pub fn authorize_and_record_subject(
+        &self,
+        caller: &Caller,
+        action: Action,
+        capability: Capability,
+        path: &SecretPath,
+        subject: Option<Principal>,
+        request: &RequestContext,
+    ) -> Result<(), ApiError> {
         let decision = self.authorize(caller, capability, path);
 
         // Bait, asked about *after* the decision and never inside it (ADR-15 property
@@ -473,6 +499,9 @@ impl AppState {
             )
         };
         entry = entry.with_principal(caller.as_principal()).with_path(path);
+        if let Some(subject) = subject {
+            entry = entry.with_subject(subject);
+        }
         if let Some(rule) = &decision.rule {
             entry = entry.with_rule(rule.policy.clone(), rule.pattern.clone());
         }

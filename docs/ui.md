@@ -1,6 +1,6 @@
 # The viewer
 
-**Status:** current as of 2026-08-22, phase 5, released as `ui-v0.3.0`. Built and running: the five
+**Status:** current as of 2026-08-23, phase 5, released as `ui-v0.3.0`; the capability its token needs changed on 2026-08-23 (ADR-23). Built and running: the five
 views below, the strict Content-Security-Policy, and the container that serves them. Sign-in is a
 pasted token; SSO is post-v1 (ADR-12). **This viewer requires a service at `0.3.0` or newer** — it
 reads the rotation class from `GET /v1/versions/{path}`, which returned a bare array before that.
@@ -38,6 +38,12 @@ A personal token for an identity of kind `human`, issued with the CLI:
 ```sh
 ciphr token issue alice --ttl 8h
 ```
+
+**That identity's policy needs `inspect` on the control-plane paths the viewer reads** —
+`sys/audit`, `sys/identities`, `sys/policies` — since 2026-08-23. Before then a broad `read` grant
+reached them, which is exactly the default [ADR-23](adr/0023-the-control-plane-is-its-own-capability.md)
+turned around; a policy file that still says `read` on one of those paths is refused when the service
+loads it, naming the replacement. Secrets and their versions still need `read` and `list` as before.
 
 Paste it into the sign-in field. What follows:
 

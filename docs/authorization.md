@@ -2,7 +2,8 @@
 
 **Status:** implemented and tested as of 2026-08-18, re-read against the code on 2026-08-20, scope
 guidance and the enforcement layer of the reserved prefix corrected 2026-08-21, guidance on broad
-wildcards and the reserved prefix added 2026-08-21.
+wildcards and the reserved prefix added 2026-08-21, the control plane given capabilities of its own
+2026-08-23 (ADR-23, ADR-24).
 Describes the code in `crates/ciphr-policy` and the pattern matcher in `crates/ciphr-core`. **Every
 authorization decision the service makes goes through this** — the sentence here used to say there
 was no HTTP server yet and that the semantics were what it *would* call, which stopped being true
@@ -36,25 +37,32 @@ history is itself part of the audit trail.
 "denies everything" and "I forgot to write it", and those two readings are opposites in exactly the
 case that matters.
 
-## The five capabilities
+## The seven capabilities
 
-`read`, `write`, `delete`, `list`, `undelete`. There is **no `admin`**: administration happens
-through configuration and the CLI on the host, so there is no privileged capability to be obtained
-by finding a gap in a policy file.
+**Five are about a secret** — `read`, `write`, `delete`, `list`, `undelete` — and **two are about
+the control plane**: `inspect` reads a reserved path, `revoke` revokes a token. There is **no
+`admin`**: administration happens through configuration and the CLI on the host, so there is no
+privileged capability to be obtained by finding a gap in a policy file.
 
-Administrative reads go through the same evaluator as everything else, as the virtual paths
-`sys/audit`, `sys/identities`, and `sys/policies`. One authorization mechanism, one code path.
+| Capability | Authorizes |
+|---|---|
+| `read`, `write`, `delete`, `list`, `undelete` | A secret at a path, and nothing else |
+| `inspect` | Reading `sys/audit`, `sys/identities`, `sys/policies`, `sys/surface`, `sys/honeypots`, `sys/tokens` |
+| `revoke` | Revoking a token (`sys/tokens`), through `POST /v1/tokens/{id}/revoke` where that entry is on ([ADR-24](adr/0024-revocation-is-the-one-write-the-api-may-do.md)) |
+
+Control-plane access goes through the same evaluator as everything else, as those virtual paths. One
+authorization mechanism, one code path — the split is carried by the capability, **not** by a special
+case in the evaluator.
 
 Nothing under `sys/` can be a real secret, and **storage is what refuses it** — not the HTTP layer,
 which would leave the CLI free to plant one. That is what keeps a rule about `sys/audit` a rule
 about the audit trail: if a secret could live at that path, one grant would silently authorize two
 different things.
 
-### A broad wildcard reaches `sys/`, and that is a decision rather than an inheritance
+### A broad wildcard does not reach `sys/`, and that changed on 2026-08-23
 
-`read` is one capability for two kinds of object: a secret's value, and the control plane at
-`sys/audit`, `sys/identities` and `sys/policies`. Only the path separates them, and `**` matches one
-or more segments — so
+Until then `read` was one capability for two kinds of object — a secret's value and the control
+plane — with only the path separating them. Since `**` matches one or more segments,
 
 ```toml
   [[policy.rule]]
@@ -62,13 +70,33 @@ or more segments — so
   capabilities = ["read"]
 ```
 
-grants the audit trail, the identity inventory and the whole policy structure along with every
-secret. That is rarely what the author of such a rule means, and it matters more than it looks.
-`sys/policies` is the map of the authorization model. `sys/audit` says which paths legitimate
+granted the audit trail, the identity inventory and the whole policy structure along with every
+secret. That is rarely what the author of such a rule means, and it matters more than it looks:
+`sys/policies` is the map of the authorization model, and `sys/audit` says which paths legitimate
 consumers actually fetch — which is the same as saying which paths they never fetch, and that is
 precisely where [ADR-15](adr/0015-honeypots-and-what-a-tripwire-may-do.md) says bait belongs.
 
-**Where an identity needs a broad grant, fence the reserved prefix with one rule:**
+**[ADR-23](adr/0023-the-control-plane-is-its-own-capability.md) turned the default around.** The rule
+above now grants every secret and no reserved path at all, because `read` is a capability about
+secrets. Reaching the control plane means saying so:
+
+```toml
+  [[policy.rule]]
+  path         = "sys/audit"
+  capabilities = ["inspect"]
+```
+
+**A rule that names `sys/` and asks for a secret capability is refused when the file loads**, with the
+capability that is meant instead. It is not accepted and quietly denied — the reader who would find
+out otherwise is a monitoring identity that silently stopped seeing anything. The refusal is a
+load-time validation and the *evaluator* still does not know the reserved prefix exists: deciding an
+access is one code path with no special case, and refusing a file before any access is decided is a
+different job.
+
+`ciphr-server --check-config <file>` runs that validation with no store and no master key, so the
+edit is findable in review rather than on the host.
+
+**The fence rule still works and is now belt and braces:**
 
 ```toml
   [[policy.rule]]
@@ -77,15 +105,8 @@ precisely where [ADR-15](adr/0015-honeypots-and-what-a-tripwire-may-do.md) says 
 ```
 
 One literal segment beats zero (rule 2 below) and an empty capability set is an explicit denial that
-beats any less specific permission (rule 4), so this wins over `**` entirely. Grant the reserved
-paths back individually to whoever should have them — `sys/audit` for an auditing identity, and
-nothing else follows from it.
-
-This is a recommendation, not something the evaluator enforces. `ciphr-policy` does not know the
-reserved prefix exists, deliberately: one code path decides every access, and a special case there
-would cost more than it buys. Whether the control plane should instead require a capability of its
-own — so that the fence is the default rather than a rule somebody remembers to write — is an open
-question in the issue tracker and is not settled here.
+beats any less specific permission (rule 4). Nothing needs it any more — a secret grant does not
+reach `sys/` regardless — and a deployment that wants the denial stated in its own file can keep it.
 
 
 ## The pattern language, in full

@@ -59,9 +59,16 @@ name = "ci-tokens"
 [[policy]]
 name = "audit"
 
+  # The control plane, and since ADR-23 with capabilities of its own: a rule that
+  # names `sys/` may grant `inspect` and `revoke` and nothing else. The loader
+  # refuses `read` here rather than accepting a grant that would authorize nothing.
   [[policy.rule]]
   path         = "sys/audit"
-  capabilities = ["read"]
+  capabilities = ["inspect"]
+
+  [[policy.rule]]
+  path         = "sys/tokens"
+  capabilities = ["inspect", "revoke"]
 "#;
 
 struct Row {
@@ -84,7 +91,7 @@ enum Expect {
 
 #[allow(clippy::too_many_lines)]
 fn table() -> Vec<Row> {
-    use Capability::{Delete, List, Read, Undelete, Write};
+    use Capability::{Delete, Inspect, List, Read, Revoke, Undelete, Write};
     vec![
         // --- the broad grant ------------------------------------------------
         Row {
@@ -249,14 +256,14 @@ fn table() -> Vec<Row> {
         Row {
             identity: "auditor",
             path: "sys/audit",
-            capability: Read,
+            capability: Inspect,
             expect: Expect::Allow { rule: "sys/audit" },
             why: "the audit endpoint is authorized as a path, not by a special case",
         },
         Row {
             identity: "auditor",
             path: "sys/policies",
-            capability: Read,
+            capability: Inspect,
             expect: Expect::Deny {
                 reason: DenyReason::NoMatchingRule,
                 rule: None,
@@ -266,12 +273,61 @@ fn table() -> Vec<Row> {
         Row {
             identity: "deploy",
             path: "sys/audit",
-            capability: Read,
+            capability: Inspect,
             expect: Expect::Deny {
                 reason: DenyReason::NoMatchingRule,
                 rule: None,
             },
             why: "the deploy runner has no administrative access",
+        },
+        // --- the control plane is not reached by a secret capability (ADR-23) -
+        Row {
+            identity: "auditor",
+            path: "sys/audit",
+            capability: Read,
+            expect: Expect::Deny {
+                reason: DenyReason::NotGranted,
+                rule: Some("sys/audit"),
+            },
+            why: "`read` is a capability about a secret, and this rule grants inspect",
+        },
+        Row {
+            identity: "deploy",
+            path: "infra/service-a/DB_PASSWORD",
+            capability: Inspect,
+            expect: Expect::Deny {
+                reason: DenyReason::NotGranted,
+                rule: Some("infra/**"),
+            },
+            why: "and the split holds in the other direction: a secret is not inspected",
+        },
+        // --- revocation, the one control-plane mutation (ADR-24) -------------
+        Row {
+            identity: "auditor",
+            path: "sys/tokens",
+            capability: Revoke,
+            expect: Expect::Allow { rule: "sys/tokens" },
+            why: "the revoke endpoint is authorized as `revoke` on the token inventory",
+        },
+        Row {
+            identity: "auditor",
+            path: "sys/audit",
+            capability: Revoke,
+            expect: Expect::Deny {
+                reason: DenyReason::NotGranted,
+                rule: Some("sys/audit"),
+            },
+            why: "one reserved path still grants nothing about another",
+        },
+        Row {
+            identity: "deploy",
+            path: "sys/tokens",
+            capability: Revoke,
+            expect: Expect::Deny {
+                reason: DenyReason::NoMatchingRule,
+                rule: None,
+            },
+            why: "a broad secret grant reaches no reserved path at all",
         },
         // --- capabilities nobody granted ------------------------------------
         Row {

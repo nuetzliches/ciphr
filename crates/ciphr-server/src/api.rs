@@ -93,6 +93,14 @@ pub fn router(state: AppState) -> Router {
         router = router.route("/v1/export", post(export));
     }
 
+    // `token_revoke` -- the one write this API may do (ADR-24), and an entry because a
+    // deployment that does not want a privileged write path over HTTP should not have
+    // one. Off, revoking a leaked credential means stopping the service, which is what
+    // the entry's cost sentence says and what `honeypots.md` step 3 describes.
+    if state.surface().has("token_revoke") {
+        router = router.route("/v1/tokens/{token_id}/revoke", post(revoke_token));
+    }
+
     // `honeypot_alert` is a *build* entry, so the route hangs on the `cfg` and not on the
     // surface list. That asymmetry with the two above is the decision, not an oversight:
     // for a build entry there is no configuration-level off. `resolve` refuses to start a
@@ -371,6 +379,19 @@ struct IdentityResponse {
     name: String,
     kind: String,
     policies: Vec<String>,
+}
+
+/// What `POST /v1/tokens/{token_id}/revoke` returns.
+///
+/// The identity is in it because the caller revoked a token id and the question afterwards
+/// is whose credential that was. `revoked_now` distinguishes the call that revoked from a
+/// retry that found it already revoked — the store's `COALESCE` makes both succeed, and a
+/// caller logging the difference can tell a repeat from a first attempt.
+#[derive(Debug, Serialize)]
+struct RevokeResponse {
+    token_id: String,
+    identity: String,
+    revoked_now: bool,
 }
 
 /// What `GET /v1/policies` returns.
@@ -908,7 +929,7 @@ async fn read_surface(
     state.authorize_and_record(
         &caller,
         Action::Read,
-        Capability::Read,
+        Capability::Inspect,
         &virtual_path,
         &request,
     )?;
@@ -1020,7 +1041,7 @@ async fn read_honeypots(
     state.authorize_and_record(
         &caller,
         Action::Read,
-        Capability::Read,
+        Capability::Inspect,
         &virtual_path,
         &request,
     )?;
@@ -1095,7 +1116,7 @@ async fn read_audit(
     state.authorize_and_record(
         &caller,
         Action::Read,
-        Capability::Read,
+        Capability::Inspect,
         &virtual_path,
         &request,
     )?;
@@ -1177,7 +1198,7 @@ async fn read_identities(
     state.authorize_and_record(
         &caller,
         Action::Read,
-        Capability::Read,
+        Capability::Inspect,
         &virtual_path,
         &request,
     )?;
@@ -1211,7 +1232,7 @@ async fn read_policies(
     state.authorize_and_record(
         &caller,
         Action::Read,
-        Capability::Read,
+        Capability::Inspect,
         &virtual_path,
         &request,
     )?;
@@ -1238,6 +1259,81 @@ async fn read_policies(
         .collect();
 
     Ok(Json(PoliciesResponse { policies }))
+}
+
+/// `POST /v1/tokens/{token_id}/revoke` — the one write this API may do (ADR-24).
+///
+/// **Why it exists at all.** Revoking a leaked credential otherwise means stopping the
+/// service: `ciphr token revoke` takes the exclusive store lock the running server
+/// holds, so the host path is stop, revoke, start — an outage at the one moment nobody
+/// planned for, and `docs/operations/honeypots.md` fires exactly then. The server
+/// already checks revocation live on every request (`AppState::authenticate`), so the
+/// mechanism for instant revocation was built and only the path that writes the row was
+/// missing.
+///
+/// **What keeps it narrow**, and each of these is a line ADR-24 drew rather than an
+/// implementation detail: one token per request, authorized as `revoke` on `sys/tokens`
+/// (ADR-23) and reachable through no other capability, behind a surface entry that is
+/// off until a deployment names it, and **no master key involved** — a revocation sets
+/// `revoked_at` and decrypts nothing. Issuing stays on the host, where a planned window
+/// is an adequate answer, and `revoke-all` stays there too because one request that
+/// invalidates every credential of an identity is an availability weapon.
+///
+/// **Idempotent**, by the SQL that was already there: `revoke_token` writes
+/// `COALESCE(revoked_at, now)`, so a retry after a network failure cannot move the
+/// timestamp. `revoked_now` in the response says which call did it.
+async fn revoke_token(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    origin: Origin,
+    Path(token_id): Path<String>,
+) -> Result<Json<RevokeResponse>, ApiError> {
+    let request = request_context(&headers, origin);
+    let caller = authenticate(&state, &headers, Action::RevokeToken, &request)?;
+    let virtual_path = reserved_path("tokens");
+
+    // **Looked up before the decision is recorded, and the reason is not the CLI's.**
+    // There the same order exists so that a revocation of a token that does not exist is
+    // not recorded as one that did; the operator is trusted with the master key anyway.
+    // Here the caller is not, so what matters is that the *outcome* of this read is not
+    // observable before the capability check — the `404` below is returned only after
+    // `authorize_and_record_subject` allowed the call, so whether a token id exists stays
+    // unanswerable without `revoke` on `sys/tokens`. Reading first is what lets the entry
+    // name the credential that stopped working.
+    let record = state.with_store(|store| {
+        Ok(store
+            .tokens(None)?
+            .into_iter()
+            .find(|record| record.token_id == token_id))
+    })?;
+
+    state.authorize_and_record_subject(
+        &caller,
+        Action::RevokeToken,
+        Capability::Revoke,
+        &virtual_path,
+        record.as_ref().map(|found| ciphr_audit::Principal {
+            name: found.identity.clone(),
+            kind: None,
+            token_id: Some(found.token_id.clone()),
+        }),
+        &request,
+    )?;
+
+    // An authorized request that named nothing. The entry above stands and carries no
+    // subject, which is exactly the shape of "this id matched no credential" — worth
+    // knowing that nobody should read such an entry as evidence the token existed.
+    let Some(found) = record else {
+        return Err(ApiError::NotFound);
+    };
+
+    state.with_store(|store| store.revoke_token(&token_id).map_err(ApiError::from))?;
+
+    Ok(Json(RevokeResponse {
+        token_id,
+        identity: found.identity,
+        revoked_now: found.revoked_at.is_none(),
+    }))
 }
 
 // ---------------------------------------------------------------------------

@@ -135,6 +135,19 @@ pub const ENTRIES: &[Entry] = &[
         compiled_in: true,
     },
     Entry {
+        name: "token_revoke",
+        kind: Kind::Runtime,
+        cost: "Revoking a leaked credential means stopping the service: `ciphr token \
+               revoke` takes the store lock the running server holds, so the only \
+               route to it is stop, revoke, start -- taking down every consumer in \
+               order to invalidate one token, at the one moment that cannot be \
+               scheduled. `docs/operations/honeypots.md` fires exactly then. On, this \
+               is the single write the API may do (ADR-24): one token per request, \
+               authorized as `revoke` on `sys/tokens`, no master key involved. Issuing \
+               stays on the host either way.",
+        compiled_in: true,
+    },
+    Entry {
         name: "honeypot_alert",
         kind: Kind::Build,
         cost: "No detection of bait. A deployment that plants none pays nothing for the \

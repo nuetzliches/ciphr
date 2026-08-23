@@ -445,7 +445,10 @@ name = "writer"
     #[test]
     fn administrative_paths_go_through_the_same_evaluator() {
         // No second mechanism and no `admin` capability: the audit endpoint is
-        // authorized as an ordinary path.
+        // authorized as an ordinary path. Since ADR-23 the *capability* is `inspect`
+        // rather than `read` — and this test's value is that nothing else changed:
+        // the evaluator does not know that `sys/` is special, and the path axis still
+        // keeps one reserved path from granting another.
         let set = load(
             r#"
 [[identity]]
@@ -457,21 +460,70 @@ policies = ["audit-read"]
 name = "audit-read"
   [[policy.rule]]
   path         = "sys/audit"
-  capabilities = ["read"]
+  capabilities = ["inspect"]
 "#,
         );
 
         assert!(
-            set.evaluate("auditor", &path("sys/audit"), Capability::Read)
+            set.evaluate("auditor", &path("sys/audit"), Capability::Inspect)
                 .is_allowed()
         );
         assert!(
-            !set.evaluate("auditor", &path("sys/policies"), Capability::Read)
+            !set.evaluate("auditor", &path("sys/policies"), Capability::Inspect)
                 .is_allowed()
         );
         assert!(
-            !set.evaluate("auditor", &path("infra/a"), Capability::Read)
+            !set.evaluate("auditor", &path("infra/a"), Capability::Inspect)
                 .is_allowed()
         );
+        // The half ADR-23 exists for: the grant is `inspect`, so it is not a `read` of
+        // anything — and a `read` grant elsewhere cannot become one here.
+        assert!(
+            !set.evaluate("auditor", &path("sys/audit"), Capability::Read)
+                .is_allowed()
+        );
+    }
+
+    /// The default that ADR-23 turned around, as a test.
+    ///
+    /// `**` is the shape somebody writes for a break-glass identity meaning *all the
+    /// secrets*, and it used to grant the audit trail, the identity inventory and the
+    /// map of the authorization model with them. It no longer reaches any of them —
+    /// and it still grants every secret, which is the part that must not change.
+    #[test]
+    fn a_broad_secret_grant_does_not_reach_the_control_plane() {
+        let set = load(
+            r#"
+[[identity]]
+name     = "break-glass"
+kind     = "human"
+policies = ["everything"]
+
+[[policy]]
+name = "everything"
+  [[policy.rule]]
+  path         = "**"
+  capabilities = ["read", "write", "delete", "list", "undelete"]
+"#,
+        );
+
+        assert!(
+            set.evaluate("break-glass", &path("infra/a/DB"), Capability::Read)
+                .is_allowed(),
+            "every secret, as written"
+        );
+
+        for reserved in ["sys/audit", "sys/identities", "sys/policies", "sys/tokens"] {
+            assert!(
+                !set.evaluate("break-glass", &path(reserved), Capability::Inspect)
+                    .is_allowed(),
+                "{reserved} is not a secret and this rule grants secrets"
+            );
+            assert!(
+                !set.evaluate("break-glass", &path(reserved), Capability::Revoke)
+                    .is_allowed(),
+                "{reserved} cannot be mutated by a secret grant either"
+            );
+        }
     }
 }

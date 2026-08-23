@@ -33,7 +33,7 @@ is the deferred `POST /v1/report` (ADR-16). Two consequences worth holding onto 
 | `seal` | The seal mechanism recorded in the store (`static`, or `static_env` in older stores) | No — a configuration fact |
 | `key_source` | Where *this process* read its key: `env`, `file`, or `supplied` | No — but it is the field that shows which source is live during a migration from one to the other |
 | `audit_devices[]` | One entry per configured device: `name`, and `accepting` | **Yes.** This is the only dynamic health state on the endpoint |
-| `surface` | Names of the optional entries this process is running (ADR-20) | No. The date and reason a deployment recorded stay behind `read` on `sys/surface` |
+| `surface` | Names of the optional entries this process is running (ADR-20) | No. The date and reason a deployment recorded stay behind `inspect` on `sys/surface` |
 | `tripped`, `open_tripwires` | Whether any tripwire is open (ADR-15) | Yes — **and absent entirely in a build without `honeypot_alert`** |
 | `api_version` | `"v1"` | No |
 

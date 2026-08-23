@@ -7,7 +7,7 @@
 
 use core::fmt;
 
-use ciphr_core::{CapabilityError, PatternError};
+use ciphr_core::{Capability, CapabilityError, PatternError};
 
 /// A policy file could not be turned into a usable policy set.
 #[derive(Debug)]
@@ -27,7 +27,7 @@ pub enum PolicyError {
         /// What is wrong with it.
         reason: PatternError,
     },
-    /// A capability name is not one of the five.
+    /// A capability name is not one of the seven.
     Capability {
         /// The policy the rule belongs to.
         policy: String,
@@ -48,6 +48,21 @@ pub enum PolicyError {
         pattern: String,
         /// The capability that appears twice.
         capability: String,
+    },
+    /// A rule that names the reserved prefix grants a capability about secrets.
+    ///
+    /// Refused rather than accepted and denied at request time (ADR-23). `read` on
+    /// `sys/audit` used to authorize the audit trail and now authorizes nothing, so a
+    /// file carrying it means something other than what it says — and the reader who
+    /// finds out is a monitoring identity that silently stopped seeing anything. One
+    /// edit per file, and the message names the capability that is meant instead.
+    SecretCapabilityOnControlPlane {
+        /// The policy the rule belongs to.
+        policy: String,
+        /// The pattern the rule applies to.
+        pattern: String,
+        /// The capability that no longer means anything there.
+        capability: Capability,
     },
     /// Two rules in one policy use the same pattern.
     ///
@@ -120,6 +135,19 @@ impl fmt::Display for PolicyError {
             } => write!(
                 f,
                 "policy '{policy}', rule '{pattern}': capability '{capability}' appears twice"
+            ),
+            Self::SecretCapabilityOnControlPlane {
+                policy,
+                pattern,
+                capability,
+            } => write!(
+                f,
+                "policy '{policy}', rule '{pattern}': '{capability}' is a capability about a \
+                 secret, and '{pattern}' names the control plane. Since ADR-23 reading a \
+                 control-plane path is 'inspect' and revoking a token is 'revoke'; a rule under \
+                 '{prefix}/' may grant only those. Replace '{capability}' rather than removing the \
+                 rule, or the identity loses the access it was written for",
+                prefix = ciphr_core::path::RESERVED_PREFIX
             ),
             Self::DuplicatePattern { policy, pattern } => write!(
                 f,

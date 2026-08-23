@@ -162,6 +162,26 @@ impl PathPattern {
         &self.text
     }
 
+    /// Whether this pattern's first segment is the literal reserved prefix.
+    ///
+    /// The mirror of [`SecretPath::is_reserved`] on the pattern side, and it exists for
+    /// one caller: the load-time refusal ADR-23 requires. A rule that *names* `sys/`
+    /// may carry control-plane capabilities and nothing else, because a secret
+    /// capability there no longer means what it says.
+    ///
+    /// **Deliberately literal.** `*/audit` is not caught and does not need to be: after
+    /// ADR-23 authorization is carried by the capability, so a wildcard that happens to
+    /// overlap a reserved path grants nothing there either way. What this catches is the
+    /// file somebody wrote *meaning* the control plane — which is the file that has to
+    /// be edited rather than silently denied.
+    #[must_use]
+    pub fn names_reserved_prefix(&self) -> bool {
+        matches!(
+            self.segments.first(),
+            Some(Segment::Literal(first)) if first == crate::path::RESERVED_PREFIX
+        )
+    }
+
     /// Whether this pattern matches a path.
     ///
     /// A single linear scan, no backtracking — which is only possible because

@@ -155,11 +155,22 @@ impl Action {
 impl From<Capability> for Action {
     fn from(capability: Capability) -> Self {
         match capability {
-            Capability::Read => Self::Read,
+            // **`read` and `inspect` share one action, and the shared arm is the
+            // statement** (ADR-23): the trail's vocabulary did not grow with the
+            // capability set. Reading `sys/audit` was recorded as `read` before the
+            // control plane had a capability of its own and still is — the capability
+            // answers *who may*, the action answers *what happened*, and a consumer
+            // counting `read` entries sees no change from a split about authorization.
+            Capability::Read | Capability::Inspect => Self::Read,
             Capability::Write => Self::Write,
             Capability::Delete => Self::Delete,
             Capability::List => Self::List,
             Capability::Undelete => Self::Undelete,
+            // Revocation is the one control-plane mutation, and it already had an action
+            // of its own — issued by the CLI since 2026-08-20 and now by the endpoint
+            // ADR-24 adds. One spelling for both, so a trail reader does not have to know
+            // which side a revocation came from.
+            Capability::Revoke => Self::RevokeToken,
         }
     }
 }
@@ -398,12 +409,26 @@ mod tests {
     use super::{Action, Entry, Principal};
     use ciphr_core::{Capability, SecretPath, SecretVersion};
 
+    /// **The two vocabularies were the same word, and since ADR-23 they are not.** The
+    /// five capabilities about a secret still spell their action identically; the two
+    /// about the control plane deliberately do not, because the trail's words describe
+    /// what happened and the capability's describe who may. Reading `sys/audit` was
+    /// recorded as `read` before the split and still is, so a consumer counting actions
+    /// sees nothing change.
     #[test]
-    fn every_capability_maps_to_an_action() {
-        for capability in Capability::ALL {
-            let action = Action::from(capability);
-            assert_eq!(action.as_str(), capability.as_str());
+    fn a_capability_maps_to_the_action_that_describes_what_happened() {
+        for capability in [
+            Capability::Read,
+            Capability::Write,
+            Capability::Delete,
+            Capability::List,
+            Capability::Undelete,
+        ] {
+            assert_eq!(Action::from(capability).as_str(), capability.as_str());
         }
+
+        assert_eq!(Action::from(Capability::Inspect).as_str(), "read");
+        assert_eq!(Action::from(Capability::Revoke).as_str(), "revoke-token");
     }
 
     #[test]

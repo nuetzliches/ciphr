@@ -2,9 +2,11 @@
 
 **Status:** written 2026-08-21, revised 2026-08-22 (step 3 says that revoking stops the
 service, step 2 now runs while it is up, and "What a caller can and cannot tell" narrows the
-indistinguishability claim to the response), describing the `alert` tier as built. The severe
-tiers of [ADR-15](../adr/0015-honeypots-and-what-a-tripwire-may-do.md) are designed and not
-built, and [freeze.md](freeze.md) says why.
+indistinguishability claim to the response), revised 2026-08-23 for the revoke endpoint
+(step 3 no longer stops the service where the `token_revoke` entry is on), describing the
+`alert` tier as built. The severe tiers of
+[ADR-15](../adr/0015-honeypots-and-what-a-tripwire-may-do.md) are designed and not built, and
+[freeze.md](freeze.md) says why.
 
 A honeypot turns one class of silent failure into a loud one. The audit trail records every
 access and *notices* nothing: a compromised deploy runner holding a valid token reads what
@@ -194,7 +196,7 @@ ciphr honeypot list                    # on the host: which bait, and which is T
 ciphr audit tail -n 50                 # the trail, where the trip is authoritative
 ```
 
-Or over the API, with `read` on `sys/honeypots`:
+Or over the API, with `inspect` on `sys/honeypots`:
 
 ```sh
 curl --cacert "$CIPHR_CA" -H "Authorization: Bearer $CIPHR_TOKEN" \
@@ -236,17 +238,34 @@ finding was fixed before this shipped.
    list` runs read-only against the live service (ADR-22) — expiry, revocation state and
    last use are readable now, before anything is stopped — so the decision of *which* token
    to revoke is made with the service up.
-3. **Revoke — and this step stops the service.** `ciphr token revoke <id>` for one
+3. **Revoke. Whether this stops the service depends on one entry.**
+
+   **With the `token_revoke` surface entry on** ([ADR-24](../adr/0024-revocation-is-the-one-write-the-api-may-do.md)),
+   one token goes over the API and nothing is stopped:
+
+   ```sh
+   curl --cacert "$CIPHR_CA" -X POST -H "Authorization: Bearer $TOKEN" \
+     https://ciphr.internal:4400/v1/tokens/<token_id>/revoke
+   ```
+
+   The caller needs `revoke` on `sys/tokens`, the revocation takes effect on the leaked
+   credential's **next request**, and the trail records who revoked and whose token it
+   was. Retrying is safe: a second call reports `revoked_now: false` and changes nothing.
+
+   **With the entry off, this step stops the service.** `ciphr token revoke <id>` for one
    credential, `ciphr token revoke-all <identity>` for all of an identity's. Both write a
    row and an audit entry, so both open a session and take the store lock the running
-   server holds: **stop the service, revoke, start it again.** The outage is part of this
-   runbook, not an accident of it — plan the sequence so everything else here is done
+   server holds: **stop the service, revoke, start it again.** The outage is then part of
+   this runbook, not an accident of it — plan the sequence so everything else here is done
    first, and know that while the service is stopped, the stolen credential is answered
-   nothing either. There is no revocation over the API (issue #14 tracks whether there
-   should be), and no automatic revocation: ADR-15 designed `disable-identity` and
-   deliberately did not build it, because where one machine identity serves every deploy
-   target, revoking it stops every deploy — an availability lever whose trigger condition
-   is "somebody read a path".
+   nothing either.
+
+   **`revoke-all` is on the host either way**, deliberately: one request that invalidates
+   every credential of an identity is an availability weapon, and repeating the per-token
+   call has the same effect with one trail entry per token. And there is no *automatic*
+   revocation: ADR-15 designed `disable-identity` and deliberately did not build it,
+   because where one machine identity serves every deploy target, revoking it stops every
+   deploy — an availability lever whose trigger condition is "somebody read a path".
 4. **Then clear, so the bait can fire again:**
 
    ```sh

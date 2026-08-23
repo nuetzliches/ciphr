@@ -1,6 +1,6 @@
 # Upgrading
 
-**Status:** current as of 2026-08-23, covering every released version up to `0.8.0`.
+**Status:** current as of 2026-08-23, covering every released version up to `0.8.0`, plus the unreleased `0.9.0` notes.
 
 The changelog says what changed. This says what to *do* about it, and it exists because the two are
 not the same document: a changelog entry sinks under the next release, while the person upgrading two
@@ -78,6 +78,75 @@ which is where a configuration edit is actually reviewed. On the host it also no
 store's writer lock, so it runs while the service is up, and it neither migrates the store nor writes
 to the audit trail. Exit is non-zero while the store is not ready, as before, and the store section
 says why ([field-report-2026-08-23.md](../field-report-2026-08-23.md), finding 1).
+
+## 0.9.0
+
+### The control plane needs its own capability, and a policy file that says `read` there is refused
+
+**This is the one thing to do before starting the new binary, and `--check-config` finds it without a
+store or a key.** `read` used to authorize a secret's value *and* the control plane — `sys/audit`,
+`sys/identities`, `sys/policies`, `sys/surface`, `sys/honeypots` — with only the path separating them,
+so a broad `path = "**"` with `read` granted the audit trail and the map of the authorization model
+along with every secret. It does not any more
+([ADR-23](../adr/0023-the-control-plane-is-its-own-capability.md)).
+
+Two new capabilities: **`inspect`** reads a control-plane path, **`revoke`** revokes a token. The five
+existing ones mean secrets and only secrets.
+
+**What to do**, and it is one edit per policy file:
+
+```toml
+  [[policy.rule]]
+  path         = "sys/audit"
+  capabilities = ["inspect"]      # was ["read"]
+```
+
+**The server refuses to start on the old form** rather than accepting a grant that would authorize
+nothing, and names the capability meant instead. That refusal is deliberate: a monitoring identity
+that silently sees nothing after an upgrade is worse than an edit. Run
+`ciphr-server --check-config <file>` against the new binary and the policy file — since `0.8.0` that
+needs neither a store nor a master key, so this is findable in review.
+
+**Who is affected.** Any identity that reads the control plane: the viewer's token
+([ui.md](../ui.md)), a monitoring identity that polls `GET /v1/audit`, anything reading
+`/v1/identities`, `/v1/policies`, `/v1/surface` or `/v1/honeypots`. **Who is not:** an identity with
+only secret grants, however broad — including `**`. Those files load unchanged, and they simply no
+longer reach `sys/`.
+
+**Not affected either:** the CLI's own access. It reads the trail, the identities and the policies
+from the store with the master key, and no policy capability is consulted on that path.
+
+`sys/**` with an empty capability list still works and is now belt and braces — nothing needs it, and
+a deployment that wants the denial stated in its own file can keep it.
+
+### Revoking a leaked credential no longer needs an outage, where a deployment turns it on
+
+`POST /v1/tokens/{token_id}/revoke`, behind the new **`token_revoke`** surface entry
+([ADR-24](../adr/0024-revocation-is-the-one-write-the-api-may-do.md)). Off unless a deployment names
+it, and off means the route is never registered — nothing changes for anyone who leaves it alone.
+
+```toml
+[[surface]]
+entry    = "token_revoke"
+accepted = "2026-08-23"
+reason   = "the honeypot runbook's revoke step must not take the service down"
+```
+
+The caller needs `revoke` on `sys/tokens`; the revocation takes effect on the leaked credential's next
+request, because the server already checked revocation per request. **This is the only write this API
+has ever had**, and the boundary is drawn in the record: issuing stays on the host because it needs
+the master key and creates a credential, and `revoke-all` stays there because one request that
+invalidates every credential of an identity is an availability weapon.
+
+**Worth reading before turning it on:** a token holder with that capability can invalidate credentials
+over the network. That is what the entry's `reason` field is for. `honeypots.md` step 3 now describes
+both cases — with the entry, and without it.
+
+### The surface list has a fourth entry, so two outputs grew a row
+
+`--check-config`, `ciphr surface show` and `GET /v1/surface` all list `token_revoke` now — as *off*,
+with its cost sentence, in every deployment that does not name it. Nothing to do; noted because a
+check that diffs those outputs will see it.
 
 ## 0.8.0
 
