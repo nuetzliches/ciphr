@@ -208,16 +208,59 @@ mod tests {
         let directory = tempfile::tempdir().expect("temp dir");
         let path = directory.path().join("token");
         std::fs::write(&path, "ciphr_token_value").expect("write the credential");
+        // **The mode is set rather than inherited, and that is the test's own bug
+        // history:** `std::fs::write` takes the process umask, which on an ordinary
+        // Linux CI runner produces 0644 — world-readable. Written without this, the
+        // assertion below held on a Windows host, where there are no mode bits at all,
+        // and failed the first time it ran anywhere else. What is being checked here is
+        // the descriptor, not the umask of whoever ran the tests.
+        restrict(&path);
 
         let mut credential = open_credential(&path).expect("a regular file");
         assert!(
             credential.world.is_none(),
-            "a file written by this process is not world-accessible"
+            "0600 is not world-accessible, got mode {:?}",
+            credential.mode
         );
 
         let mut read = String::new();
         std::io::Read::read_to_string(&mut credential.file, &mut read).expect("read");
         assert_eq!(read, "ciphr_token_value");
+    }
+
+    /// The rule itself, from the descriptor, where there are bits to read.
+    ///
+    /// The companion to the test above: one shows that an acceptable file passes, this
+    /// one that the mode reaching [`WorldAccess`] is the file's own. Without it the
+    /// plumbing could report `None` for everything and both other tests would still
+    /// pass.
+    #[cfg(unix)]
+    #[test]
+    fn a_world_readable_credential_is_reported_as_one() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("token");
+        std::fs::write(&path, "ciphr_token_value").expect("write the credential");
+        set_mode(&path, 0o644);
+
+        let credential = open_credential(&path).expect("a regular file");
+        assert_eq!(credential.mode, Some(0o644));
+        assert_eq!(credential.world, Some(WorldAccess::Read));
+    }
+
+    /// `0600`, where the platform has modes at all.
+    fn restrict(path: &std::path::Path) {
+        #[cfg(unix)]
+        set_mode(path, 0o600);
+        #[cfg(not(unix))]
+        let _ = path;
+    }
+
+    #[cfg(unix)]
+    fn set_mode(path: &std::path::Path, mode: u32) {
+        use std::os::unix::fs::PermissionsExt;
+
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+            .expect("set the mode");
     }
 
     /// A directory where a credential belongs is refused for what it is.

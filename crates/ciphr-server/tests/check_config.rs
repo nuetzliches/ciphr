@@ -33,6 +33,29 @@ name = "infra"
   capabilities = []
 "#;
 
+/// Every *build* entry this binary contains, as stanzas.
+///
+/// **A configuration that omits one is refused**, deliberately: `surface::resolve` will
+/// not let a binary and a file disagree about compiled-in surface (ADR-20, property 3).
+/// So an `--all-features` build — which is what CI runs — needs `honeypot_alert` named in
+/// every configuration a test writes here, and a default build needs it named nowhere.
+/// Derived from `SURFACE_ENTRIES` rather than hardcoded, so a second build entry does not
+/// break this file in a way whose message is about surface rather than about the test.
+fn build_entries() -> String {
+    let mut stanzas = String::new();
+    for entry in ciphr_server::SURFACE_ENTRIES {
+        if entry.compiled_in && matches!(entry.kind, ciphr_server::surface::Kind::Build) {
+            stanzas.push_str("[[surface]]\nentry = \"");
+            stanzas.push_str(entry.name);
+            stanzas.push_str(
+                "\"\naccepted = \"2026-08-23\"\nreason = \"this binary contains it, so the file \
+                 has to say so\"\n\n",
+            );
+        }
+    }
+    stanzas
+}
+
 /// A configuration whose every path is inside `directory`, so a test owns them all.
 fn config_text(directory: &std::path::Path, key_env: &str, surface: &str) -> String {
     let at = |name: &str| {
@@ -67,13 +90,14 @@ type = "sqlite"
 type = "file"
 path = "{}"
 
-{surface}
+{}{surface}
 "#,
         at("policies.toml"),
         at("cert.pem"),
         at("key.pem"),
         at("store.db"),
         at("audit.jsonl"),
+        build_entries(),
     )
 }
 
@@ -124,11 +148,18 @@ fn the_surface_report_is_answered_without_a_store() {
         check.store.is_err(),
         "there is no store in this directory, so the host half has to say so"
     );
-    assert_eq!(
-        check.surface.entries().len(),
-        0,
-        "a configuration that names nothing turns nothing on"
-    );
+    // Named by what it turns *off* rather than by a count: an `--all-features` build has
+    // to name its build entry, so the count is a property of the build and the runtime
+    // entries being off is the property of the file.
+    for entry in ciphr_server::SURFACE_ENTRIES {
+        if matches!(entry.kind, ciphr_server::surface::Kind::Runtime) {
+            assert!(
+                !check.surface.has(entry.name),
+                "{} is not named by this configuration",
+                entry.name
+            );
+        }
+    }
     assert_eq!(check.identities, 1, "the policy file was read");
     assert_eq!(check.rules, 2, "including its rules");
 }
