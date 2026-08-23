@@ -21,7 +21,7 @@ parts that later turned out to be wrong.
 | [ADR-6](0006-auth-machine-identities-with-tokens.md) | Authentication: machine identities with tokens | Accepted |
 | [ADR-7](0007-storage-sqlite-behind-a-store-trait.md) | Storage: SQLite behind a store trait | Accepted |
 | [ADR-8](0008-tls-terminates-at-the-service.md) | TLS terminates at the service | Accepted |
-| [ADR-9](0009-http-stack-axum-but-narrow.md) | HTTP stack: axum, but narrow | Accepted |
+| [ADR-9](0009-http-stack-axum-but-narrow.md) | HTTP stack: axum, but narrow | Accepted; amended 2026-08-23 — the listener speaks HTTP/1.1 only, and `h2` is compiled in but never negotiated |
 | [ADR-10](0010-port-4400.md) | Default port `:4400` | Accepted |
 | [ADR-11](0011-ui-is-an-optional-separate-package.md) | The admin UI is an optional, separate package | Accepted; phase 5 |
 | [ADR-12](0012-ui-auth-token-paste.md) | UI authentication: token paste in v1 | Accepted; phase 5 |

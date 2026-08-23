@@ -93,6 +93,15 @@ pub fn router(state: AppState) -> Router {
         router = router.route("/v1/export", post(export));
     }
 
+    // `token_status` -- the authenticated answer to "is this credential still valid".
+    // ADR-22 gave the host a read-only path to it, so this is not about answerability:
+    // it is about the caller being an identity rather than `cli:$USER`, and the read
+    // being in the trail. Its own entry rather than part of `viewer_api`, because which
+    // credentials exist and which were never used is its own cost.
+    if state.surface().has("token_status") {
+        router = router.route("/v1/tokens", get(read_tokens));
+    }
+
     // `token_revoke` -- the one write this API may do (ADR-24), and an entry because a
     // deployment that does not want a privileged write path over HTTP should not have
     // one. Off, revoking a leaked credential means stopping the service, which is what
@@ -379,6 +388,40 @@ struct IdentityResponse {
     name: String,
     kind: String,
     policies: Vec<String>,
+}
+
+/// `?identity=` on `GET /v1/tokens`.
+#[derive(Debug, Default, Deserialize)]
+struct TokenQuery {
+    identity: Option<String>,
+}
+
+/// What `GET /v1/tokens` returns.
+#[derive(Debug, Serialize)]
+struct TokensResponse {
+    tokens: Vec<TokenResponse>,
+}
+
+/// One token, as the administrative read path may see it.
+///
+/// Timestamps are milliseconds since the Unix epoch, like every other timestamp on this
+/// API. `state` is the derived word — `valid`, `expired`, `revoked` — and the three
+/// timestamps it is derived from are here as well, so a consumer that wants to say "in
+/// four days" rather than "valid" does not have to ask twice.
+#[derive(Debug, Serialize)]
+struct TokenResponse {
+    token_id: String,
+    identity: String,
+    state: &'static str,
+    created_at: i64,
+    created_by: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expires_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_used_at: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    revoked_at: Option<i64>,
+    honeypot: bool,
 }
 
 /// What `POST /v1/tokens/{token_id}/revoke` returns.
@@ -1259,6 +1302,67 @@ async fn read_policies(
         .collect();
 
     Ok(Json(PoliciesResponse { policies }))
+}
+
+/// `GET /v1/tokens` — the token inventory, without any token in it.
+///
+/// **What this adds is the authenticated answer, not the answer.** ADR-22 already made
+/// `ciphr token list` read-only, so expiry, revocation state and last use are readable on
+/// the host while the service runs. What the host path cannot do is name *who asked*: it
+/// records nothing, and its principal would be `cli:$USER`, self-declared. Here the caller
+/// is an authenticated identity, the read needs `inspect` on `sys/tokens` (ADR-23), and the
+/// entry says so.
+///
+/// **Nothing secret is in the response and nothing derived from a secret.** `tokens()`
+/// returns metadata columns only — no verifier — and the fields below are the record's own.
+/// The `honeypot` flag is included because this is the administrative read path, which is
+/// the one place ADR-15 allows bait to be visible: whoever presented it must not be able to
+/// tell, and whoever operates the deployment has to be able to.
+///
+/// `?identity=` narrows it, the same argument `ciphr token list` takes.
+async fn read_tokens(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    origin: Origin,
+    Query(query): Query<TokenQuery>,
+) -> Result<Json<TokensResponse>, ApiError> {
+    let request = request_context(&headers, origin);
+    let caller = authenticate(&state, &headers, Action::Read, &request)?;
+    let virtual_path = reserved_path("tokens");
+
+    state.authorize_and_record(
+        &caller,
+        Action::Read,
+        Capability::Inspect,
+        &virtual_path,
+        &request,
+    )?;
+
+    let now = crate::state::now_millis();
+    let records = state.with_store(|store| {
+        store
+            .tokens(query.identity.as_deref())
+            .map_err(ApiError::from)
+    })?;
+
+    let tokens = records
+        .into_iter()
+        .map(|record| TokenResponse {
+            // Derived in `ciphr-store`, so this and `ciphr token list` cannot come to
+            // disagree about what "valid" means.
+            state: record.state_at(now).as_str(),
+            token_id: record.token_id,
+            identity: record.identity,
+            created_at: record.created_at,
+            created_by: record.created_by,
+            expires_at: record.expires_at,
+            last_used_at: record.last_used_at,
+            revoked_at: record.revoked_at,
+            honeypot: record.honeypot,
+        })
+        .collect();
+
+    Ok(Json(TokensResponse { tokens }))
 }
 
 /// `POST /v1/tokens/{token_id}/revoke` — the one write this API may do (ADR-24).

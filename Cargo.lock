@@ -383,6 +383,7 @@ dependencies = [
  "ciphr-crypto",
  "ciphr-policy",
  "ciphr-store",
+ "rcgen",
  "rusqlite",
  "rustls",
  "serde",

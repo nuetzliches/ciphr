@@ -142,11 +142,51 @@ invalidates every credential of an identity is an availability weapon.
 over the network. That is what the entry's `reason` field is for. `honeypots.md` step 3 now describes
 both cases — with the entry, and without it.
 
-### The surface list has a fourth entry, so two outputs grew a row
+### The token inventory can be read over the API, where a deployment turns that on
 
-`--check-config`, `ciphr surface show` and `GET /v1/surface` all list `token_revoke` now — as *off*,
-with its cost sentence, in every deployment that does not name it. Nothing to do; noted because a
-check that diffs those outputs will see it.
+`GET /v1/tokens`, behind the new **`token_status`** entry, needs `inspect` on `sys/tokens`. It
+answers the incident question — which credential, still valid, last used when — **as an
+authenticated caller and in the trail**, which is what `ciphr token list` cannot do: that path
+records nothing and its principal is `cli:$USER`, self-declared. The host path is unchanged and stays
+available whether this entry is on or off.
+
+```toml
+[[surface]]
+entry    = "token_status"
+accepted = "2026-08-23"
+reason   = "the on-call rotation asks which token to revoke without shell access to the host"
+```
+
+**Its own entry rather than part of `viewer_api`**, because the cost is its own: which credentials
+exist, and which have never been used, is a good list of the ones nobody would notice being used.
+Nothing about the response is derived from a secret — no verifier, no token — and `state` (`valid`,
+`expired`, `revoked`) is now derived in one place shared with the CLI, so the two cannot disagree
+about what `valid` means.
+
+### The listener speaks HTTP/1.1 only, and now says so itself
+
+**Nothing to do unless a client of yours negotiates HTTP/2 against this service — in which case it
+was doing so by accident and stops.** `axum-server` set the ALPN list to `["h2", "http/1.1"]` while
+nothing in this repository mentioned ALPN at all, so the listener that holds plaintext secrets
+advertised a second framing implementation ADR-9's narrow-stack argument never chose. Issue #6 read
+that out of the sources; a real handshake confirmed it.
+
+`crate::tls::load` now sets the list itself: **`http/1.1` and nothing else.** A client offering both
+gets HTTP/1.1; a client that speaks only HTTP/2 gets no handshake. `h2` stays compiled in — removing
+it means replacing `axum-server` with our own accept loop and graceful shutdown, which is code on the
+connection path we would then have to review ourselves — and
+`crates/ciphr-server/tests/tls_alpn.rs` pins the negotiated protocol so a dependency bump cannot
+quietly restore it. ADR-9 is amended to describe the artefact rather than the manifest.
+
+**Who could notice:** an SDK or `curl --http2` call that was silently using HTTP/2. Both fall back to
+HTTP/1.1 on their own; `curl --http2-prior-knowledge` does not and will fail.
+
+### The surface list has two more entries, so three outputs grew rows
+
+`--check-config`, `ciphr surface show` and `GET /v1/surface` all list `token_status` and
+`token_revoke` now — as *off*, with their cost sentences, in every deployment that does not name
+them. Five entries in total. Nothing to do; noted because a check that diffs those outputs will see
+it.
 
 ## 0.8.0
 

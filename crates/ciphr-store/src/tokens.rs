@@ -122,6 +122,60 @@ impl TokenRecord {
     pub fn is_usable_at(&self, now: i64) -> bool {
         self.revoked_at.is_none() && self.expires_at.is_none_or(|expiry| expiry > now)
     }
+
+    /// Why the token is unusable, or that it is not — as one word.
+    ///
+    /// **Here rather than in each reader**, which is the point: the CLI derived these
+    /// three words inline and `GET /v1/tokens` would have derived them again, so a
+    /// deployment could have got two answers to *"is this credential still valid"*
+    /// depending on which one it asked. One derivation, two callers.
+    ///
+    /// `revoked` beats `expired` when a token is both, and that order is deliberate: a
+    /// revocation is something somebody did, an expiry is something that happened. The
+    /// question afterwards is almost always about the act.
+    #[must_use]
+    pub fn state_at(&self, now: i64) -> TokenState {
+        if self.revoked_at.is_some() {
+            TokenState::Revoked
+        } else if self.expires_at.is_some_and(|expiry| expiry <= now) {
+            TokenState::Expired
+        } else {
+            TokenState::Valid
+        }
+    }
+}
+
+/// What a token is, as far as authentication is concerned.
+///
+/// Three states and no fourth: bait is a separate flag on the record, because a honeypot
+/// token is a *valid-looking* credential that authenticates nothing, and folding it in
+/// here would put it in every listing as though it were a lifecycle stage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenState {
+    /// Not revoked, and not past its expiry.
+    Valid,
+    /// Past its expiry, and never revoked.
+    Expired,
+    /// Revoked, whether or not it has also expired.
+    Revoked,
+}
+
+impl TokenState {
+    /// The word a person reads and a job branches on. Stable.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Valid => "valid",
+            Self::Expired => "expired",
+            Self::Revoked => "revoked",
+        }
+    }
+}
+
+impl core::fmt::Display for TokenState {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 impl SqliteStore {

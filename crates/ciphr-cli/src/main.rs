@@ -1741,6 +1741,20 @@ const KNOWN: &[Known] = &[
                fetches, and `GET /v1/list/{prefix}` is not an entry.",
     },
     Known {
+        name: "token_status",
+        kind: "runtime",
+        cost: "The token inventory is answerable only on the host. `ciphr token list` \
+               reads it read-only while the service runs (ADR-22), so nothing is \
+               unanswerable -- what is missing is the *authenticated* answer, where the \
+               caller is a token identity and the read is in the trail rather than \
+               `cli:$USER` on somebody's shell history. On, `GET /v1/tokens` serves \
+               `inspect` on `sys/tokens`: identifiers, identities, expiry, last use and \
+               state. Never a verifier and never a token. Its own entry rather than part \
+               of `viewer_api` because the cost is its own -- which credentials exist, \
+               and which have never been used, is a good list of the ones nobody would \
+               notice being used.",
+    },
+    Known {
         name: "token_revoke",
         kind: "runtime",
         cost: "Revoking a leaked credential means stopping the service: `ciphr token \
@@ -1896,13 +1910,10 @@ fn token(cli: &Context, command: TokenCommand) -> Result<(), CliError> {
             // only; no verifier leaves the store.
             let store = open_metadata(cli)?;
             for record in store.tokens(identity.as_deref())? {
-                let state = if record.revoked_at.is_some() {
-                    "revoked"
-                } else if record.expires_at.is_some_and(|at| at <= now_millis()) {
-                    "expired"
-                } else {
-                    "valid"
-                };
+                // Derived in `ciphr-store` since `GET /v1/tokens` exists: two readers
+                // deriving the same three words separately is two answers to "is this
+                // credential still valid" waiting to disagree.
+                let state = record.state_at(now_millis());
                 println!(
                     "{}  {:<20}  {:<8}  issued {}  {}",
                     record.token_id,

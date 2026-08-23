@@ -8,6 +8,55 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — the token inventory over the API, as the authenticated answer
+
+`GET /v1/tokens`, behind the new **`token_status`** surface entry and `inspect` on `sys/tokens`.
+Issue #3's second item, unblocked by ADR-23 giving the control plane a capability to authorize
+against.
+
+**This does not make anything answerable that was not.** ADR-22 made `ciphr token list` read-only in
+`0.7.0`, so expiry, revocation state and last use have been readable with the service up since then.
+What the host path cannot do is name who asked: it records nothing, and its principal would be
+`cli:$USER`, self-declared. Over the API the caller is an authenticated identity and the read is in
+the trail — which is exactly what ADR-22's own consequences said belonged here.
+
+No credential and nothing derived from one: no verifier, no token, and a test asserts that against the
+whole document rather than field by field. `state` — `valid`, `expired`, `revoked` — moved into
+`ciphr-store` beside the record it describes, because the CLI derived those three words inline and
+this route would have derived them again: two readers, two answers to *"is this credential still
+valid"*, waiting to disagree. `honeypot` is on this path and no path a presenter can reach, which is
+where ADR-15 puts it.
+
+**Its own entry rather than part of `viewer_api`**, and that is the one decision here: adding a route
+to an existing entry widens a cost a deployment already accepted, silently, at upgrade time — the
+failure ADR-23 argues against for a general `admin` capability, one layer over. Which credentials
+exist and which have never been used is its own cost, so it gets its own record.
+
+### Changed — the listener speaks HTTP/1.1 only, and this repository decides that
+
+**Issue #6 was a reading of dependency sources, and it asked to be measured. It was, and it was
+right.** `axum-server` requests `hyper/http2` unconditionally and its `RustlsConfig::from_pem` sets
+`alpn_protocols = ["h2", "http/1.1"]`, while `grep -rn alpn crates/` found nothing —
+`crates/ciphr-server/tests/tls_alpn.rs` completed a real handshake against the listener and got
+`h2`, and an HTTP/2-only client got a working connection.
+
+That is a second framing implementation — HPACK, stream multiplexing, flow control, CONTINUATION — on
+the connection path of the one process that holds plaintext secrets, arrived through a transitive
+feature rather than through a decision, and outside what the accepted review read.
+
+`tls::load` now sets the ALPN list itself: **`http/1.1` and nothing else.** A client offering both
+gets HTTP/1.1; one that speaks only HTTP/2 gets no handshake. `h2` stays compiled in, because
+removing it means replacing `axum-server` with our own accept loop and graceful shutdown — code on the
+connection path that we would then have to review ourselves, which is the trade ADR-9 made in the
+other direction. The test pins the negotiated protocol, so a dependency bump that restores `h2` fails
+in CI rather than in a deployment.
+
+[ADR-9](docs/adr/0009-http-stack-axum-but-narrow.md) is amended: **"narrow" describes the artefact**,
+and the honest form of it is narrow in what the listener will speak, with one framing implementation
+compiled in that it will not. `crate::tls` is also the only place that could state a TLS version or
+cipher policy, and it states neither — that is now recorded as unstated rather than left to be
+discovered.
+
 ### Changed — the control plane is its own capability, and a policy file that says otherwise is refused
 
 **BREAKING for a policy file that reaches `sys/` through a secret capability.** `read` authorized a

@@ -11,7 +11,7 @@
 # the plan), and `POST /v1/report` with `GET /v1/leaks` for leak reports (section 23,
 # ADR-16).
 #
-# **Six routes are optional**, which is a third state beside "exists" and "reserved" and
+# **Seven routes are optional**, which is a third state beside "exists" and "reserved" and
 # one this document could not express before 2026-08-21. Each belongs to a surface entry
 # (ADR-20) and answers 404 where a deployment did not turn that entry on -- the same status
 # a reserved path gives, for a different reason. `GET /v1/health` lists the entries a given
@@ -19,6 +19,7 @@
 #
 #   `viewer_api`      GET /v1/audit, /v1/identities, /v1/policies
 #   `bulk_export`     POST /v1/export
+#   `token_status`    GET /v1/tokens
 #   `token_revoke`    POST /v1/tokens/{token_id}/revoke
 #   `honeypot_alert`  GET /v1/honeypots
 #
@@ -457,6 +458,88 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404":
           description: This deployment did not turn on the `viewer_api` entry.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503": { $ref: "#/components/responses/AuditUnavailable" }
+
+  /v1/tokens:
+    get:
+      x-surface-entry: token_status
+      tags: [administration]
+      summary: The token inventory, without any token in it.
+      description: |
+        **Optional route**, belonging to the `token_status` surface entry (ADR-20).
+        Requires `inspect` on the virtual path `sys/tokens` (ADR-23).
+
+        **What this adds is the authenticated answer, not the answer.** `ciphr token list`
+        has read this from the store read-only since ADR-22, so expiry, revocation state
+        and last use are already answerable with the service running. What the host path
+        cannot do is name who asked: it records nothing, and its principal would be
+        `cli:$USER`, self-declared. Here the caller is an authenticated identity and the
+        read is in the trail.
+
+        **No credential is in the response and nothing derived from one** — no verifier, no
+        token. `state` is derived from the three timestamps beside it, in one place shared
+        with the CLI, so the two cannot come to disagree about what `valid` means.
+
+        `honeypot` marks bait (ADR-15). It appears on this path deliberately and on no
+        path a presenter can reach: the deployment has to know which credential is bait,
+        and whoever presents it must not be able to tell.
+
+        `?identity=` narrows the listing, the same argument `ciphr token list` takes.
+      parameters:
+        - name: identity
+          in: query
+          required: false
+          schema: { type: string }
+          description: Only this identity's tokens.
+      responses:
+        "200":
+          description: The inventory.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tokens]
+                properties:
+                  tokens:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        [token_id, identity, state, created_at, created_by, honeypot]
+                      properties:
+                        token_id:
+                          type: string
+                          description: The non-secret identifier. Never the token.
+                        identity: { type: string }
+                        state:
+                          type: string
+                          enum: [valid, expired, revoked]
+                          description: |
+                            Derived. `revoked` wins over `expired` when a token is both:
+                            a revocation is something somebody did.
+                        created_at:
+                          type: integer
+                          description: Milliseconds since the Unix epoch, UTC.
+                        created_by: { type: string }
+                        expires_at:
+                          type: [integer, "null"]
+                          description: Absent when the token does not expire.
+                        last_used_at:
+                          type: [integer, "null"]
+                          description: Absent when it has never authenticated.
+                        revoked_at:
+                          type: [integer, "null"]
+                        honeypot:
+                          type: boolean
+                          description: Bait (ADR-15). Authenticates nothing.
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: This deployment did not turn on the `token_status` entry.
           content:
             application/json:
               schema:

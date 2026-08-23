@@ -69,4 +69,4 @@ pub use store::{
     EncryptForVersion, ListedSecret, SealState, SecretMetadata, Store, StoredVersion,
     VersionSummary, reject_reserved,
 };
-pub use tokens::{Authenticated, Authentication, TokenPurpose, TokenRecord};
+pub use tokens::{Authenticated, Authentication, TokenPurpose, TokenRecord, TokenState};

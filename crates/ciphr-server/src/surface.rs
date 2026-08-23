@@ -135,6 +135,21 @@ pub const ENTRIES: &[Entry] = &[
         compiled_in: true,
     },
     Entry {
+        name: "token_status",
+        kind: Kind::Runtime,
+        cost: "The token inventory is answerable only on the host. `ciphr token list` \
+               reads it read-only while the service runs (ADR-22), so nothing is \
+               unanswerable -- what is missing is the *authenticated* answer, where the \
+               caller is a token identity and the read is in the trail rather than \
+               `cli:$USER` on somebody's shell history. On, `GET /v1/tokens` serves \
+               `inspect` on `sys/tokens`: identifiers, identities, expiry, last use and \
+               state. Never a verifier and never a token. Its own entry rather than part \
+               of `viewer_api` because the cost is its own -- which credentials exist, \
+               and which have never been used, is a good list of the ones nobody would \
+               notice being used.",
+        compiled_in: true,
+    },
+    Entry {
         name: "token_revoke",
         kind: Kind::Runtime,
         cost: "Revoking a leaked credential means stopping the service: `ciphr token \

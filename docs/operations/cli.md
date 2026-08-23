@@ -75,7 +75,13 @@ key, no audit entry. Path, class, version history and token records are plaintex
 database file, so an entry only the polite reader writes would measure politeness rather than
 access; what the read-only path buys instead is that these questions answer **while the service
 runs**, which is when they get asked. In particular: "is this token still valid, when does it
-expire, when was it last used" no longer needs an outage. The API-side `list` entries are
+expire, when was it last used" no longer needs an outage.
+
+**That question also has an authenticated answer now**, where a deployment names the `token_status`
+entry: `GET /v1/tokens` serves the same inventory to a caller holding `inspect` on `sys/tokens`, and
+records the read under that identity rather than under `cli:$USER`. The host command is unchanged and
+needs no entry; the difference is who the trail can name. The derived state — `valid`, `expired`,
+`revoked` — comes from one place shared by both, so they cannot disagree. The API-side `list` entries are
 unaffected — an API caller cannot read the file, so there the entry still measures real
 authorization.
 

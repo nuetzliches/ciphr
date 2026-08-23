@@ -39,6 +39,7 @@ honeypot_alert = []
 # in `ciphr-store`'s interface can express "an older store", and the claim -- that a
 # pre-flight check cannot spend the rollback a pre-upgrade backup exists to keep -- is
 # worth a test rather than a sentence.
+rcgen.workspace    = true
 rusqlite.workspace = true
 tempfile.workspace = true
 tower.workspace    = true

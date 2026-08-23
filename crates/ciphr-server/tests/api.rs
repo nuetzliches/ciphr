@@ -3,7 +3,7 @@
 //! No mocks and no test mode: these drive the same routes, the same authentication,
 //! the same evaluator, and the same audit sink that a deployment does. The one thing
 //! they skip is TLS, because a TCP listener is not what any of these assertions are
-//! about — the transport is covered by `tls.rs`.
+//! about — the transport is covered by `tls_alpn.rs` and `crate::tls`.
 //!
 //! The test that matters most is [`every_endpoint_writes_an_audit_entry`]: it is what
 //! makes "no response leaves the process before its audit entry is stored" a checked
@@ -68,11 +68,13 @@ name = "audit"
   path         = "sys/honeypots"
   capabilities = ["inspect"]
 
-  # The one control-plane mutation (ADR-24). `inspect` is deliberately *not* here:
-  # the revoke tests then also show that revoking needs no read of the inventory.
+  # Reading the inventory and the one control-plane mutation, as two capabilities on one
+  # path (ADR-23, ADR-24). That they are separable is pinned in
+  # `ciphr-policy/tests/decision_table.rs`; here the auditor holds both, so the tests
+  # below are about the routes rather than about the evaluator.
   [[policy.rule]]
   path         = "sys/tokens"
-  capabilities = ["revoke"]
+  capabilities = ["inspect", "revoke"]
 "#;
 
 /// A running API, plus what a test needs to talk to it.
@@ -2347,4 +2349,132 @@ fn a_missing_token_is_a_404_only_for_a_caller_that_may_revoke() {
             "existence must not be observable without `revoke`"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// `GET /v1/tokens` — the authenticated answer to "is this credential still valid"
+// ---------------------------------------------------------------------------
+
+/// A harness with the token inventory readable, and the revoke route beside it where a
+/// test needs to change a state and then read it back.
+fn token_status_harness() -> Harness {
+    Harness::with_surface(&["token_status", "token_revoke"])
+}
+
+/// Off means absent, here as everywhere.
+#[test]
+fn the_token_inventory_is_absent_until_the_entry_names_it() {
+    let harness = Harness::new();
+
+    let (status, _) = harness.get("/v1/tokens", Some(&harness.auditor_token.clone()));
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+/// What the inventory says, and — the half that matters more — what it does not contain.
+#[test]
+fn the_inventory_carries_metadata_and_no_credential() {
+    let harness = token_status_harness();
+
+    let (status, body) = harness.get("/v1/tokens", Some(&harness.auditor_token.clone()));
+    assert_eq!(status, StatusCode::OK);
+
+    let tokens = body["tokens"].as_array().expect("an array");
+    assert!(
+        tokens.len() >= 3,
+        "the harness issued three, got {}",
+        tokens.len()
+    );
+
+    let deploy_id = token_id_of(&harness.deploy_token);
+    let entry = tokens
+        .iter()
+        .find(|token| token["token_id"] == deploy_id)
+        .expect("the deploy token is in the inventory");
+    assert_eq!(entry["identity"], "deploy");
+    assert_eq!(
+        entry["state"], "valid",
+        "it has not been revoked or expired"
+    );
+    assert!(entry["created_at"].is_i64(), "issued when");
+    assert_eq!(entry["honeypot"], false);
+
+    // The bait token is visible *here* and nowhere a caller could see it: ADR-15 allows
+    // the administrative read path to say which credential is bait, because the
+    // deployment has to know and whoever presents it must not be able to tell.
+    let bait_id = token_id_of(&harness.bait_token);
+    let bait = tokens
+        .iter()
+        .find(|token| token["token_id"] == bait_id)
+        .expect("bait is a token like any other in the store");
+    assert_eq!(bait["honeypot"], true);
+
+    // No verifier, no token, nothing derived from one. Checked against the whole
+    // document rather than field by field, so a field added later cannot smuggle one in.
+    let serialized = body.to_string();
+    for secret in [
+        harness.deploy_token.as_str(),
+        harness.auditor_token.as_str(),
+        harness.bait_token.as_str(),
+    ] {
+        assert!(
+            !serialized.contains(secret),
+            "a token must never appear in the inventory"
+        );
+    }
+    assert!(
+        !serialized.contains("verifier"),
+        "and neither may the thing it is checked against: {serialized}"
+    );
+}
+
+/// `inspect` on `sys/tokens` and nothing else reaches it — a broad secret grant does not.
+#[test]
+fn reading_the_inventory_needs_inspect_on_the_token_path() {
+    let harness = token_status_harness();
+
+    let (status, _) = harness.get("/v1/tokens", Some(&harness.deploy_token.clone()));
+
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "`deploy` holds read and list across infra/** and nothing under sys/"
+    );
+}
+
+/// The state is derived in one place, so the API and the CLI cannot disagree — and a
+/// revocation over the API is visible in the next read.
+#[test]
+fn a_revoked_token_reads_as_revoked() {
+    let harness = token_status_harness();
+    let target = token_id_of(&harness.deploy_token);
+
+    let (status, _) = harness.send(Harness::build(
+        "POST",
+        &format!("/v1/tokens/{target}/revoke"),
+        Some(&harness.auditor_token.clone()),
+        None,
+    ));
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, body) = harness.get(
+        "/v1/tokens?identity=deploy",
+        Some(&harness.auditor_token.clone()),
+    );
+    assert_eq!(status, StatusCode::OK);
+
+    let tokens = body["tokens"].as_array().expect("an array");
+    assert!(
+        tokens.iter().all(|token| token["identity"] == "deploy"),
+        "?identity= narrows the listing, got {body}"
+    );
+    let entry = tokens
+        .iter()
+        .find(|token| token["token_id"] == target)
+        .expect("the revoked token stays in the inventory");
+    assert_eq!(entry["state"], "revoked");
+    assert!(
+        entry["revoked_at"].is_i64(),
+        "and the timestamp it was revoked at is there: {entry}"
+    );
 }
