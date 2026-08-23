@@ -123,6 +123,119 @@ fn initialize(directory: &std::path::Path, key: &str) {
         .expect("initialize");
 }
 
+/// A policy file with the shape `0.9.0` refuses: a control-plane path granting a
+/// capability about a secret (ADR-23).
+const POLICIES_BEFORE_ADR_23: &str = r#"
+[[identity]]
+name     = "viewer"
+kind     = "human"
+policies = ["viewer"]
+
+[[policy]]
+name = "viewer"
+
+  [[policy.rule]]
+  path         = "sys/**"
+  capabilities = ["read"]
+"#;
+
+/// Run the real binary, because the exit code is the thing under test.
+fn check_config(config: &std::path::Path, key: Option<(&str, &str)>) -> std::process::Output {
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_ciphr-server"));
+    command.arg("--check-config").arg(config);
+    if let Some((name, value)) = key {
+        command.env(name, value);
+    }
+    command.output().expect("run the server binary")
+}
+
+/// The finding: a refused file and an absent store were the same status, and the
+/// difference is the entire point of the check on a review host.
+///
+/// **`0.9.0` is what makes this worth a status rather than a paragraph.** Its policy edit
+/// is mandatory, `upgrade.md` names `--check-config` as the way to catch a file that still
+/// has the old form, and it names review as the place to run it — where there is no store
+/// by design. A pipeline that runs the documented command on the documented host got `1`
+/// for the finding and `1` for the host, so the only way to tell them apart was to parse a
+/// dozen lines of prose (`docs/field-report-2026-08-23-b.md`, finding 1).
+///
+/// All three cases in one test on purpose: the claim is not what any one of them exits
+/// with, it is that the three are distinguishable.
+#[test]
+fn a_refused_file_an_unready_host_and_a_ready_one_are_three_statuses() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let path = directory.path();
+    let config = path.join("ciphr.toml");
+    let key_env = "CIPHR_CHECK_EXIT_CODE_KEY";
+    std::fs::write(&config, config_text(path, key_env, "")).expect("write the configuration");
+
+    // A: the file is unusable. Nothing about the host can change that, and nothing about
+    // the host is what the operator has to fix.
+    std::fs::write(path.join("policies.toml"), POLICIES_BEFORE_ADR_23).expect("the old form");
+    let refused = check_config(&config, None);
+    assert_eq!(
+        refused.status.code(),
+        Some(1),
+        "a refused policy file is a failure, as it always was: {}",
+        String::from_utf8_lossy(&refused.stderr)
+    );
+    let said = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        said.contains("'sys/**'") && said.contains("inspect"),
+        "and it still names the rule and the capability meant, got: {said}"
+    );
+
+    // B: the file is usable and this host has no store. The report above the store line
+    // is complete, and that is what the code has to say.
+    write_policies(path);
+    let unready = check_config(&config, None);
+    assert_eq!(
+        unready.status.code(),
+        Some(3),
+        "the file half is usable and the host half is not: {}",
+        String::from_utf8_lossy(&unready.stdout)
+    );
+    let report = String::from_utf8_lossy(&unready.stdout);
+    assert!(
+        report.starts_with("configuration and policies are usable"),
+        "the report a review host reads is unchanged, got: {report}"
+    );
+    assert!(
+        report.contains("the store is not initialized"),
+        "and it still says which half is missing, got: {report}"
+    );
+
+    // C: both halves. The status every existing caller already branches on.
+    let key = "11".repeat(32);
+    initialize(path, &key);
+    let ready = check_config(&config, Some((key_env, &key)));
+    assert_eq!(
+        ready.status.code(),
+        Some(0),
+        "a usable file and a ready host is success: {}",
+        String::from_utf8_lossy(&ready.stdout)
+    );
+}
+
+/// `2` stays the usage error, so a job branching on a status never has to tell a
+/// misspelled flag from a pre-flight result.
+///
+/// The same reservation `ciphr` makes for clap, made by hand here because this binary
+/// takes two arguments and parses them itself.
+#[test]
+fn a_usage_error_is_not_a_pre_flight_result() {
+    let refused = std::process::Command::new(env!("CARGO_BIN_EXE_ciphr-server"))
+        .arg("--check-config")
+        .output()
+        .expect("run the server binary");
+
+    assert_eq!(
+        refused.status.code(),
+        Some(2),
+        "no path was given, which is a usage error and nothing about a host"
+    );
+}
+
 /// The finding, as a test: the surface report is produced with no store on this host.
 ///
 /// A configuration edit is exactly the change that wants review before it reaches a host,

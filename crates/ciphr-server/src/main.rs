@@ -35,7 +35,7 @@ fn main() -> ExitCode {
         // The report has already said what is not ready, in its own labelled section
         // and on stdout. Printing the reason a second time here would put the same
         // sentence twice in one run.
-        Ok(Outcome::NotReady) => ExitCode::FAILURE,
+        Ok(Outcome::HostNotReady) => ExitCode::from(HOST_NOT_READY),
         Err(error) => {
             // The one place in the workspace that writes to stderr: a process that
             // cannot start has to say why, and there is no audit trail to say it to.
@@ -45,15 +45,38 @@ fn main() -> ExitCode {
     }
 }
 
+/// The exit code for a complete report about a host that is not ready.
+///
+/// **The same number and the same reasoning as `ciphr state`'s pre-flight code**, which
+/// `0.8.0` gave its own status for exactly this shape: a command that answered in full,
+/// where the part of the answer that is *no* is about something other than what the
+/// caller asked. Here the caller asked whether the files are usable, and the store is a
+/// property of the host.
+///
+/// **The release that made this worth a number is `0.9.0`.** It made a policy edit
+/// mandatory (ADR-23) and pointed at review as the place to catch a file that still has
+/// the old form — and a review host is precisely the host that deliberately has no
+/// store. With both cases on `1`, the pipeline `upgrade.md` recommends could not tell
+/// "this policy file is refused" from "this machine has no store", so the check it runs
+/// was a check somebody remembers to read
+/// (`docs/field-report-2026-08-23-b.md`, finding 1).
+///
+/// The other codes are what they were, which is what keeps this readable as a contract:
+/// `0` the files are usable and this host is ready, `1` the files are not usable, `2` a
+/// usage error from [`usage`]. A caller can tell all four apart, and none of them needs
+/// the report parsed to be understood.
+const HOST_NOT_READY: u8 = 3;
+
 /// Whether the process did what it was asked, when the failure is not an error.
 ///
 /// `--check-config` on a healthy file and an unready store is not a command that failed:
 /// it answered, completely, and part of the answer is *no*. It still exits non-zero,
-/// because a pipeline branches on that — but the reason belongs in the report, not in a
-/// second sentence on stderr.
+/// because a pipeline branches on that — with [`HOST_NOT_READY`] rather than `1`, so
+/// that the branch can be taken on the status alone. The reason belongs in the report,
+/// not in a second sentence on stderr.
 enum Outcome {
     Fine,
-    NotReady,
+    HostNotReady,
 }
 
 fn run(config_path: &str, check_only: bool) -> Result<Outcome, Box<dyn core::error::Error>> {
@@ -68,7 +91,7 @@ fn run(config_path: &str, check_only: bool) -> Result<Outcome, Box<dyn core::err
         return Ok(if ready {
             Outcome::Fine
         } else {
-            Outcome::NotReady
+            Outcome::HostNotReady
         });
     }
 

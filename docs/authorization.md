@@ -94,7 +94,9 @@ access is one code path with no special case, and refusing a file before any acc
 different job.
 
 `ciphr-server --check-config <file>` runs that validation with no store and no master key, so the
-edit is findable in review rather than on the host.
+edit is findable in review rather than on the host. A refused rule is exit `1`; a host without a store
+is exit `3`, so a review pipeline fails on the file and not on the mount
+([upgrade.md](operations/upgrade.md)).
 
 **The fence rule still works and is now belt and braces:**
 

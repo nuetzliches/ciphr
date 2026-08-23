@@ -8,6 +8,23 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Changed — `--check-config` has an exit code for "the files are usable, this host is not"
+
+**A check a pipeline cannot fail on is a check somebody remembers to read.** `--check-config` exited
+`1` both for a policy file the binary refuses and for a host with no store, and `0.9.0` is the release
+that made the difference matter: its policy edit is mandatory, and
+[`upgrade.md`](docs/operations/upgrade.md) names review — the one host that deliberately has no store —
+as the place to catch a file that still has the old form. So the gate the mandatory edit relies on
+could not distinguish its own finding from the host it ran on, and what was left was parsing prose.
+
+A host that is not ready is now exit **`3`**. `1` means the *files* are unusable and nothing else, `2`
+stays the usage error, `0` is unchanged. **The precedent is this project's own, from the same day:**
+`ciphr state` took `3` in `0.8.0` for the identical shape — a complete answer whose negative half is
+about something other than what the caller asked — and the two commands now agree on what `3` means.
+
+Anything branching on this command's status wants a look; the table is in `upgrade.md`, section
+`0.10.0`. From [`docs/field-report-2026-08-23-b.md`](docs/field-report-2026-08-23-b.md), finding 1.
+
 ## [0.9.0] — 2026-08-23
 
 **The release that closes four issues and breaks one thing on purpose.** `read` authorized a secret's

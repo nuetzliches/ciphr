@@ -1,6 +1,6 @@
 # Upgrading
 
-**Status:** current as of 2026-08-23, covering every released version up to `0.9.0`.
+**Status:** current as of 2026-08-23, covering every released version up to `0.10.0`.
 
 The changelog says what changed. This says what to *do* about it, and it exists because the two are
 not the same document: a changelog entry sinks under the next release, while the person upgrading two
@@ -76,8 +76,59 @@ store readiness as its own last section; only that last section needs a host. So
 will run the file can check the file in a pipeline, with nothing mounted but the two `.toml` files —
 which is where a configuration edit is actually reviewed. On the host it also no longer takes the
 store's writer lock, so it runs while the service is up, and it neither migrates the store nor writes
-to the audit trail. Exit is non-zero while the store is not ready, as before, and the store section
-says why ([field-report-2026-08-23.md](../field-report-2026-08-23.md), finding 1).
+to the audit trail.
+
+**Since 0.10.0 a pipeline can branch on the status alone**, which is what makes this step a gate
+rather than a report somebody remembers to read:
+
+| Exit | What it means | What to do |
+|---|---|---|
+| `0` | the files are usable and this host is ready | proceed |
+| `1` | the files are not usable — a refused rule, a stanza this binary cannot honour, a parse error | fix the file; the reason is on stderr |
+| `2` | usage error: no path, or a misspelled flag | fix the invocation |
+| `3` | the files are usable, this host is not ready | on a review host, expected. On the target host, read the `store:` section |
+
+A review host wants to fail on `1` and `2` and to accept `3`; the host itself wants `0` and nothing
+else ([field-report-2026-08-23.md](../field-report-2026-08-23.md), finding 1, and
+[field-report-2026-08-23-b.md](../field-report-2026-08-23-b.md), finding 1).
+
+## 0.10.0
+
+### `--check-config` has its own exit code for "the files are usable, this host is not"
+
+**Check anything that branches on this command's status.** A host whose store is absent, sealed under
+a different key, or missing an audit device was exit `1` and is now exit `3`. `1` now means one thing
+only: the *files* are unusable — a policy rule the binary refuses, a surface stanza it cannot honour,
+a configuration that does not parse. `2` is still the usage error, and `0` is unchanged.
+
+**Why this release and not the last one.** `0.8.0` split the report so the file half holds without a
+host, and `0.9.0` then made a policy edit mandatory and named review as the place to catch a file that
+still has the old form — where there is no store by design. Both cases exited `1`, so the pipeline
+this document recommends could not tell the finding it runs for from the host it runs on, and what was
+left was parsing a dozen lines of prose. The precedent is this project's own: `ciphr state` got exit
+`3` in `0.8.0` for the same shape, a complete answer whose negative half is about something other
+than what the caller asked.
+
+`ciphr state` and `--check-config` therefore agree: `3` means the command answered and this host is
+missing something ([field-report-2026-08-23-b.md](../field-report-2026-08-23-b.md), finding 1).
+
+### `--check-config` says when `token_revoke` is on and nobody can call it
+
+**Nothing to do, and one new line to expect.** Where the `token_revoke` entry is on and no identity
+in the policy file is authorized for `revoke` on `sys/tokens`, the report says so under the surface
+list. The exit code does not change: an entry switched on before its identity exists is a legitimate
+order of work, and the note exists so that it does not stay that way unnoticed. An entry that is on
+and unreachable is the same class of quiet as a stanza that was forgotten, which is the mistake the
+surface report exists to catch.
+
+### An audit device that cannot be opened names the requirement, not only the OS error
+
+**Nothing to do.** The message was `audit device: cannot open <path>: Read-only file system
+(os error 30)`, which reads as a broken device when the fact is that the directory was mounted
+read-only. It now says that the file device is opened for append and that its directory has to be
+writable by the service user. The behaviour is unchanged, at start and in `--check-config` alike: the
+device is checked by opening it the way it will be opened
+([field-report-2026-08-23-b.md](../field-report-2026-08-23-b.md), finding 2).
 
 ## 0.9.0
 
