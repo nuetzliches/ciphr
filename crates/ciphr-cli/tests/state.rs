@@ -350,7 +350,7 @@ fn the_machine_readable_forms_keep_the_exit_code() {
 /// or key file does can change them. A deployment that follows `backup.md` most strictly
 /// keeps the key and the certificate out of the container that takes the backup — so its
 /// job could never see a zero here, and had to either ignore the status or re-implement
-/// the check the tool had just performed (`docs/field-report-2026-08-23.md`, finding 2).
+/// the check the tool had just performed (`docs/assurance/field-reports/field-report-2026-08-23.md`, finding 2).
 #[test]
 fn a_complete_listing_with_a_missing_required_file_has_its_own_exit_code() {
     let directory = tempfile::tempdir().expect("temp dir");

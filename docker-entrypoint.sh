@@ -19,7 +19,7 @@ set -eu
 #
 # **And refused rather than warned about, since 2026-08-22.** This used to log a
 # line and carry on, which is finding F9 of
-# `docs/review-2026-08-21-current-tree.md`: `docs/threat-model.md` lists "a secret
+# `docs/assurance/reviews/review-2026-08-21-current-tree.md`: `docs/threat-model.md` lists "a secret
 # in a core dump or in swap" under what is *explicitly defended against*, and a
 # warning on a healthy start is not a defence. Nobody reads it, and where the
 # runtime permits dumps and the limit operation failed, a crash writes the master

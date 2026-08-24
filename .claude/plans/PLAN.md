@@ -1320,7 +1320,7 @@ in `docs/security-review.md` changes when a review has happened and for no other
 review can be arranged at all, that is an argument for falling back to OpenBao (section 2).
 
 **Met on 2026-08-21.** A commissioned review of the three crates against `v0.3.0` is recorded in
-`docs/review-2026-08-21.md`, and the maintainer accepted it as discharging this requirement the
+`docs/assurance/reviews/review-2026-08-21.md`, and the maintainer accepted it as discharging this requirement the
 same day; the acceptance is written down in `docs/security-review.md`, dated, with what it covers
 and what would reverse it. Two things about it decide how far it reaches, and both belong here
 rather than only there:
@@ -1519,7 +1519,7 @@ The project starts private. These points cost nothing now and would be expensive
 - **`::add-mask::` on a Forgejo runner** — measured 2026-08-18 on a real runner rather than
   simulated: effective for every ordinary case, with one measured exception under `set -x`,
   where bash re-quotes a value containing a single quote or a tab and the runner's literal
-  substring match therefore misses it (`docs/review-2026-08-18.md`, finding 9). **act_runner is
+  substring match therefore misses it (`docs/assurance/reviews/review-2026-08-18.md`, finding 9). **act_runner is
   still unproven** — "both are act derivatives" is the assumption this list refused to make
   about the Forgejo runner, and it stays refused here. Since 2026-08-20 that is a **scoped claim
   rather than outstanding work**: measuring needs a Gitea runner to measure on, and where there

@@ -207,7 +207,7 @@ requirement.
 ### C11: wire shape holds; timing indistinguishability does not
 
 Status, stable body fields, and headers are tested as equal. The broader wording in
-[`security-review.md`](security-review.md) is false if it claims equal observable work:
+[`security-review.md`](../../security-review.md) is false if it claims equal observable work:
 
 - malformed tokens return before database and verifier work at `crates/ciphr-store/src/tokens.rs:189-191`;
 - known identifiers perform a second verifier query that unknown identifiers skip at

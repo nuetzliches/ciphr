@@ -1,7 +1,7 @@
 #!/bin/sh
 # Gate: no workflow expression is substituted into a shell script.
 #
-# F1 of `docs/review-2026-08-24-full-repository.md`. A `${{ … }}` inside a `run:`
+# F1 of `docs/assurance/reviews/review-2026-08-24-full-repository.md`. A `${{ … }}` inside a `run:`
 # block is not an argument and not a variable -- the expression is substituted
 # into the script *before* the shell sees it, so its value becomes program text.
 # Quoting it with shell quotes is not escaping: a value containing an apostrophe

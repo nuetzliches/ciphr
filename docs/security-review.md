@@ -4,7 +4,7 @@
 2026-08-24 without the human review this document asks for**, which is a decision against one of the
 conditions recorded below rather than a condition that was met — see *Published without a human
 review* immediately after the acceptance. **A commissioned review took place on
-2026-08-21 against `v0.3.0`** and is recorded in [`review-2026-08-21.md`](review-2026-08-21.md) —
+2026-08-21 against `v0.3.0`** and is recorded in [`review-2026-08-21.md`](assurance/reviews/review-2026-08-21.md) —
 findings, coverage, and the fitness statement this document asks for. The reviewer is an AI model
 (Claude Fable 5), commissioned by the maintainer: a different model from the one that co-authored
 the code, and not the human practitioner the *Who fits* section sketches — the record's first
@@ -45,7 +45,7 @@ pass below nor uneventful time in production moves it, and a reviewer should tre
 about the code rather than about the condition.
 
 **A pre-review pass has since been made against this list** and is recorded in
-[`review-2026-08-18.md`](review-2026-08-18.md). It does not discharge the precondition either — it
+[`review-2026-08-18.md`](assurance/reviews/review-2026-08-18.md). It does not discharge the precondition either — it
 came from the same model that co-authored the code, so it carries the same blind spots — but it
 closed B9 mechanically, corrected two claims that turned out to be weaker than the implementation,
 and produced nine findings, all since addressed. **A reviewer should read it for what it says it did
@@ -64,7 +64,7 @@ Two consequences follow, and both matter:
 ## The decision to accept the review of 2026-08-21
 
 **Decided by the maintainer on 2026-08-21.** The review recorded in
-[`review-2026-08-21.md`](review-2026-08-21.md) discharges the precondition of plan section 18. That
+[`review-2026-08-21.md`](assurance/reviews/review-2026-08-21.md) discharges the precondition of plan section 18. That
 record deliberately declines to make the call itself — it states who performed it and leaves the
 judgement to its reader — so the call is recorded here: dated, and in the same shape this document
 asks of an operator who proceeds on an accepted risk.

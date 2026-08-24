@@ -118,7 +118,7 @@ finding this the hard way.
 
 **Observed.** `store.db.lock` had been in every snapshot of this deployment since the store existed.
 `ciphr state` found it in the first run — *"never back up: it names a process, not the store"* — and
-[backup.md](operations/backup.md) has the row with the full reasoning. Both are correct, and neither
+[backup.md](../../operations/backup.md) has the row with the full reasoning. Both are correct, and neither
 is a form a job can consume, so the exclusion is a line somebody has to write by hand in whatever
 backup tool is in use, having first read a document they only reach after the incident.
 

@@ -1058,7 +1058,7 @@ document.getElementById('lens-review').addEventListener('change', (e) => {
       '<li>Two conditions of its fitness statement — unwiped heap copies of a token secret, and a reserved-path refusal that only the HTTP layer enforced — are discharged. <strong>For the hours in between, the acceptance rested on a statement with open conditions</strong>, and the record says so.</li>' +
       '<li><strong>Three claims are newer than the acceptance</strong> (C11, C12, D10): the honeypot entry. New surface on the authentication path does not inherit it.</li></ul>' +
       '<h3>Quellen</h3><ul class="panel-sources"><li><a href="' + REPO + '/blob/main/docs/security-review.md">docs/security-review.md</a></li>' +
-      '<li><a href="' + REPO + '/blob/main/docs/review-2026-08-21.md">docs/review-2026-08-21.md</a></li></ul>';
+      '<li><a href="' + REPO + '/blob/main/docs/assurance/reviews/review-2026-08-21.md">docs/assurance/reviews/review-2026-08-21.md</a></li></ul>';
     panelBody.hidden = false;
     panelEmpty.hidden = true;
     document.getElementById('panel-close').addEventListener('click', clearSelection);

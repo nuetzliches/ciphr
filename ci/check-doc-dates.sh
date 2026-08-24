@@ -21,6 +21,23 @@
 # move the decision. A gate that demanded otherwise would be asking authors to
 # falsify history.
 #
+# **`docs/assurance/` is excluded for exactly the ADR reason.** A review record
+# and a field report are snapshots: their status lines say "written 2026-08-23
+# against `v0.9.0`", which is a claim about when somebody read a tree, not about
+# when the page last described the system. Editing one later -- fixing a link,
+# adding the cross-reference to the release that answered it -- must not move
+# that date, because the date *is* the finding's provenance. Before those files
+# moved they escaped this gate by accident: most of them happen to write
+# `**Reviewed:**` or carry no status line at all, and `review-0.5.1-2026-08-21.md`
+# writes `**Status:**` and was in scope the whole time. An exemption that depends
+# on which of two headings an author picked is not a decision, it is a
+# coincidence -- so it is a path rule now, next to the one above it.
+#
+# The exemption is the two snapshot subdirectories and not `docs/assurance/`
+# whole: its `README.md` is a maintained index of which record covers what, it
+# ages the way `docs/README.md` ages, and it is the one file under there that
+# should fail this gate when it drifts.
+#
 # **`.claude/plans/` is in scope, and that is not a technicality.** `PLAN.md` is
 # the full specification and is amended as decisions land, so its status line
 # ages exactly the way `docs/README.md` does. It said "Draft. No code written
@@ -127,7 +144,7 @@ for commit in $commits; do
     # pattern would also accept a top-level `Xclaude/plans/` that nobody has.
     for file in $(git show --name-only --format='' "$commit" |
                       grep -E '^(docs|\.claude/plans)/.*\.md$' |
-                      grep -v '^docs/adr/' || true); do
+                      grep -vE '^docs/(adr|assurance/reviews|assurance/field-reports)/' || true); do
         # Deleted in this commit, or not a document with a status line.
         # The newest date in the status *paragraph* -- from the `**Status:**` line
         # to the first blank line -- rather than the first date on the first

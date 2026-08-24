@@ -144,7 +144,7 @@ fn an_existing_destination_is_refused_rather_than_overwritten() {
 ///
 /// The message this replaces was `unable to open database: <destination>`, one word away
 /// from what an unreadable source says — and the row above it in `backup.md` is exactly
-/// that source failure. The deployment in `docs/field-report-2026-08-23.md` hit this while
+/// that source failure. The deployment in `docs/assurance/field-reports/field-report-2026-08-23.md` hit this while
 /// taking the pre-upgrade copy as the service uid into a directory owned by its operator's
 /// login, and read it as a store it could not open.
 #[test]

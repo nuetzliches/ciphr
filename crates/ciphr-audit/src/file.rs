@@ -83,7 +83,7 @@ impl FileDevice {
     ///
     /// The name carries the timestamp **and** the sequence of the last record in the file
     /// being closed, and it never replaces a file that is already there. Finding F6 of
-    /// `docs/review-2026-08-21-current-tree.md`: the name was the timestamp alone, so two
+    /// `docs/assurance/reviews/review-2026-08-21-current-tree.md`: the name was the timestamp alone, so two
     /// rotations in the same millisecond targeted one path — which `fs::rename` answers by
     /// replacing the earlier archive on Unix and by failing on Windows. One loses a
     /// segment of the trail; the other takes the device down. A small rotation threshold,

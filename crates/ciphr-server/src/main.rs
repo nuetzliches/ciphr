@@ -59,7 +59,7 @@ fn main() -> ExitCode {
 /// store. With both cases on `1`, the pipeline `upgrade.md` recommends could not tell
 /// "this policy file is refused" from "this machine has no store", so the check it runs
 /// was a check somebody remembers to read
-/// (`docs/field-report-2026-08-23-b.md`, finding 1).
+/// (`docs/assurance/field-reports/field-report-2026-08-23-b.md`, finding 1).
 ///
 /// The other codes are what they were, which is what keeps this readable as a contract:
 /// `0` the files are usable and this host is ready, `1` the files are not usable, `2` a
@@ -157,7 +157,7 @@ fn check_report(config_path: &str, check: &Check) -> Vec<String> {
 /// refusal. What it prevents is that order of work being *forgotten*: an entry on with
 /// nobody able to reach it is the same class of quiet as a stanza that was never named,
 /// which is the mistake the surface report exists to catch
-/// (`docs/field-report-2026-08-23-b.md`, finding 3).
+/// (`docs/assurance/field-reports/field-report-2026-08-23-b.md`, finding 3).
 ///
 /// **Under the entry's own line rather than in a block of its own**, where the cost
 /// sentences of the inactive entries already sit: a note about `token_revoke` printed

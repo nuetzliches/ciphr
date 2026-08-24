@@ -21,7 +21,7 @@ timing, so that probing learns nothing, and that property is worth keeping.
 The consequence is that the operator's question is never "why was it refused". It is **"is this
 credential still valid"** — and that question has no answer today that does not stop the service:
 
-- `ciphr token list --identity <name>` is what [`operations/cli.md`](operations/cli.md) presents,
+- `ciphr token list --identity <name>` is what [`operations/cli.md`](../../operations/cli.md) presents,
   and it reaches the store through `SqliteStore::open` → `prepare` → `migrations::apply`. Whether
   applying migrations against a live database happens to be harmless is not a thing to establish
   during an incident.

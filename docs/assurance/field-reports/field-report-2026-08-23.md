@@ -28,7 +28,7 @@ which brings this deployment to five paths held here and four forge secrets dele
   .with_audit(cli.audit_file.as_deref())` in the init path closes the gap where every archive began
   at sequence 2 with a `prev_hash` naming a record the file never held. This deployment's store keeps
   its gap, which is correct and is what a hash chain means; new stores will not have it.
-- **The read-write correction in [backup.md](operations/backup.md) matches what the job already
+- **The read-write correction in [backup.md](../../operations/backup.md) matches what the job already
   does.** This deployment had moved to a read-write source and `--user 999:999` a day earlier, for
   the same reason now written there — but the *prose* beside the job still carried the old claim, in
   two of its own documents. Both corrected. A wrong sentence next to right code survives longer than
@@ -86,7 +86,7 @@ moment before it is needed.
 **Ask:** separate the two questions the command answers at once. Report configuration, policies and
 surface without opening storage, and make store readiness its own labelled section or its own flag.
 Then a change that edits `ciphr.toml` can be checked in review by the same binary that will run it,
-with no key and no store — which is what would make [upgrade.md](operations/upgrade.md)'s advice
+with no key and no store — which is what would make [upgrade.md](../../operations/upgrade.md)'s advice
 something a pipeline can follow rather than something a person has to remember on the host.
 
 ## 2. `state --exclude` fails on rows a backup job must never be shown
@@ -104,7 +104,7 @@ exit=1
 ```
 
 The listing is complete and correct. The exit code is about three rows the caller did not ask for and
-must not have: the two TLS files and the seal file. [backup.md](operations/backup.md) is the reason
+must not have: the two TLS files and the seal file. [backup.md](../../operations/backup.md) is the reason
 they are not mounted — *keep the key somewhere this backup is not* — so the deployment that follows
 the guidance most strictly is the one whose backup job can never see a zero here.
 
@@ -125,7 +125,7 @@ Writing that guard felt like re-implementing a check the tool had just performed
 **Ask, in preference order.** A distinct exit code for "listing complete, pre-flight failed" (say `2`),
 so a caller can tell the two apart without parsing text — this keeps the pre-flight half exactly as
 documented. Failing that, a flag to select the listing without the pre-flight. Least preferred, and
-mentioned only because it is the smallest change: say in [cli.md](operations/cli.md) that a job
+mentioned only because it is the smallest change: say in [cli.md](../../operations/cli.md) that a job
 consuming `--exclude` should branch on output rather than status, so the next person writes the guard
 deliberately instead of discovering the need.
 
@@ -163,7 +163,7 @@ hand-written list had.
 
 This deployment translates through both containers' mount tables via the container runtime, so the
 mapping is not written down anywhere twice. That is the right place for it: the tool cannot know it.
-One sentence in [backup.md](operations/backup.md) — *if the job runs in a different mount namespace,
+One sentence in [backup.md](../../operations/backup.md) — *if the job runs in a different mount namespace,
 these paths need translating* — would be enough, and would have saved the ten minutes spent
 confirming that an exclusion which matches nothing looks exactly like an exclusion that works.
 

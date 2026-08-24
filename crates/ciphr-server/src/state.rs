@@ -549,7 +549,7 @@ impl AppState {
     /// against a millisecond-scale insert, and it is the honest limit of this approach.
     ///
     /// **One task per piece of bait, and not one per touch.** Finding F5 of
-    /// `docs/review-2026-08-21-current-tree.md`: every touch used to schedule a task,
+    /// `docs/assurance/reviews/review-2026-08-21-current-tree.md`: every touch used to schedule a task,
     /// including touches of bait whose trip is already open, and those tasks serialize on
     /// the store mutex — so anyone who could reach known bait could queue work against
     /// authentication, reads and health checks. The database's partial index stopped the
@@ -873,7 +873,7 @@ impl AppState {
             // leave `/v1/health` claiming something the trail cannot confirm.
             self.record(&entry)?;
 
-            // Finding F1 of `docs/review-2026-08-21-current-tree.md`: this used to return
+            // Finding F1 of `docs/assurance/reviews/review-2026-08-21-current-tree.md`: this used to return
             // above, so a honeypot *token* wrote its entry and latched nothing.
             // `/v1/health` kept answering `tripped: false` with `open_tripwires: 0`, and
             // `/v1/honeypots` kept calling the credential untripped — so a deployment that

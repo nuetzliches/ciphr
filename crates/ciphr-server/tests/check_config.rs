@@ -1,7 +1,7 @@
 //! `--check-config` answers about the file without a store, and about the host beside it.
 //!
 //! **Every test here is a property the previous version did not have**, and the reason
-//! they are worth pinning is in `docs/field-report-2026-08-23.md`: the check that catches
+//! they are worth pinning is in `docs/assurance/field-reports/field-report-2026-08-23.md`: the check that catches
 //! a *forgotten* surface stanza — the mistake ADR-20 makes possible, and the one a legal
 //! file can hold — used to print only after the store had been opened, locked and written
 //! to. So the one report worth reading in review, where there is no store and no key, was
@@ -157,7 +157,7 @@ fn check_config(config: &std::path::Path, key: Option<(&str, &str)>) -> std::pro
 /// has the old form, and it names review as the place to run it — where there is no store
 /// by design. A pipeline that runs the documented command on the documented host got `1`
 /// for the finding and `1` for the host, so the only way to tell them apart was to parse a
-/// dozen lines of prose (`docs/field-report-2026-08-23-b.md`, finding 1).
+/// dozen lines of prose (`docs/assurance/field-reports/field-report-2026-08-23-b.md`, finding 1).
 ///
 /// All three cases in one test on purpose: the claim is not what any one of them exits
 /// with, it is that the three are distinguishable.
@@ -403,7 +403,7 @@ name = "break-glass"
 /// revoking a leaked credential does not stop the service, and the token that calls it can
 /// only be issued on the host, under the store lock — so turning the entry on and issuing
 /// nothing leaves the job half done, and the operator who finds out is the one who reached
-/// for it (`docs/field-report-2026-08-23-b.md`, finding 3).
+/// for it (`docs/assurance/field-reports/field-report-2026-08-23-b.md`, finding 3).
 ///
 /// Through the real binary, because the claim is about the report an operator reads. Not
 /// through the exit code: naming the entry before the identity exists is a legitimate order
@@ -475,7 +475,7 @@ reason = \"the revoke step must not take the service down\"";
 /// system (os error 30)` reads as a broken device, when what happened is that the
 /// directory was mounted read-only — the safe instinct for a command whose name says
 /// *check*, and one that costs whoever is pre-flighting a host they gave as little access
-/// as possible (`docs/field-report-2026-08-23-b.md`, finding 2).
+/// as possible (`docs/assurance/field-reports/field-report-2026-08-23-b.md`, finding 2).
 ///
 /// An absent directory rather than a read-only one, because that fails the same way on
 /// every platform this runs on and the claim here is about the sentence.

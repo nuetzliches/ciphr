@@ -13,7 +13,7 @@ than of the documentation"*. Both were true of the code and false of what a CI j
 
 `ciphr export --format actions-env` is where the masking discipline lives — `::add-mask::` before
 anything else, one mask per line, a heredoc delimiter drawn from the OS CSPRNG and checked against
-the value (finding F2 of [`../review-2026-08-21-current-tree.md`](../review-2026-08-21-current-tree.md)).
+the value (finding F2 of [`../review-2026-08-21-current-tree.md`](../assurance/reviews/review-2026-08-21-current-tree.md)).
 It is a **CLI command**, and the CLI works on the local store: it opens `Session`, takes the
 exclusive lock, and needs the master key. A runner has none of those and must not. So the one place
 this project addressed the masking trap was reachable only from a host with the store — and only

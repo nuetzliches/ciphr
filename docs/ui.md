@@ -137,7 +137,7 @@ does not end its control of a page that is already loaded. So the viewer refuses
 document is controlled and asks for a reload, which is when the removal takes effect; and the
 container refuses registration attempts, which does nothing about a worker already installed. Both
 are recovery. A fresh origin, or one whose history you know, is the property itself. Recorded from
-finding F4 of [review-2026-08-21-current-tree.md](review-2026-08-21-current-tree.md), which found the
+finding F4 of [review-2026-08-21-current-tree.md](assurance/reviews/review-2026-08-21-current-tree.md), which found the
 old code unregistering asynchronously and mounting anyway, and this table claiming a filename refusal
 made registration impossible.
 

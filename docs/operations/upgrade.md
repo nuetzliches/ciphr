@@ -89,13 +89,13 @@ rather than a report somebody remembers to read:
 | `3` | the files are usable, this host is not ready | on a review host, expected. On the target host, read the `store:` section |
 
 A review host wants to fail on `1` and `2` and to accept `3`; the host itself wants `0` and nothing
-else ([field-report-2026-08-23.md](../field-report-2026-08-23.md), finding 1, and
-[field-report-2026-08-23-b.md](../field-report-2026-08-23-b.md), finding 1).
+else ([field-report-2026-08-23.md](../assurance/field-reports/field-report-2026-08-23.md), finding 1, and
+[field-report-2026-08-23-b.md](../assurance/field-reports/field-report-2026-08-23-b.md), finding 1).
 
 ## 0.11.0
 
 Two things to do, and both come from
-[the full-repository review of 2026-08-24](../review-2026-08-24-full-repository.md). Nothing migrates:
+[the full-repository review of 2026-08-24](../assurance/reviews/review-2026-08-24-full-repository.md). Nothing migrates:
 the schema stays at 6, no route changed, no capability changed, no default moved.
 
 ### The `sqlite` audit device is required, and the server refuses to start without it
@@ -187,7 +187,7 @@ left was parsing a dozen lines of prose. The precedent is this project's own: `c
 than what the caller asked.
 
 `ciphr state` and `--check-config` therefore agree: `3` means the command answered and this host is
-missing something ([field-report-2026-08-23-b.md](../field-report-2026-08-23-b.md), finding 1).
+missing something ([field-report-2026-08-23-b.md](../assurance/field-reports/field-report-2026-08-23-b.md), finding 1).
 
 ### `--check-config` says when an entry is on and nobody can call it
 
@@ -210,7 +210,7 @@ deployment, so there is no single grant to check for.
 legitimate order of work; this is the line that says the second half is still owed. An entry that is on
 and unreachable is the same class of quiet as a stanza that was forgotten, which is the mistake the
 surface report exists to catch
-([field-report-2026-08-23-b.md](../field-report-2026-08-23-b.md), finding 3).
+([field-report-2026-08-23-b.md](../assurance/field-reports/field-report-2026-08-23-b.md), finding 3).
 
 ### An audit device that cannot be opened names the requirement, not only the OS error
 
@@ -219,7 +219,7 @@ surface report exists to catch
 read-only. It now says that the file device is opened for append and that its directory has to be
 writable by the service user. The behaviour is unchanged, at start and in `--check-config` alike: the
 device is checked by opening it the way it will be opened
-([field-report-2026-08-23-b.md](../field-report-2026-08-23-b.md), finding 2).
+([field-report-2026-08-23-b.md](../assurance/field-reports/field-report-2026-08-23-b.md), finding 2).
 
 ## 0.9.0
 
@@ -287,7 +287,7 @@ store lock the running server holds, because it needs the master key and *create
 stop is planned anyway. The operator who reaches for this endpoint is mid-incident with a leaked
 credential and should not discover it there. From 0.10.0, `--check-config` says when the entry is on
 and no identity is authorized for `revoke`
-([field-report-2026-08-23-b.md](../field-report-2026-08-23-b.md), finding 3).
+([field-report-2026-08-23-b.md](../assurance/field-reports/field-report-2026-08-23-b.md), finding 3).
 
 **Worth reading before turning it on:** a token holder with that capability can invalidate credentials
 over the network. That is what the entry's `reason` field is for. `honeypots.md` step 3 now describes
@@ -366,7 +366,7 @@ wanted:
   serve, and a check is not one.
 
 `ciphr surface show <config>` is unchanged and still the CLI-side answer; it reads the file rather than
-the binary, so it cannot speak for a build entry. From `docs/field-report-2026-08-23.md`, finding 1.
+the binary, so it cannot speak for a build entry. From `docs/assurance/field-reports/field-report-2026-08-23.md`, finding 1.
 
 ### `ciphr state` exits `3` when the listing is complete and a required file is absent
 
@@ -378,7 +378,7 @@ The case this is for: a backup job consuming `--exclude` from its own container,
 [backup.md](backup.md) — deliberately cannot see the TLS material or the master key. Its exclude list
 is derived from `[storage] path` alone and is complete and correct, and its status was non-zero about
 files it must not have. `2` is left to clap for a usage error, so the two cannot be confused. From
-`docs/field-report-2026-08-23.md`, finding 2.
+`docs/assurance/field-reports/field-report-2026-08-23.md`, finding 2.
 
 ### A `ciphr backup` destination that cannot be written names its directory
 
@@ -392,7 +392,7 @@ backup is unchanged, wording included.
 **A named pipe or a directory where a credential is expected is now refused.** Both files used to be
 inspected by name and then read by name; they are opened once and read through that one descriptor, so
 a file exchanged between the two steps is no longer possible (F10 of
-`docs/review-2026-08-21-current-tree.md`). A FIFO passed as `--token-file` used to be a read that never
+`docs/assurance/reviews/review-2026-08-21-current-tree.md`). A FIFO passed as `--token-file` used to be a read that never
 returned; it is now a refusal. Ordinary files at ordinary modes behave exactly as before, and the
 world-bit rule is unchanged. The trust requirement this leaves — the file's owner and the directory it
 sits in — is written down in [wrapper.md](wrapper.md), where the mount is written.

@@ -31,7 +31,7 @@
 //!   `JAVA_TOOL_OPTIONS` — a startup hook per ecosystem.
 //! - `PATH` and `IFS`, which decide what a name resolves to and how a word splits.
 //!
-//! F4 of `docs/review-2026-08-24-full-repository.md`. The rest of the list needs a
+//! F4 of `docs/assurance/reviews/review-2026-08-24-full-repository.md`. The rest of the list needs a
 //! writable path inside the image to be useful, so it is narrower than
 //! `NODE_OPTIONS` — but "narrower" is not a defence, and `write` should not be a
 //! way to reach `exec`.

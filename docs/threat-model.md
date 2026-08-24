@@ -46,7 +46,7 @@ database, the CLI, the optional read-only UI, and the optional MCP server.
 
 ### What `write` on a fetched prefix is worth (A6, and A3 where a runner may write)
 
-Added 2026-08-24, F4 of [the full-repository review](review-2026-08-24-full-repository.md).
+Added 2026-08-24, F4 of [the full-repository review](assurance/reviews/review-2026-08-24-full-repository.md).
 
 The environment variable name of a secret is its last path segment (ADR-18). Where a consumer fetches
 a **prefix**, the set of names is whatever the store holds at that moment — so an identity with
@@ -68,7 +68,7 @@ to one that merely has business writing somewhere nearby.
 
 ### What a reader of the database file actually gets (A4)
 
-Corrected 2026-08-24, F10 of [the full-repository review](review-2026-08-24-full-repository.md). This
+Corrected 2026-08-24, F10 of [the full-repository review](assurance/reviews/review-2026-08-24-full-repository.md). This
 row said "full ciphertext" and "the database is worthless without the master key", and both were
 overclaims about the same file. **The values are encrypted and the metadata is not**, which ADR-22
 states plainly in a different context — it is the reason a metadata listing writes no audit entry:

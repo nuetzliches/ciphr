@@ -136,7 +136,7 @@ pub fn router(state: AppState) -> Router {
 ///
 /// The router's only response-header layer, and it applies to every `/v1` response
 /// including the errors and the fallbacks. Finding F3 of
-/// `docs/review-2026-08-21-current-tree.md`: the server emitted no cache directive at all,
+/// `docs/assurance/reviews/review-2026-08-21-current-tree.md`: the server emitted no cache directive at all,
 /// for plaintext reads and exports as much as for anything else. The viewer asked Fetch not
 /// to cache *its own* request; the SDK, the CLI, browser private caches, reverse proxies and
 /// everything else in the path were left with their defaults.

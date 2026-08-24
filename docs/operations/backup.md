@@ -116,14 +116,14 @@ right-hand column, and it names the two undeducible rows above under `not_deriva
 gives a file-level backup tool the one thing it wants handed to it: the paths that must not be copied,
 one per line. Both are in [cli.md](cli.md), and the reason they exist is that a deployment wired this
 into a nightly job and found the report unparseable
-([field-report-2026-08-22.md](../field-report-2026-08-22.md)).
+([field-report-2026-08-22.md](../assurance/field-reports/field-report-2026-08-22.md)).
 
 **If the job runs in a different mount namespace, these paths need translating.** `--exclude` prints
 the paths the *configuration* names, which are the paths as the service sees them. A backup job in its
 own container sees the same files somewhere else, and an exclusion that matches nothing looks exactly
 like an exclusion that works — no error, a slightly larger archive, and a surprise at restore. Map the
 list through both mount tables rather than writing the translated paths down a second time; the tool
-cannot know the mapping ([field-report-2026-08-23.md](../field-report-2026-08-23.md), finding 4).
+cannot know the mapping ([field-report-2026-08-23.md](../assurance/field-reports/field-report-2026-08-23.md), finding 4).
 
 **A missing required file is exit `3`, not `1`.** All three forms print their whole output first and
 then report the pre-flight result, and `3` says exactly that: the listing is complete, and something
@@ -235,7 +235,7 @@ mount mode that makes it work. Running as the service's uid is the half that mus
 the `-shm` created against a stopped store belongs to whoever created it, and a root-owned `-shm` in
 the store directory leaves the service unable to open its own database on the next start. While the
 service is up, no file is created at all. Both halves were measured by a deployment before they were
-written down here ([field-report-2026-08-22.md](../field-report-2026-08-22.md)).
+written down here ([field-report-2026-08-22.md](../assurance/field-reports/field-report-2026-08-22.md)).
 
 What it does *not* do is make the copy a backup. It is ciphertext; the master key belongs somewhere
 else, and the rest of the list above has to exist too.
