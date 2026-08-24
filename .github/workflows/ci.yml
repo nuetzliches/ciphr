@@ -143,6 +143,15 @@ jobs:
       - name: Documented commands exist
         run: sh ci/check-doc-commands.sh
 
+      # The other half of "the index tells a reader what exists": that it is
+      # complete. Ten documents were reachable from no index at `6feceb5`,
+      # including the one page describing an unimplemented procedure, and three
+      # sources disagreed about how many ADRs there are. Reachability is
+      # mechanical; whether the sentence next to the link is *true* is still a
+      # human's job, and this does not pretend otherwise.
+      - name: Every document is in an index
+        run: sh ci/check-doc-index.sh
+
       # The changelog's release bookkeeping, which nothing noticed was missing:
       # the commit that tagged `0.5.1` never added its compare link, and a later
       # commit deleted the heading itself while inserting entries at that

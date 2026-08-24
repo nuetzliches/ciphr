@@ -8,6 +8,34 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — a gate holds the documentation indexes to the tree
+
+`docs/README.md` is the page that tells a reader what exists. That job is only done if the page is
+complete, and nothing was checking that it was — the last documentation discipline here left to
+habit, and, exactly like the changelog rule before `check-changelog.sh`, the one that eroded.
+
+Measured at `6feceb5`: **ten tracked documents were linked from no index at all**, including
+`operations/freeze.md`, the one page describing an unimplemented procedure and so the worst possible
+document to leave undiscoverable. **Three sources disagreed about how many ADRs exist** — twenty-one,
+twenty-four, 25, and 25 files on disk — with the index whose purpose is to establish status the least
+reliable of the three. And **two ADR rows described shipped work as unbuilt**: ADR-15 read "not built,
+phase 8 still waits on the review" and ADR-20 read "nothing implemented", four releases after both
+shipped in `v0.5.0`.
+
+[`ci/check-doc-index.sh`](ci/check-doc-index.sh) checks that every document under `docs/` is linked
+from one of the four index pages, that the ADR table has exactly one row per record in both
+directions, and that a written-out count of the records matches the directory. All three drifted
+claims and both stale rows are corrected.
+
+**It checks reachability, not correctness.** A row saying an ADR is unbuilt when it shipped still
+passes — only a human catches that. A *missing* row is mechanical, and it is the one that hides a
+document completely. The gate says so about itself rather than implying more.
+
+`docs/README.md` also gains a short set of audience paths above its risk table: integrating,
+operating, responding to an incident, upgrading, changing security-critical code, reviewing, and
+deciding whether to use this at all. The risk ordering is kept — it is the right one when the question
+is what a mistake costs — and the new table is for when you already know.
+
 ### Added — `docs/operations/` has an index
 
 Eleven documents and no entry point: a reader had to infer the right runbook from filenames, and the
