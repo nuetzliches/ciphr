@@ -1303,10 +1303,34 @@ components:
         paths:
           type: array
           minItems: 1
+          maxItems: 256
+          uniqueItems: true
           items: { type: string }
           description: |
             The paths to export, named explicitly rather than by prefix: an export is
             the operation most likely to hand over more than intended.
+
+            **At most 256, each named once.** Both are checked before the first
+            authorization and before the first audit write, so a request that will not
+            be served costs a parse and nothing else. Without the bound, one
+            authenticated request could name a path ten thousand times and buy an
+            authorization, a durable audit write, a store read and a decryption for
+            every occurrence -- and a correcting audit write per path already
+            processed if anything failed late.
+
+            256 is generous rather than tight: a container's environment is a few dozen
+            variables, and the fetching consumers name one path per variable. A
+            deployment above it is fetching a prefix wide enough that it should say so
+            in more than one request, and the refusal names the limit.
+
+            A duplicate is **refused rather than deduplicated**. Asking twice for one
+            secret is a caller bug, and returning fewer entries than were asked for is
+            how such a bug reaches production. The comparison is on the parsed path, so
+            two spellings of one path do not slip past it.
+
+            The response is bounded too, at one mebibyte of values in total, counted as
+            they are read. The request body limit says nothing about that when a short
+            path names a large value.
 
     ExportResult:
       type: object

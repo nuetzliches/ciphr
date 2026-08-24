@@ -253,6 +253,13 @@ Two things do not change with the route, and one does:
   Nothing new is disclosed — `GET /v1/secrets/{path}` answers per path for anyone holding a token — but
   a trail that stops halfway is what a partial fetch looks like.
 
+**The bulk route is bounded, and the fallback is not.** It refuses an export naming more than **256
+paths**, naming one path twice, or returning more than a mebibyte of values in total. A job fetching a
+prefix wider than that gets a refusal naming the limit and has to ask in more than one step; the
+per-path fallback has no such bound, because a request per path is already one unit of work per path.
+Nothing chunks silently — a fetch split behind the caller's back is a fetch whose trail the caller
+cannot predict.
+
 ## What is measured, and what is only claimed
 
 **Measured on a Forgejo runner on 2026-08-18**, with `forgejo-runner exec -i -self-hosted` — the same

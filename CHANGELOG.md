@@ -8,6 +8,38 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — an export had no bounds, and paid for a malformed request before refusing it
+
+**F5 of [the full-repository review](docs/assurance/reviews/review-2026-08-24-full-repository.md).**
+`POST /v1/export` accepted any number of paths, including the same one repeatedly. One authenticated
+request could name a path ten thousand times and buy an authorization, a durable audit write, a store
+read and a decryption for every occurrence — each holding the process-wide store and audit mutexes,
+each keeping another plaintext copy for the response — and then a *correcting* audit write per path
+already processed if anything failed late. Denial of service by load is an accepted boundary in this
+project; supplying that much amplification inside one authenticated request is not the same thing.
+
+Three bounds, and **every structural one runs before the first audit or store operation**:
+
+- **At most 256 paths.** Generous rather than tight: a container's environment is a few dozen
+  variables, and the fetching consumers name one path per variable. The refusal names the limit.
+- **No duplicates**, compared after parsing, so two spellings of one path cannot slip past. Refused
+  rather than deduplicated — asking twice is a caller bug, and returning fewer entries than were asked
+  for is how such a bug reaches production.
+- **At most one mebibyte of values in total**, counted as they are read. The request body limit bounds
+  nothing about the response when a short path names a large value.
+
+Parsing used to happen inside the loop, so a request malformed in its ninth path had already bought
+eight audit entries and eight decryptions, and then eight correcting entries on the way out. A request
+this server will not serve now costs it a parse. The test asserts the audit count is unchanged across
+three refusals, which is the part that would silently regress.
+
+**What a deployment has to check.** A job fetching a **prefix wider than 256 secrets** through the
+bulk route is refused now, with a message naming the limit, and has to ask in more than one step.
+`Client::read_all` deliberately does **not** chunk around this: a fetch split behind the caller's back
+is a fetch whose audit trail the caller cannot predict. The per-path fallback has no such bound,
+because a request per path is already one unit of work per path. **This belongs in the next release's
+upgrade section.**
+
 ### Fixed — a backup inherited the umask, and was world-readable under the ordinary one
 
 **F10 of [the full-repository review](docs/assurance/reviews/review-2026-08-24-full-repository.md).**
