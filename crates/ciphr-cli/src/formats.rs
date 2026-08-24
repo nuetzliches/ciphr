@@ -49,7 +49,18 @@ pub(crate) fn parse_dotenv(text: &str) -> Result<Vec<DotEnvEntry>, (usize, Strin
 
         let line = line.strip_prefix("export ").unwrap_or(line).trim();
         let Some((key, value)) = line.split_once('=') else {
-            return Err((number, format!("no '=' in {:?}", truncate(line))));
+            // **The line is not quoted, not even truncated.** F11 of the review of
+            // 2026-08-24: a `.env` file is secret-bearing, and a line without `=` is
+            // most often a value that lost its name — a pasted token on a line of its
+            // own. Showing its first 24 characters put that value on stderr, into CI
+            // logs and support bundles, for the most ordinary import mistake there is.
+            // A short value was printed whole.
+            //
+            // The line number says where to look, in a file the operator has open.
+            // That is the whole of what an error about this needs to carry, and it is
+            // what the rule in `AGENTS.md` means: errors carry paths, identities and
+            // error classes, never values.
+            return Err((number, "no '=' on this line".to_owned()));
         };
 
         // The same rule the export applies, so that a corpus which leaves through
@@ -165,16 +176,26 @@ WITH_EQUALS=a=b
     }
 
     #[test]
-    fn error_messages_do_not_quote_a_whole_line() {
-        // A `.env` file is full of secrets, so an error about a line it cannot read
-        // must not reproduce the line. A long line with no `=` is the case that
-        // triggers it: the message identifies the problem and shows only its start.
+    fn error_messages_do_not_quote_the_line_at_all() {
+        // F11 of the review of 2026-08-24. A `.env` file is secret-bearing, and a
+        // line without `=` is usually a value that lost its name. The message used to
+        // show its first 24 characters, which prints a short secret whole and the
+        // start of a long one -- on stderr, into whatever captures it.
+        //
+        // The line number is what an error about this needs to carry.
+        let secret = "hunter2";
+        let (line, reason) = parse_dotenv(secret).expect_err("a line with no '=' is refused");
+        assert_eq!(line, 1);
+        assert!(
+            !reason.contains(secret),
+            "the value must not be in the message: {reason}"
+        );
+
         let long = "x".repeat(200);
         let (line, reason) = parse_dotenv(&long).expect_err("a line with no '=' is refused");
-
         assert_eq!(line, 1);
+        assert!(!reason.contains("xxx"), "not even a prefix of it: {reason}");
         assert!(reason.len() < 60, "got {reason}");
-        assert!(reason.contains('…'), "got {reason}");
     }
 
     #[test]

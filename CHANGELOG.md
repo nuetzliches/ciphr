@@ -8,6 +8,30 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — two places where the software claimed more than it does
+
+Both from [`docs/review-2026-08-24-full-repository.md`](docs/review-2026-08-24-full-repository.md),
+and both the same shape: a sentence that was stronger than the code under it.
+
+**F11: a malformed `.env` line reached stderr.** `ciphr import` quoted the first 24 characters of a
+line that has no `=` — and a line with no `=` is usually a value that lost its name, a pasted token on
+a line of its own. A short one was printed whole. That contradicts the rule `AGENTS.md` states as a
+rule: errors carry paths, identities and error classes, never values. The message is now the line
+number and the structural reason, and a test asserts that neither a short secret nor a prefix of a
+long one appears in it.
+
+**F10: "the database is worthless without the master key" was an overclaim**, in the threat model, in
+`cli.md` and on the site. The *values* are encrypted; paths, rotation classes, version timestamps, the
+identity that wrote each version, the token inventory and the whole audit trail are ordinary columns —
+which ADR-22 already says in another context, as the reason a metadata listing writes no audit entry.
+A reader of a stolen backup gets the map of the estate and its history; what stays closed is what the
+map points at. The threat model now has a section saying that, and the A4 row says it in the row.
+
+**Still open from F10:** `VACUUM INTO` creates a backup through SQLite, so its mode follows the
+caller's umask rather than being owner-only by construction. The threat model says so, and says to
+write backups into a directory that is already private until it is fixed.
+
+
 ### Fixed — a file-only audit configuration started a second chain on every restart
 
 **F3 of [`docs/review-2026-08-24-full-repository.md`](docs/review-2026-08-24-full-repository.md), and

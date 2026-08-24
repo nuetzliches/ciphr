@@ -478,8 +478,12 @@ and whoever can run this can already read the database file, so `cp` was availab
 — the command adds convenience, not access. `audit anchor` is treated the same way, for the related
 reason that recording itself would move the head it just wrote down.
 
-What the copy is, and what it is not: it is ciphertext, worthless without the master key, and
-therefore **not** a backup on its own. What else has to exist for a restore to be possible, and what
+What the copy is, and what it is not: the **values** in it are ciphertext and stay that way without
+the master key, and it is therefore **not** a backup on its own. It is not opaque, though — paths,
+rotation classes, version timestamps, the identity that wrote each version, the token inventory and
+the audit trail are ordinary columns. Whoever reads the file learns the shape of the estate and who
+touched what, and treating the copy as harmless because the values are encrypted is the mistake this
+sentence used to invite (F11 was the errors, this is F10 of the review of 2026-08-24). What else has to exist for a restore to be possible, and what
 a restore undoes, is in [backup.md](backup.md).
 
 ## The audit trail
