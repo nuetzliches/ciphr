@@ -29,8 +29,8 @@
 
   <p class="status"><strong>Status:</strong> all four routes are in <code>v0.11.0</code>; route A's
   binary and its action arrived with it, covered by tests that run the real program against the real
-  service. <strong>The two checksums in that example are still placeholders</strong> — they exist only
-  once that release's job summary does. Take them from the release page.</p>
+  service. The tag and both checksums in route A's example are the ones that release published, and
+  they are pinned rather than illustrative — copy the block as it stands.</p>
 
   <h2>What every consumer needs</h2>
 
@@ -90,15 +90,15 @@
   has it in the log the moment anybody adds <code>set -x</code>.</p>
 
 <pre data-lang="yaml"><code>- <span class="t-key">name</span>: Fetch secrets
-  <span class="t-key">uses</span>: nuetzliches/ciphr@<span class="t-ph">&lt;tag&gt;</span>
+  <span class="t-key">uses</span>: nuetzliches/ciphr@v0.11.0
   <span class="t-key">with</span>:
     <span class="t-key">url</span>: <span class="t-var">${{ vars.CIPHR_URL }}</span>
     <span class="t-key">ca</span>: <span class="t-var">${{ vars.CIPHR_CA }}</span>                <span class="t-com"># not a secret: the internal CA, as PEM</span>
     <span class="t-key">token</span>: <span class="t-var">${{ secrets.CIPHR_TOKEN }}</span>       <span class="t-com"># the one forge secret that stays</span>
     <span class="t-key">paths</span>: ci/widget/DB_PASSWORD ci/widget/API_KEY
-    <span class="t-key">version</span>: <span class="t-ph">&lt;the first tag that carries the assets&gt;</span>
-    <span class="t-key">sha256-amd64</span>: <span class="t-ph">&lt;the number from that release's job summary&gt;</span>
-    <span class="t-key">sha256-arm64</span>: <span class="t-ph">&lt;the other number from the same summary&gt;</span>
+    <span class="t-key">version</span>: v0.11.0
+    <span class="t-key">sha256-amd64</span>: c80229aaca525fa8d80e0378fe39fcb513beb8212f4c88086116ed5c29db7143
+    <span class="t-key">sha256-arm64</span>: 68fd06e74eeb195581c13be4e60eadcd1b2a9400338ae26de666e7b52b8ca6fa
 
 - <span class="t-key">name</span>: Deploy
   <span class="t-key">run</span>: ./deploy.sh                          <span class="t-com"># DB_PASSWORD and API_KEY are in the environment</span></code></pre>
