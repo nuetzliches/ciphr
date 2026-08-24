@@ -1,8 +1,16 @@
 //! The SQLite implementation of [`Store`].
 //!
-//! The database holds ciphertext, wrapped keys, and labels. It is not a trust
-//! anchor: a stolen copy is worthless without the master key, which is what makes
-//! a single embedded file an acceptable place to keep it (adversary A4).
+//! The database holds ciphertext, wrapped keys, and labels. It is not a trust anchor:
+//! **the values** in a stolen copy are worthless without the master key, which is what
+//! makes a single embedded file an acceptable place to keep them (adversary A4).
+//!
+//! The rest of the file is not. Paths, rotation classes, timestamps, writer identities,
+//! token metadata and the audit trail are plaintext, so a stolen copy hands over the
+//! secret inventory, the identity inventory and the access history. Finding F10 of the
+//! review of 2026-08-24 named "worthless without the master key" as an overclaim; the
+//! correction landed in `docs/threat-model.md` and `docs/operations/cli.md` on
+//! 2026-08-24 and missed this comment, which is where a reader of the code meets it
+//! first. It is also why [`SqliteStore::backup_into`] sets the mode on what it writes.
 //!
 //! Pragmas are set on every connection rather than assumed:
 //!
@@ -127,6 +135,11 @@ impl SqliteStore {
     /// - **It refuses to overwrite.** SQLite fails with *"output file already exists"*
     ///   rather than truncating, so a mistyped destination cannot destroy a previous
     ///   backup.
+    /// - **The result is owner-only, whatever the umask says.** `VACUUM INTO` creates the
+    ///   file, so its mode used to be the caller's `022` producing `0644` — see
+    ///   [`restrict_to_owner`] for what that exposes and for the window it does not
+    ///   close. On a filesystem that cannot carry the mode, this fails rather than
+    ///   reporting a backup it did not protect.
     ///
     /// The copy is then opened and checked: `PRAGMA integrity_check` must say `ok`, and
     /// its schema version must equal the source's. Both are cheap at this data volume,
@@ -136,7 +149,8 @@ impl SqliteStore {
     /// # Errors
     ///
     /// Returns [`StoreError::Io`] if `destination` is not valid UTF-8, if the written
-    /// file cannot be measured, if the copy fails its integrity check or disagrees with
+    /// file cannot be measured, if its permissions cannot be made owner-only, if the copy
+    /// fails its integrity check or disagrees with
     /// the source about the schema version, or if the destination cannot be written — in
     /// which case the message names its *directory*, for the reason in
     /// [`destination_refused`]. Returns [`StoreError::Sqlite`] if the destination already
@@ -162,6 +176,15 @@ impl SqliteStore {
         self.connection
             .execute("VACUUM INTO ?1", params![target])
             .map_err(|error| destination_refused(destination, error))?;
+
+        // **Owner-only, before anything reads it back and before this reports success.**
+        // Finding F10 of the review of 2026-08-24: SQLite creates the destination, so its
+        // mode came from the caller's umask, and a `022` umask -- the ordinary default --
+        // produces a `0644` backup. Values and wrapped keys are still encrypted, but
+        // paths, rotation classes, timestamps, writer identities, token metadata and the
+        // whole audit trail are plaintext in there. That is the secret inventory and the
+        // access history, readable by every local user.
+        restrict_to_owner(destination)?;
 
         let written = std::fs::metadata(destination)
             .map_err(|error| StoreError::Io {
@@ -746,6 +769,80 @@ fn subtree_bounds(prefix: &SecretPath) -> (String, String) {
         format!("{}/", prefix.as_str()),
         format!("{}0", prefix.as_str()),
     )
+}
+/// Make a freshly written backup readable by its owner and nobody else.
+///
+/// Finding F10 of the review of 2026-08-24. `VACUUM INTO` creates the destination itself,
+/// so its mode is whatever the caller's umask allows -- `0644` under the usual `022`.
+/// What that exposes is not "ciphertext": values and wrapped keys stay encrypted, but the
+/// secret *inventory*, the rotation classes, the writer identities, the token metadata and
+/// the entire audit trail are plaintext in a store file.
+///
+/// Set and then verified, because the two can disagree: a filesystem that does not carry
+/// Unix modes -- a `vfat` stick, some network mounts, a Windows host -- accepts the call
+/// and keeps whatever it had. A backup this function has silently failed to protect is
+/// worse than one nobody promised anything about, so the check is what decides, not the
+/// call.
+///
+/// **The window this does not close.** Between `VACUUM INTO` creating the file and this
+/// running, the file exists with the umask's mode. Closing that needs a private temporary
+/// name and a rename, and a rename would take away SQLite's refusal to overwrite an
+/// existing destination -- replacing a race that needs local access and precise timing
+/// with one that silently destroys the previous backup. `backup.md` says to keep backups
+/// in a directory the service user owns, which closes it properly.
+///
+/// # Errors
+///
+/// [`StoreError::Io`] if the mode cannot be set or, once set, is not owner-only.
+#[cfg(unix)]
+fn restrict_to_owner(destination: &Path) -> Result<(), StoreError> {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::set_permissions(destination, std::fs::Permissions::from_mode(0o600)).map_err(
+        |error| StoreError::Io {
+            detail: format!(
+                "the backup at {} was written but its permissions could not be set to owner-only: {error}",
+                destination.display()
+            ),
+        },
+    )?;
+
+    let mode = std::fs::metadata(destination)
+        .map_err(|error| StoreError::Io {
+            detail: format!(
+                "cannot read back the permissions of {}: {error}",
+                destination.display()
+            ),
+        })?
+        .permissions()
+        .mode();
+
+    if mode & 0o077 != 0 {
+        return Err(StoreError::Io {
+            detail: format!(
+                "the backup at {} is mode {:04o} and not owner-only. A store file holds the \
+                 secret inventory, the writer identities and the audit trail in plaintext, so \
+                 this destination is not somewhere it may be written -- a filesystem that does \
+                 not carry Unix modes cannot hold a backup safely",
+                destination.display(),
+                mode & 0o7777
+            ),
+        });
+    }
+
+    Ok(())
+}
+
+/// The same, where the platform has no Unix modes.
+///
+/// Windows is a development platform for this project and not a deployment one: the
+/// service ships as a Linux container. A backup taken here inherits the directory's ACL,
+/// which is the platform's own answer and not one this function can improve on by
+/// pretending to set a mode it does not have.
+#[cfg(not(unix))]
+#[allow(clippy::unnecessary_wraps)]
+fn restrict_to_owner(_destination: &Path) -> Result<(), StoreError> {
+    Ok(())
 }
 
 /// Say which end of a backup failed when `VACUUM INTO` will not write.

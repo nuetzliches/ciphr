@@ -1,6 +1,6 @@
 # Backups and restores
 
-**Status:** current as of 2026-08-23. Every procedure below uses a command that exists. `ciphr
+**Status:** current as of 2026-08-24. Every procedure below uses a command that exists. `ciphr
 backup` **is released in `0.6.0`** — a deployment on `0.5.1` or earlier has the file-level procedure
 below and nothing else.
 
@@ -297,6 +297,11 @@ behind, with committed data in it. It is not corruption — `synchronous = FULL`
 every connection (`crates/ciphr-store/src/sqlite.rs`) precisely so that an abrupt stop costs no
 committed write — but it is data, and copying `store.db` alone throws it away.
 
+**Keep backups in a directory the service user owns, mode `0700`.** `ciphr backup` makes the file
+owner-only, and it can only do that *after* SQLite has created it — so a directory anybody may read
+leaves a window, short and real, where the file exists with the umask's mode. A private directory
+closes it properly, and it is one `chmod` on a path that already exists for other reasons.
+
 **Up to and including `0.5.1`, the ordinary stop was the abrupt one.** The graceful shutdown awaited
 `tokio::signal::ctrl_c`, which on Unix is SIGINT and nothing else, while a container stop sends
 SIGTERM — so the process was terminated and the database was not closed. That is fixed in `0.6.0`, the same
@@ -320,8 +325,15 @@ sqlite3 /var/lib/ciphr/store.db "VACUUM INTO '/path/to/backup/store.db'"
 
 It is read-only with respect to the source (SQLite 3.27 and later), it takes no ciphr store lock —
 that lock refuses a second *writer*, and a reader is not one — and it produces the same
-single-file, no-`-wal` output. What it does not do is check the result or refuse to migrate; the
-command does both.
+single-file, no-`-wal` output. What it does not do is check the result, refuse to migrate, or set
+the permissions; the command does all three.
+
+**That last one matters here.** `VACUUM INTO` creates the file, so its mode comes from the umask of
+whoever ran it — `022`, the usual default, produces a world-readable backup. Since the review of
+2026-08-24 `ciphr backup` sets `0600` on what it writes and fails if it cannot; the raw statement does
+not, so a rescue procedure that uses it has to `chmod 600` the result itself. What a readable store
+file exposes is in [what the backup is worth](#what-the-backup-is-worth-is-a-property-of-what-is-in-it)
+and it is not "ciphertext": the values are encrypted, the inventory and the trail are not.
 
 **`sqlite3` is not in the runtime image.** It installs `ca-certificates`, `curl` and `gosu` and
 nothing else, so this cannot be run with `docker exec` — it runs from outside, against the volume.

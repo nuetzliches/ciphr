@@ -201,3 +201,88 @@ fn the_copy_stands_alone_without_a_write_ahead_log() {
         );
     }
 }
+
+/// A backup is readable by its owner and nobody else.
+///
+/// Finding F10 of the review of 2026-08-24. `VACUUM INTO` creates the destination, so
+/// its mode came from the caller's umask: `022`, the ordinary default and what CI runs
+/// with, produced a `0644` backup. The values in it stay encrypted, but the secret
+/// inventory, the rotation classes, the writer identities, the token metadata and the
+/// whole audit trail are plaintext — so a world-readable backup hands every local user
+/// the map of what exists and who touched it.
+///
+/// **What this test can and cannot show.** A control file created beside the backup
+/// reports what the ambient umask produces, and its mode is in the failure message. Under
+/// any permissive umask the control comes out `0644` or `0664` while the backup is
+/// `0600`, which is the property. Under a `077` umask the control would be `0600` too and
+/// this test would pass without the fix — it is not asserted away, because failing the
+/// build on somebody's login umask would be worse than the gap. Making it airtight needs
+/// a `umask(2)` call, and that means `unsafe` in the test tree of a project that forbids
+/// it at every crate root.
+#[cfg(unix)]
+#[test]
+fn a_backup_is_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let source = dir.path().join("store.db");
+    let _ = store_with_a_secret(&source);
+
+    // What this environment's umask does to a file nobody protects.
+    let control = dir.path().join("control");
+    std::fs::File::create(&control).expect("create the control file");
+    let control_mode = std::fs::metadata(&control)
+        .expect("the control file exists")
+        .permissions()
+        .mode()
+        & 0o777;
+
+    let copy = dir.path().join("backup.db");
+    SqliteStore::open_read_only(&source)
+        .expect("open the source")
+        .backup_into(&copy)
+        .expect("back up");
+
+    let mode = std::fs::metadata(&copy)
+        .expect("the backup exists")
+        .permissions()
+        .mode()
+        & 0o777;
+
+    assert_eq!(
+        mode, 0o600,
+        "a backup must be owner-only; got {mode:04o} while this environment's umask \
+         produces {control_mode:04o} for an unprotected file"
+    );
+}
+
+/// The source database is not touched by the mode change.
+///
+/// `restrict_to_owner` takes a path, and a path is easy to pass the wrong one of. The
+/// backup is the only thing this command created; the store it copied belongs to whoever
+/// set it up, and a backup command that silently re-permissions a live database would be
+/// a worse bug than the one it fixes.
+#[cfg(unix)]
+#[test]
+fn taking_a_backup_does_not_change_the_source_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let source = dir.path().join("store.db");
+    let _ = store_with_a_secret(&source);
+
+    std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o640))
+        .expect("set a distinctive source mode");
+
+    SqliteStore::open_read_only(&source)
+        .expect("open the source")
+        .backup_into(dir.path().join("backup.db"))
+        .expect("back up");
+
+    let mode = std::fs::metadata(&source)
+        .expect("the source exists")
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(mode, 0o640, "the source keeps the mode it had");
+}

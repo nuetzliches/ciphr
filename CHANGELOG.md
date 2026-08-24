@@ -8,6 +8,32 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — a backup inherited the umask, and was world-readable under the ordinary one
+
+**F10 of [the full-repository review](docs/assurance/reviews/review-2026-08-24-full-repository.md).**
+`VACUUM INTO` creates the destination, so its mode was whatever the caller's umask allowed — `022`,
+the usual default, produced a `0644` backup. The *values* in a store file stay encrypted, but the
+secret inventory, the rotation classes, the timestamps, the writer identities, the token metadata and
+the whole audit trail are plaintext, so a `0644` backup hands every local user the map of what exists
+and who touched it.
+
+The mode is set to `0600` and then **read back and verified**, because the two can disagree: a
+filesystem carrying no Unix modes accepts the call and keeps what it had, and a backup this code
+silently failed to protect would be worse than one nobody promised anything about. There, the command
+fails instead of reporting success.
+
+**One window stays open, and is documented rather than hidden.** Between SQLite creating the file and
+the mode being set, the file exists with the umask's mode. Closing it needs a private temporary name
+and a rename — which would take away SQLite's refusal to overwrite an existing destination, trading a
+race that needs local access and timing for one that silently destroys the previous backup.
+[backup.md](docs/operations/backup.md) says to keep backups in a directory the service user owns,
+which closes it properly, and now says why. It also says that the raw `VACUUM INTO` a rescue procedure
+falls back on does none of this.
+
+**The overclaim F10 named was still in the source.** The correction landed in the threat model and the
+CLI reference on 2026-08-24 and missed `crates/ciphr-store/src/sqlite.rs`, whose module comment still
+opened with *"a stolen copy is worthless without the master key"* — the first place a reader of the
+code meets the claim.
 ### Fixed — health said "nothing has been taken" when it could not tell, and named the audit paths
 
 **F9 and F14 of [the full-repository review](docs/assurance/reviews/review-2026-08-24-full-repository.md)**, both on `GET /v1/health` — the one unauthenticated route.
