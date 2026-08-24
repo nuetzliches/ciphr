@@ -126,7 +126,7 @@ curl --fail --silent --show-error \
   per line for a multi-line value, and — if the value goes into `$GITHUB_ENV` — a heredoc delimiter
   the value cannot reproduce. That last one is not a style question: a delimiter somebody can guess
   lets a value close its own assignment and define variables for later steps, which is finding F2 of
-  [`../review-2026-08-21-current-tree.md`](../assurance/reviews/review-2026-08-21-current-tree.md). `ciphr-ci` exists
+  [`review-2026-08-21-current-tree.md`](../assurance/reviews/review-2026-08-21-current-tree.md). `ciphr-ci` exists
   because that belongs in tested code rather than in every workflow that copies this block.
 - **The status codes.** `--fail` turns them into a non-zero exit and loses which one it was. `401`
   is the token, `403` is the policy, `404` is the path, and **`503` means the audit trail could not

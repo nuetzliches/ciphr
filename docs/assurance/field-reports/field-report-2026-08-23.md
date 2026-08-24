@@ -174,5 +174,5 @@ missing: **the restore drill with the real break-glass key has not been run.** T
 key was done again in passing this week — a copy taken with the old binary before the upgrade, 320
 entries verified on it, head at 320. The other half is fetching the master key from where it actually
 lives and opening a restored store with it, and no test in this repository can do that for us. The
-project's [restore test](../crates/ciphr-server/tests/restore.rs) covers what it can; the missing
+project's [restore test](../../../crates/ciphr-server/tests/restore.rs) covers what it can; the missing
 half is ours.

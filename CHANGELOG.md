@@ -8,6 +8,40 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — nine links that pointed at nothing, and a gate that would have caught them
+
+**Fallout from the move in `8c7848c`**, found by re-reading it rather than by any gate:
+
+- **`docs/assurance/field-reports/field-report-2026-08-23.md` linked to
+  `../crates/ciphr-server/tests/restore.rs`.** The file moved from `docs/` down two levels, so `../`
+  no longer reaches the repository root. Ten other lines in that same file were updated; this one was
+  not, and the link had been correct before the move.
+- **Eight links carried a dead path as their visible text.** The target was rewritten to
+  `../assurance/reviews/…` and the text was left at `../review-…`, in `docs/adr/0015`, `0016`, `0019`,
+  `0025`, `docs/operations/ci.md` and `docs/operations/cli.md`. The click works, so nothing about
+  reading the page reveals it — and where the text *is* the path, a reader copying it gets nothing.
+
+Neither is visible in a diff. The first is one unchanged line among ten changed ones; the second looks
+correct from either half of the link alone.
+
+**[`ci/check-doc-links.sh`](ci/check-doc-links.sh)** resolves every relative Markdown target against
+the tree, across every `.md` file in the repository rather than only `docs/`, since `CHANGELOG.md` is
+the file most likely to point at something that has since moved. It also resolves a link *text*, but
+only where the text claims to be a path by starting with `../` or `./`. The repository's dominant
+style — `[upgrade.md](docs/operations/upgrade.md)` — is a basename and makes no such claim; sixty-odd
+links are written that way deliberately and the gate leaves them alone, because failing them would
+make it a style rule with a correctness argument painted on.
+
+External URLs and bare `#fragments` are not checked, and a fragment on a relative target is stripped
+rather than verified: the file has to exist, the heading is a human's job. A build that fails because
+somebody else reorganised their site is a build people learn to skip.
+
+Fenced blocks and inline code spans are removed before a line is scanned, which the gate needed for
+its own sake: this repository documents its link conventions, so `AGENTS.md` now carries an example of
+a *broken* link and would otherwise have failed for containing it. A gate that cannot be written about
+is a gate that gets worked around.
+
+Verified by putting both defects back and watching it fail on exactly those two lines.
 ### Changed — the root README carries the current release, not eleven of them
 
 The status block was 161 lines and eleven release narratives, and it stood between the project's name

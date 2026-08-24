@@ -238,7 +238,7 @@ who knew the format: a value carrying that exact line on its own closed its assi
 every line after it was read by the runner as further environment-file commands. **An identity
 allowed to write one exported secret could therefore define environment variables for later
 steps of every workflow that reads it** — finding F2 of
-[../review-2026-08-21-current-tree.md](../assurance/reviews/review-2026-08-21-current-tree.md). A random
+[review-2026-08-21-current-tree.md](../assurance/reviews/review-2026-08-21-current-tree.md). A random
 delimiter cannot be reproduced by whoever wrote the value; the check is what keeps that
 guarantee from resting on the entropy source alone. Masking never covered this: masking and
 injection are different problems, and `::add-mask::` does not make a structured file safe.
