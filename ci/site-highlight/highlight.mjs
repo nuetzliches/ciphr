@@ -8,27 +8,27 @@
  * documentation page that cannot hold the policy it describes is a poor
  * advertisement for the argument it makes. Prism and highlight.js are therefore
  * out — they would colour text that never changes, at every page load, in
- * exchange for the one property those pages are built to demonstrate.
+ * exchange for the one property those pages exist to demonstrate.
  *
  * So the colouring happens here, once, and what reaches a reader is static
  * `<span>` elements. `pages.yml` keeps uploading `site/` exactly as it is in the
  * tree, and the sentence in that workflow — *there is no build step and there is
  * not supposed to be one* — stays true: this is a maintenance tool, not a stage
  * in the publish path. `ci/check-site-highlighting.sh` runs it with `--check` so
- * the markup in the tree cannot drift from what it produces.
+ * that the markup in the tree cannot drift from what it produces.
  *
  * ── Why Shiki as a tokenizer and not as a renderer ───────────────────────────
  *
- * Shiki's own HTML output carries a `style` attribute per token, which
- * `style-src 'self'` refuses — the same policy the pages hold. It also bakes a
- * VS Code theme's palette into the document, which would give these pages a
- * second colour scheme next to the one in `site.css` and no light mode at all.
+ * Shiki's own HTML carries a `style` attribute per token, which `style-src
+ * 'self'` refuses — the same policy these pages hold. It also bakes a VS Code
+ * theme's palette into the document, which would put a second colour scheme next
+ * to the one in `site.css` and leave the light mode with no answer at all.
  *
- * What is taken from Shiki is only the part worth borrowing: four TextMate
- * grammars. Every token's scopes are mapped onto **six** classes, and the six
- * colours live in `site.css` next to the rest of the palette, so both colour
- * schemes keep working. The theme named below is required by the API; its
- * colours are read and discarded.
+ * What is taken from Shiki is the part worth borrowing: four TextMate grammars.
+ * Every token's scopes are mapped onto six classes, and the six colours live in
+ * `site.css` next to the rest of the palette, so both colour schemes keep
+ * working. The theme named below is required by the API; its colours are read
+ * and discarded.
  *
  * ── The invariant that makes this safe to run over documentation ─────────────
  *
@@ -48,9 +48,9 @@ const REPOSITORY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 const SITE = path.join(REPOSITORY, "site");
 
 /**
- * `data-lang` on the `<pre>` names one of these. The value a page carries is the
- * short name a reader would write; the grammar is Shiki's identifier for it.
- * `text` is the deliberate opt-out: a block that is output rather than source.
+ * `data-lang` on the `<pre>` names one of these: the short name a reader would
+ * write, mapped to Shiki's identifier for the grammar. `text` is the deliberate
+ * opt-out for a block that is output rather than source.
  */
 const GRAMMARS = {
   yaml: "yaml",
@@ -59,42 +59,96 @@ const GRAMMARS = {
   rust: "rust",
 };
 
-/** Required by the API. Its palette is discarded; only the scopes are used. */
+/** Required by the API. The palette is discarded; only the scopes are used. */
 const THEME = "github-dark";
 
 /**
  * Scope prefixes to classes, first match winning — so the order is part of the
- * mapping. A YAML key carries `string.unquoted.plain.out` *and*
- * `entity.name.tag`, and a TOML key carries `variable.other.key` where a shell
- * variable carries `variable.other.normal`; both would land in the wrong class
- * under a different order.
+ * mapping rather than an accident of it. A YAML key carries
+ * `string.unquoted.plain.out` *and* `entity.name.tag`; a TOML key carries
+ * `variable.other.key` where a shell variable carries `variable.other.normal`.
+ * Both would land in the wrong class under a different order.
  *
- * Six classes, and the restraint is the point: these blocks are read as prose
- * about which flag matters, not skimmed for syntax. Plain YAML scalars, shell
- * command names and Rust identifiers stay in the body colour, which is what
- * keeps a twenty-line compose block from becoming a rainbow.
+ * Six classes, and the restraint is the point: these blocks are read as an
+ * argument about which flag matters, not skimmed for syntax. Plain YAML scalars
+ * and Rust identifiers stay in the body colour, which is what keeps a twenty-line
+ * compose block from turning into a rainbow.
  */
 const CLASSES = [
-  // A comment on this site usually carries the reason for the line above it.
+  // A comment in these examples usually carries the reason for the line above it.
   ["t-com", ["comment"]],
   // What a reader is looking for: the key, the flag, the table.
   ["t-key", ["constant.other.option", "entity.name.tag", "variable.other.key", "entity.name.section"]],
   // Shell only. Rust's `variable.other` is a local binding and stays plain.
-  ["t-var", ["variable.other.normal", "variable.other.assignment", "variable.other.special", "punctuation.definition.variable"]],
-  // Quoted strings only. An unquoted YAML scalar is most of a compose file.
+  [
+    "t-var",
+    [
+      "variable.other.normal",
+      "variable.other.assignment",
+      "variable.other.special",
+      "punctuation.definition.variable",
+    ],
+  ],
+  // Quoted strings only. Unquoted scalars are most of a compose file.
   ["t-str", ["string.quoted"]],
-  ["t-kw", ["keyword.other", "storage.type", "storage.modifier", "entity.name.type", "support.function.builtin"]],
+  // Language vocabulary, plus the program a shell line runs — which is the thing
+  // a reader of a shell block looks for first. `entity.name.command` covers the
+  // builtins too, so `set` and `install` do not end up in two different colours
+  // over a distinction that is invisible on the page.
+  [
+    "t-kw",
+    [
+      "keyword.control",
+      "keyword.other",
+      "storage.type",
+      "storage.modifier",
+      "entity.name.type",
+      "entity.name.command",
+    ],
+  ],
 ];
 
 /**
- * Two things no grammar can know, and the two that carry the most meaning on
- * `integrate.html`: a GitHub Actions expression, and a placeholder a reader must
- * replace. Route A names a tag and two checksums that do not exist until
- * `ciphr-ci` is released, and until then the only thing marking them is a pair
- * of angle brackets. Marked, the convention becomes visible.
+ * One correction to the Rust grammar, and it is a correction rather than a
+ * preference. `Command::new(…)` scopes `Command` as `entity.name.type`, but
+ * `&SecretPath::parse(…)` scopes `SecretPath` as `entity.name.namespace` — the
+ * same kind of name in two classes depending on where it stands, which shows up
+ * on the page as one type coloured and the next one not. An upper-case path
+ * segment in Rust is a type or a trait; the compiler's own `non_camel_case_types`
+ * lint is what makes that safe to rely on.
+ */
+function isTypeLikeNamespace(scopes, content) {
+  return scopes.some((scope) => scope.startsWith("entity.name.namespace")) && /^[A-Z]/.test(content);
+}
+
+/**
+ * The second correction, and the same kind. To a YAML grammar every item under
+ * `entrypoint:` is a plain scalar, so route B's flags — `--url`, `--token-file`,
+ * `--ca` — arrive in the body colour while the identical flags in route A's shell
+ * block are marked. That is the wrong way round for this page: in a compose file
+ * that overrides an entrypoint, the flags *are* the content and the YAML keys
+ * around them are the frame.
  *
- * Applied only to tokens the grammar left plain, so it cannot recolour a string
- * or a comment — and the placeholder half is skipped for Rust, where `<` opens a
+ * Long flags only, and only where the grammar already decided the token is an
+ * unquoted scalar, so a quoted value that happens to begin with two dashes keeps
+ * being a string.
+ */
+function isOptionScalar(scopes, content) {
+  return (
+    scopes.some((scope) => scope.startsWith("string.unquoted.plain")) && /^--[a-z]/.test(content)
+  );
+}
+
+/**
+ * Two things no grammar can know, and the two that carry the most meaning on
+ * `integrate.html`: a GitHub Actions expression, and a placeholder a reader has
+ * to replace. Route A's example still writes `<tag>` where `v0.11.0` shipped, and
+ * its two checksums exist only once that release's job summary does — and the only
+ * thing marking any of them is a pair of angle brackets. Marked, that convention
+ * becomes visible.
+ *
+ * Applied only to what the grammar left plain, so it cannot recolour a string or
+ * a comment — and the placeholder half is skipped for Rust, where `<` opens a
  * generic parameter rather than a blank to fill in.
  */
 const EXPRESSION = /\$\{\{[^{}]*\}\}/;
@@ -102,25 +156,26 @@ const PLACEHOLDER = /<[^<>]{1,60}>/;
 
 const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", "#39": "'" };
 
-/** The entities the pages actually use. Anything else is a mistake, loudly. */
+/** The entities these pages actually use. Anything else is a mistake, loudly. */
 function decode(html, where) {
   return html.replace(/&(#?[0-9a-zA-Z]+);/g, (whole, name) => {
     if (Object.hasOwn(ENTITIES, name)) {
       return ENTITIES[name];
     }
-    throw new Error(`${where}: the entity ${whole} is not one this tool knows how to round-trip`);
+    throw new Error(`${where}: the entity ${whole} is not one this tool can round-trip`);
   });
 }
 
-/** `&`, `<` and `>`, which is what the hand-written blocks already escape. */
+/** `&`, `<` and `>` — what the hand-written blocks already escaped. */
 function encode(text) {
   return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
 /**
- * Back to the plain code a person edits. Only this tool's spans are removed;
- * anything else inside a code block is refused rather than silently discarded,
- * because a link or an `<em>` in there is a decision this tool must not make.
+ * Back to the plain code a person edits. Only this tool's own spans are removed;
+ * anything else inside a code block is refused rather than silently dropped,
+ * because a link or an `<em>` in there is a decision this tool must not make on
+ * somebody's behalf.
  */
 function stripPreviousOutput(inner, where) {
   const stripped = inner.replace(/<span class="t-[a-z]+">/g, "").replaceAll("</span>", "");
@@ -133,36 +188,41 @@ function stripPreviousOutput(inner, where) {
   return stripped;
 }
 
-function classFor(scopes) {
+function classFor(scopes, content) {
   for (const [name, prefixes] of CLASSES) {
     if (prefixes.some((prefix) => scopes.some((scope) => scope.startsWith(prefix)))) {
       return name;
     }
+  }
+  if (isTypeLikeNamespace(scopes, content)) {
+    return "t-kw";
+  }
+  if (isOptionScalar(scopes, content)) {
+    return "t-key";
   }
   return null;
 }
 
 /** Splits a plain run on the markers above, so each piece carries its own class. */
 function splitMarkers(content, allowPlaceholder) {
-  const pattern = new RegExp(
-    allowPlaceholder ? `(${EXPRESSION.source}|${PLACEHOLDER.source})` : `(${EXPRESSION.source})`,
-    "g",
-  );
+  const alternatives = allowPlaceholder
+    ? `${EXPRESSION.source}|${PLACEHOLDER.source}`
+    : EXPRESSION.source;
   const pieces = [];
-  for (const piece of content.split(pattern)) {
+  for (const piece of content.split(new RegExp(`(${alternatives})`, "g"))) {
     if (piece === "" || piece === undefined) {
       continue;
     }
-    const marked = new RegExp(`^(?:${pattern.source})$`).test(piece);
+    const marked = new RegExp(`^(?:${alternatives})$`).test(piece);
     pieces.push({
       content: piece,
-      className: marked ? (EXPRESSION.test(piece) ? "t-var" : "t-ph") : null,
+      className: marked ? (new RegExp(`^${EXPRESSION.source}$`).test(piece) ? "t-var" : "t-ph") : null,
     });
   }
   return pieces;
 }
 
-async function markUp(highlighter, code, lang, where) {
+function markUp(highlighter, code, lang, where) {
   const grammar = GRAMMARS[lang];
   const { tokens } = highlighter.codeToTokens(code, {
     lang: grammar,
@@ -176,7 +236,7 @@ async function markUp(highlighter, code, lang, where) {
       const scopes = (token.explanation ?? []).flatMap((part) =>
         (part.scopes ?? []).map((scope) => scope.scopeName),
       );
-      const className = classFor(scopes);
+      const className = classFor(scopes, token.content);
       if (className === null) {
         pieces.push(...splitMarkers(token.content, grammar !== "rust"));
       } else {
@@ -184,7 +244,7 @@ async function markUp(highlighter, code, lang, where) {
       }
     }
 
-    // Adjacent pieces in one class become one span. Purely so that the diff of a
+    // Adjacent pieces in one class become one span, purely so that the diff of a
     // regenerated page is readable by whoever has to review it.
     const merged = [];
     for (const piece of pieces) {
@@ -223,9 +283,9 @@ const BLOCK = /<pre\b([^>]*)><code>([\s\S]*?)<\/code><\/pre>/g;
 async function processPage(highlighter, file) {
   const original = await readFile(path.join(SITE, file), "utf8");
   const problems = [];
+  const replacements = [];
   let blocks = 0;
 
-  const replacements = [];
   for (const match of original.matchAll(BLOCK)) {
     const [whole, attributes, inner] = match;
     const line = original.slice(0, match.index).split("\n").length;
@@ -234,7 +294,7 @@ async function processPage(highlighter, file) {
     const declared = attributes.match(/\bdata-lang="([^"]*)"/);
     if (!declared) {
       problems.push(
-        `${where}: this <pre> names no language. Add data-lang="${Object.keys(GRAMMARS).join('", "')}" — or data-lang="text" for a block that is output rather than source`,
+        `${where}: this <pre> names no language. Add data-lang="…" naming one of ${Object.keys(GRAMMARS).join(", ")} — or data-lang="text" for a block that is output rather than source`,
       );
       continue;
     }
@@ -244,14 +304,15 @@ async function processPage(highlighter, file) {
       continue;
     }
     if (!Object.hasOwn(GRAMMARS, lang)) {
-      problems.push(`${where}: data-lang="${lang}" is not one of ${Object.keys(GRAMMARS).join(", ")}, text`);
+      problems.push(
+        `${where}: data-lang="${lang}" is not one of ${Object.keys(GRAMMARS).join(", ")}, text`,
+      );
       continue;
     }
 
     try {
       const code = decode(stripPreviousOutput(inner, where), where);
-      const marked = await markUp(highlighter, code, lang, where);
-      replacements.push([whole, `<pre${attributes}><code>${marked}</code></pre>`]);
+      replacements.push([whole, `<pre${attributes}><code>${markUp(highlighter, code, lang, where)}</code></pre>`]);
       blocks += 1;
     } catch (error) {
       problems.push(error.message);
@@ -305,7 +366,9 @@ async function main() {
       process.exitCode = 1;
       return;
     }
-    process.stdout.write(`site-highlight: ok — ${blocks} blocks in ${pages.length} pages, all current\n`);
+    process.stdout.write(
+      `site-highlight: ok — ${blocks} blocks across ${pages.length} pages, all current\n`,
+    );
     return;
   }
 

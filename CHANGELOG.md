@@ -413,6 +413,36 @@ only if it is — `workflow_dispatch` included. Nothing has to be remembered on 
 flips, and nothing publishes early because a branch got pushed. `site/README.md` lists what is still
 manual on that day.
 
+### Added — the site's code blocks are highlighted, and no script runs to do it
+
+`integrate.html` carries seven examples in four languages and they were unstyled. They are marked up
+now by [`ci/site-highlight/`](ci/site-highlight/) — Shiki used as a tokenizer, run by hand, its output
+committed — so a reader receives static `<span>` elements.
+
+**A highlighter running on the page was never an option.** Three of those four pages carry
+`default-src 'none'` with no `script-src`, and spending the one property they exist to demonstrate on
+colouring text that never changes is a poor trade. Shiki's own HTML output is out for a second reason:
+a `style` attribute per token, which `style-src 'self'` refuses, and a VS Code palette baked into
+pages that already have a palette and a light mode.
+
+Only the grammars are borrowed. Token scopes map onto six classes — comment, key, string, keyword,
+variable, placeholder — and the six colours live in `site.css` next to the existing palette, so the
+light scheme needed two new values rather than a second theme. Six is a decision: plain YAML scalars
+and Rust identifiers stay in the body colour, because a twenty-line compose file in eleven colours
+reads as decoration rather than as the argument about which flag matters.
+
+**`pages.yml` is untouched.** It still uploads `site/` exactly as it stands, and that workflow's claim
+that the publish path has no build step stays true: this is a maintenance tool, and the `site` job
+runs the two gates that hold it. [`ci/check-site-highlighting.sh`](ci/check-site-highlighting.sh)
+regenerates every block and fails if the result differs from what is committed — generated markup in
+the tree can be edited by hand or left stale, and both are invisible in a diff. It also refuses any
+block whose tokens do not reassemble into the exact text they came from, because a reader copies these
+blocks into a terminal. [`ci/check-site-highlight-budget.sh`](ci/check-site-highlight-budget.sh) holds
+the second npm tree in the repository to the rules the viewer's tree already follows.
+
+It does **not** compare an example to the document it was copied from. That weakness is unchanged, and
+[`site/README.md`](site/README.md) says so where somebody might otherwise assume the opposite.
+
 ### Fixed — a job on a default deployment could not fetch at all
 
 `POST /v1/export` is a surface entry and is off unless a deployment names it (ADR-20). Route B and

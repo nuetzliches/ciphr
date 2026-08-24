@@ -89,19 +89,19 @@
   runtime</strong>, only its own native secrets, so a job that reads a value with <code>curl | jq</code>
   has it in the log the moment anybody adds <code>set -x</code>.</p>
 
-<pre><code>- name: Fetch secrets
-  uses: nuetzliches/ciphr@&lt;tag&gt;
-  with:
-    url: ${{ vars.CIPHR_URL }}
-    ca: ${{ vars.CIPHR_CA }}                # not a secret: the internal CA, as PEM
-    token: ${{ secrets.CIPHR_TOKEN }}       # the one forge secret that stays
-    paths: ci/widget/DB_PASSWORD ci/widget/API_KEY
-    version: &lt;the first tag that carries the assets&gt;
-    sha256-amd64: &lt;the number from that release's job summary&gt;
-    sha256-arm64: &lt;the other number from the same summary&gt;
+<pre data-lang="yaml"><code>- <span class="t-key">name</span>: Fetch secrets
+  <span class="t-key">uses</span>: nuetzliches/ciphr@<span class="t-ph">&lt;tag&gt;</span>
+  <span class="t-key">with</span>:
+    <span class="t-key">url</span>: <span class="t-var">${{ vars.CIPHR_URL }}</span>
+    <span class="t-key">ca</span>: <span class="t-var">${{ vars.CIPHR_CA }}</span>                <span class="t-com"># not a secret: the internal CA, as PEM</span>
+    <span class="t-key">token</span>: <span class="t-var">${{ secrets.CIPHR_TOKEN }}</span>       <span class="t-com"># the one forge secret that stays</span>
+    <span class="t-key">paths</span>: ci/widget/DB_PASSWORD ci/widget/API_KEY
+    <span class="t-key">version</span>: <span class="t-ph">&lt;the first tag that carries the assets&gt;</span>
+    <span class="t-key">sha256-amd64</span>: <span class="t-ph">&lt;the number from that release's job summary&gt;</span>
+    <span class="t-key">sha256-arm64</span>: <span class="t-ph">&lt;the other number from the same summary&gt;</span>
 
-- name: Deploy
-  run: ./deploy.sh                          # DB_PASSWORD and API_KEY are in the environment</code></pre>
+- <span class="t-key">name</span>: Deploy
+  <span class="t-key">run</span>: ./deploy.sh                          <span class="t-com"># DB_PASSWORD and API_KEY are in the environment</span></code></pre>
 
   <p>The action is a wrapper and carries no masking logic of its own: it downloads the asset, verifies
   the published checksum before making the file executable, writes the token to a mode-0600 file in
@@ -114,14 +114,14 @@
 
   <p>Without the action, on anything that can run a shell:</p>
 
-<pre><code>install -m 0600 /dev/null "$RUNNER_TEMP/ciphr-token"
-printf %s "$CIPHR_TOKEN" &gt; "$RUNNER_TEMP/ciphr-token"
+<pre data-lang="sh"><code><span class="t-kw">install</span> <span class="t-key">-m</span> 0600 /dev/null <span class="t-str">"</span><span class="t-var">$RUNNER_TEMP</span><span class="t-str">/ciphr-token"</span>
+<span class="t-kw">printf</span> %s <span class="t-str">"</span><span class="t-var">$CIPHR_TOKEN</span><span class="t-str">"</span> &gt; <span class="t-str">"</span><span class="t-var">$RUNNER_TEMP</span><span class="t-str">/ciphr-token"</span>
 
-ciphr-ci --url "$CIPHR_URL" \
-         --token-file "$RUNNER_TEMP/ciphr-token" \
-         --ca /etc/ciphr/ca.crt \
-         --path ci/widget/DB_PASSWORD \
-         --format actions-env --github-env</code></pre>
+<span class="t-kw">ciphr-ci</span> <span class="t-key">--url</span> <span class="t-str">"</span><span class="t-var">$CIPHR_URL</span><span class="t-str">"</span> \
+         <span class="t-key">--token-file</span> <span class="t-str">"</span><span class="t-var">$RUNNER_TEMP</span><span class="t-str">/ciphr-token"</span> \
+         <span class="t-key">--ca</span> /etc/ciphr/ca.crt \
+         <span class="t-key">--path</span> ci/widget/DB_PASSWORD \
+         <span class="t-key">--format</span> actions-env <span class="t-key">--github-env</span></code></pre>
 
   <p>What that writes: <code>::add-mask::</code> for every value on standard output <strong>before
   anything else</strong>, one mask per line for a multi-line value, then the assignments into the file
@@ -131,17 +131,17 @@ ciphr-ci --url "$CIPHR_URL" \
   <p>The identity this runs as, in the policy file. One per repository, because that is the granularity
   at which the trail is worth reading:</p>
 
-<pre><code>[[identity]]
-name     = "ci-widget"
-kind     = "machine"
-policies = ["ci-widget"]
+<pre data-lang="toml"><code>[[<span class="t-key">identity</span>]]
+<span class="t-key">name     = </span><span class="t-str">"ci-widget"</span>
+<span class="t-key">kind     = </span><span class="t-str">"machine"</span>
+<span class="t-key">policies = [</span><span class="t-str">"ci-widget"</span>]
 
-[[policy]]
-name = "ci-widget"
+[[<span class="t-key">policy</span>]]
+<span class="t-key">name = </span><span class="t-str">"ci-widget"</span>
 
-  [[policy.rule]]
-  path         = "ci/widget/**"
-  capabilities = ["read"]</code></pre>
+  [[<span class="t-key">policy</span>.<span class="t-key">rule</span>]]
+<span class="t-key">  path         = </span><span class="t-str">"ci/widget/**"</span>
+<span class="t-key">  capabilities = [</span><span class="t-str">"read"</span>]</code></pre>
 
   <p class="source">Source:
   <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/operations/ci.md">docs/operations/ci.md</a>,
@@ -158,30 +158,30 @@ name = "ci-widget"
   entrypoint, leave the image alone. The wrapper fetches, then <code>exec</code>s the real entrypoint
   with the values in its environment.</p>
 
-<pre><code>services:
-  app:
-    image: someone-elses/app@sha256:&lt;digest&gt;   # unchanged, and no derived Dockerfile
-    entrypoint:
+<pre data-lang="yaml"><code><span class="t-key">services</span>:
+  <span class="t-key">app</span>:
+    <span class="t-key">image</span>: someone-elses/app@sha256:<span class="t-ph">&lt;digest&gt;</span>   <span class="t-com"># unchanged, and no derived Dockerfile</span>
+    <span class="t-key">entrypoint</span>:
       - /ciphr-run
-      - --url
+      - <span class="t-key">--url</span>
       - https://ciphr.internal:4400
-      - --token-file
+      - <span class="t-key">--token-file</span>
       - /run/secrets/ciphr-token
-      - --ca
+      - <span class="t-key">--ca</span>
       - /etc/ciphr/ca.crt
-      - --path
+      - <span class="t-key">--path</span>
       - infra/host/app/DB_PASSWORD
-      - --path
+      - <span class="t-key">--path</span>
       - infra/host/app/API_KEY
-      - --report
+      - <span class="t-key">--report</span>
       - --
-      # Everything after `--` is what the image's own entrypoint was.
+      <span class="t-com"># Everything after `--` is what the image's own entrypoint was.</span>
       - /original/entrypoint
-      - --config
+      - <span class="t-key">--config</span>
       - /etc/app.conf
-    volumes:
+    <span class="t-key">volumes</span>:
       - ./ciphr-run:/ciphr-run:ro
-      - ciphr-token:/run/secrets:ro            # not a directory this service can write
+      - ciphr-token:/run/secrets:ro            <span class="t-com"># not a directory this service can write</span>
       - ./ca.crt:/etc/ciphr/ca.crt:ro</code></pre>
 
   <p>The list form of <code>entrypoint:</code> is required — the string form goes through a shell,
@@ -214,22 +214,22 @@ name = "ci-widget"
   <p>The route with the smallest footprint: no plaintext on disk, none in the container configuration,
   and the audit entry names the <em>service</em> rather than the deploy runner that started it.</p>
 
-<pre><code>use ciphr_sdk::{Client, SecretPath};
+<pre data-lang="rust"><code><span class="t-kw">use</span> ciphr_sdk::{<span class="t-kw">Client</span>, <span class="t-kw">SecretPath</span>};
 
-// All three are required, and the certificate authority is required by design:
-// there is no way to build a client that trusts the public CA set.
-let client = Client::builder(
-    "https://ciphr.internal:4400",
-    &amp;std::fs::read_to_string("/run/secrets/ciphr-token")?,
-    &amp;std::fs::read("/etc/ciphr/ca.crt")?,
+<span class="t-com">// All three are required, and the certificate authority is required by design:</span>
+<span class="t-com">// there is no way to build a client that trusts the public CA set.</span>
+<span class="t-kw">let</span> client = <span class="t-kw">Client</span>::builder(
+    <span class="t-str">"https://ciphr.internal:4400"</span>,
+    &amp;std::fs::read_to_string(<span class="t-str">"/run/secrets/ciphr-token"</span>)?,
+    &amp;std::fs::read(<span class="t-str">"/etc/ciphr/ca.crt"</span>)?,
 )
 .build()?;
 
-let environment = client.environment(&amp;SecretPath::parse("infra/service-a")?)?;
+<span class="t-kw">let</span> environment = client.environment(&amp;<span class="t-kw">SecretPath</span>::parse(<span class="t-str">"infra/service-a"</span>)?)?;
 
-// Names are safe to log; values are not, and the type system enforces the
-// difference rather than a review catching it.
-let password = environment.get("DB_PASSWORD").expect("under the prefix");</code></pre>
+<span class="t-com">// Names are safe to log; values are not, and the type system enforces the</span>
+<span class="t-com">// difference rather than a review catching it.</span>
+<span class="t-kw">let</span> password = environment.get(<span class="t-str">"DB_PASSWORD"</span>).expect(<span class="t-str">"under the prefix"</span>);</code></pre>
 
   <p>Three properties hold by construction rather than by discipline. The client <strong>cannot trust
   the public CA set</strong> — the transport is compiled without web root certificates and the trust
@@ -242,11 +242,11 @@ let password = environment.get("DB_PASSWORD").expect("under the prefix");</code>
   <p>Where the consumer is a child process that only reads environment variables, hand them over
   without setting any of your own:</p>
 
-<pre><code>let mut command = Command::new("/usr/local/bin/migrate");
-for (name, value) in environment.into_entries() {
+<pre data-lang="rust"><code><span class="t-kw">let</span> <span class="t-kw">mut</span> command = <span class="t-kw">Command</span>::new(<span class="t-str">"/usr/local/bin/migrate"</span>);
+<span class="t-kw">for</span> (name, value) <span class="t-kw">in</span> environment.into_entries() {
     command.env(name.as_str(), std::str::from_utf8(value.expose())?);
 }
-let status = command.status()?;</code></pre>
+<span class="t-kw">let</span> status = command.status()?;</code></pre>
 
   <p>There is deliberately no retry loop in the crate and no <code>Client::from_env()</code>: how long
   a service waits for its secrets is the service's policy, and where its credential comes from is a
@@ -269,20 +269,20 @@ let status = command.status()?;</code></pre>
   <p>The API is HTTPS plus a bearer token, so this has always been a complete client. Use it where a
   binary cannot be placed on the machine — and read what it leaves you to do before you do.</p>
 
-<pre><code>set -eu    # and not `set -x`
+<pre data-lang="sh"><code><span class="t-kw">set</span> <span class="t-key">-eu</span>    <span class="t-com"># and not `set -x`</span>
 
-# One secret, by path. The value is JSON-encoded, so `jq -r` is what unescapes it.
-value=$(curl --fail --silent --show-error \
-             --cacert "$CIPHR_CA" \
-             -H "Authorization: Bearer $CIPHR_TOKEN" \
-             "$CIPHR_URL/v1/secrets/ci/widget/DB_PASSWORD" | jq -er '.value')
+<span class="t-com"># One secret, by path. The value is JSON-encoded, so `jq -r` is what unescapes it.</span>
+<span class="t-var">value</span>=$(<span class="t-kw">curl</span> <span class="t-key">--fail</span> <span class="t-key">--silent</span> <span class="t-key">--show-error</span> \
+             <span class="t-key">--cacert</span> <span class="t-str">"</span><span class="t-var">$CIPHR_CA</span><span class="t-str">"</span> \
+             <span class="t-key">-H</span> <span class="t-str">"Authorization: Bearer </span><span class="t-var">$CIPHR_TOKEN</span><span class="t-str">"</span> \
+             <span class="t-str">"</span><span class="t-var">$CIPHR_URL</span><span class="t-str">/v1/secrets/ci/widget/DB_PASSWORD"</span> | <span class="t-kw">jq</span> <span class="t-key">-er</span> <span class="t-str">'.value'</span>)
 
-# A whole prefix is two requests, because there is no "export a prefix" operation:
-# list authorizes every path it returns, then each path is read.
-curl --fail --silent --show-error \
-     --cacert "$CIPHR_CA" \
-     -H "Authorization: Bearer $CIPHR_TOKEN" \
-     "$CIPHR_URL/v1/list/ci/widget" | jq -r '.paths[]'</code></pre>
+<span class="t-com"># A whole prefix is two requests, because there is no "export a prefix" operation:</span>
+<span class="t-com"># list authorizes every path it returns, then each path is read.</span>
+<span class="t-kw">curl</span> <span class="t-key">--fail</span> <span class="t-key">--silent</span> <span class="t-key">--show-error</span> \
+     <span class="t-key">--cacert</span> <span class="t-str">"</span><span class="t-var">$CIPHR_CA</span><span class="t-str">"</span> \
+     <span class="t-key">-H</span> <span class="t-str">"Authorization: Bearer </span><span class="t-var">$CIPHR_TOKEN</span><span class="t-str">"</span> \
+     <span class="t-str">"</span><span class="t-var">$CIPHR_URL</span><span class="t-str">/v1/list/ci/widget"</span> | <span class="t-kw">jq</span> <span class="t-key">-r</span> <span class="t-str">'.paths[]'</span></code></pre>
 
   <div class="note is-bad">
     <h3>What this route leaves to you</h3>

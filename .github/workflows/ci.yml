@@ -269,6 +269,44 @@ jobs:
         working-directory: ui
         run: npm audit --audit-level=high
 
+  # The site's code blocks are coloured by a tool rather than by a script on the
+  # page, so the generated markup lives in the tree and can go stale or be edited
+  # by hand — both silently. Its own job, for the reason the viewer has one: this
+  # needs npm, and a Rust change must not wait for it.
+  #
+  # Deliberately *not* part of pages.yml. That workflow uploads `site/` exactly as
+  # it is and says there is no build step in the publish path; keeping the check
+  # here means a stale page fails review rather than failing a deployment.
+  site:
+    name: The site's code blocks are what the highlighter produces
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: ci/site-highlight/package-lock.json
+
+      - name: Install exactly the locked tree
+        working-directory: ci/site-highlight
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      # Before the highlighter runs, so a tree that should not have been installed
+      # is reported as a budget failure rather than as a stale page.
+      - name: Dependency budget
+        run: sh ci/check-site-highlight-budget.sh
+
+      - name: The markup in the tree is what the mapping produces
+        run: sh ci/check-site-highlighting.sh
+
+      - name: npm audit
+        working-directory: ci/site-highlight
+        run: npm audit --audit-level=high
+
   changelog:
     name: Shipped code and documentation carry their record
     # A tag rebuilds code that already passed this gate on main, and the range a

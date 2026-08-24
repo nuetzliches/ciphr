@@ -18,12 +18,50 @@ otherwise have led from English pages into a German one.
 | `integrate.html` | The four consumer routes — a CI job, a container, an application, plain `curl` — with the code for each, the capabilities it needs, and a link to the document that owns the example. |
 | `security.html` | What an integration has to get right: the token, least privilege, masking and where it stops, the transport, the trail, and the three things this design does not defend. |
 | `layers.html` | The interactive diagram of the security layers. `layers.css` and `layers.js` belong to it. |
-| `site.css` | The shell every page shares: the navigation bar, and the prose and code styles the reading pages use. |
+| `site.css` | The shell every page shares: the navigation bar, the prose and code styles the reading pages use, and the six classes a highlighted code block is built from. |
 | `favicon.svg` | The tab icon: one centre with boundaries around it — the diagram at 16 pixels. |
 
-No dependency, no build step, and no external request from any page. `layers.html` is the only one
-that runs a script at all; the other three carry `default-src 'none'` with no `script-src`, so nothing
-on them can run.
+Nothing here is served from anywhere else, and nothing is fetched at load: no dependency reaches a
+reader, and no page makes an external request. `layers.html` is the only one that runs a script at
+all; the other three carry `default-src 'none'` with no `script-src`, so nothing on them can run.
+
+**The publish path still has no build step**, and [`../.github/workflows/pages.yml`](../.github/workflows/pages.yml)
+still uploads this directory exactly as it stands. The one generated thing in it is the colouring of
+the code blocks — see below.
+
+## The code blocks are coloured by a tool, not by the page
+
+`integrate.html` carries seven code blocks in four languages, and what marks them up is
+[`../ci/site-highlight/`](../ci/site-highlight/): Shiki, used as a tokenizer, run by hand and its
+output committed. A reader receives static `<span>` elements.
+
+**Why not a highlighter on the page.** Prism and highlight.js would need `script-src` on documents
+that are built to demonstrate the absence of it, in exchange for colouring text that never changes,
+at every load. Shiki's own HTML output is out for a second reason: it puts a `style` attribute on
+every token, which `style-src 'self'` refuses, and it would bake a VS Code palette into pages that
+already have a palette and a light mode.
+
+So only the grammars are borrowed. Every token's scopes map onto **six** classes — comment, key,
+string, keyword, variable, placeholder — and those six colours live in `site.css` next to the rest,
+which is why the light scheme needed two new values rather than a second theme. Six is a decision:
+plain YAML scalars and Rust identifiers stay in the body colour, because a twenty-line compose file
+in eleven colours reads as decoration rather than as the argument about which flag matters.
+
+`<pre data-lang="…">` names the language — `yaml`, `sh`, `toml`, `rust`, or `text` to opt out. Edit a
+block as plain code; the spans are regenerated:
+
+```sh
+cd ci/site-highlight && npm ci --ignore-scripts && npm run highlight
+```
+
+**What holds it.** Generated markup in the tree can be edited by hand or left stale, and both are
+invisible in a diff. [`../ci/check-site-highlighting.sh`](../ci/check-site-highlighting.sh)
+regenerates every block from the plain code inside it and fails if the result differs from what is
+committed — and it fails on a `<pre>` naming no language, on an unknown language, and on any block
+whose tokens do not reassemble into the exact text they came from. That last one is the point: a
+reader copies these blocks into a terminal, so the rendered text must be character-identical to what
+was written. [`../ci/check-site-highlight-budget.sh`](../ci/check-site-highlight-budget.sh) holds the
+second npm tree in the repository to the same rules as the viewer's, for the reason given there.
 
 ## Viewing it
 
@@ -45,6 +83,12 @@ decided the thing, and where the two ever disagree the document is the one maint
 software. That is also the known weakness of putting examples on a page: the code in
 `integrate.html` is a copy, and nothing in CI compares it to the documents it came from. Whoever
 changes an example in `docs/operations/` should grep this directory for it.
+
+**The highlighter does not fix that, and it should not be read as having fixed it.** It guarantees
+that the markup around an example is what the mapping produces and that the text inside it survived
+the round trip — not that the example still matches the document it was copied from. The gate that
+would close this is a different one: pulling the snippets out of `docs/operations/` at build time
+instead of copying them. The tool is placed so that this stays possible, and it is not built.
 
 The rules from [`../docs/README.md`](../docs/README.md) apply here too: the pages describe what is
 built, and mark separately what is **designed and not built** (MCP, the severe tripwire tiers) and
