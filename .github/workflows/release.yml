@@ -62,18 +62,44 @@ jobs:
     steps:
       - name: Derive the version
         id: derive
+        env:
+          # **Through the environment, never into the script.** A `${{ … }}` inside
+          # a `run:` block is substituted before the shell parses it, so the value
+          # becomes program text and shell quotes do not escape it. A ref name is
+          # chosen by whoever can create a tag, and Git accepts an apostrophe in
+          # one -- so the old `ref='${{ github.ref }}'` handed a repository writer
+          # a shell in a job that holds package-write credentials (F1 of the review
+          # of 2026-08-24). `ci/check-workflow-interpolation.sh` is the gate.
+          REF: ${{ github.ref }}
         run: |
           set -euo pipefail
-          ref='${{ github.ref }}'
-          case "$ref" in
-            refs/tags/v*) version="${ref#refs/tags/v}" ;;
+          case "$REF" in
+            refs/tags/v*)
+              version="${REF#refs/tags/v}"
+              release=true
+              ;;
             # A manual run has no tag. It still produces images, but ones that
             # cannot be mistaken for a release: no `latest`, no release assets,
             # and a name that says where it came from.
-            *)            version="0.0.0-dev.${GITHUB_SHA::7}" ;;
+            *)
+              version="0.0.0-dev.${GITHUB_SHA::7}"
+              release=false
+              ;;
           esac
+
+          # And then validated, because "it came from a tag" is not a shape. This
+          # is defence in depth rather than the fix -- the value is data by the
+          # time it gets here -- but a version is written into image tags, asset
+          # names and a step summary, and every one of those has an opinion about
+          # what a version looks like.
+          if [ "$release" = "true" ] &&
+             ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "refusing to publish from $REF: '$version' is not a X.Y.Z version" >&2
+            exit 1
+          fi
+
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "release=${{ startsWith(github.ref, 'refs/tags/v') }}" >> "$GITHUB_OUTPUT"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
 
   # ── Both images, once per architecture, pushed by digest ─────────────────────
   #
@@ -133,11 +159,12 @@ jobs:
       # The digest as a filename, which is all the merge job needs: a set of
       # digests to point one tag at.
       - name: Keep the digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/digests
-          digest='${{ steps.build.outputs.digest }}'
-          touch "/tmp/digests/${digest#sha256:}"
+          touch "/tmp/digests/${DIGEST#sha256:}"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -261,11 +288,12 @@ jobs:
           cache-to: type=gha,mode=max,scope=wrapper-${{ matrix.arch }}
 
       - name: Keep the digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/digests
-          digest='${{ steps.build.outputs.digest }}'
-          touch "/tmp/digests/${digest#sha256:}"
+          touch "/tmp/digests/${DIGEST#sha256:}"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -431,9 +459,11 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Add the musl target
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          rustup target add ${{ matrix.target }}
+          rustup target add "$TARGET"
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends musl-tools
 
@@ -446,11 +476,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
+          TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
           gh release upload "$TAG" \
-            "target/ci/ciphr-ci-${{ matrix.target }}" \
-            "target/ci/ciphr-ci-${{ matrix.target }}.sha256" \
+            "target/ci/ciphr-ci-$TARGET" \
+            "target/ci/ciphr-ci-$TARGET.sha256" \
             --clobber
 
       # The number a workflow passes to the action as `sha256-amd64` or
@@ -459,12 +490,15 @@ jobs:
       # only exists inside the file it describes is a checksum nobody can use
       # before downloading.
       - name: Report the checksum
+        env:
+          ARCH: ${{ matrix.arch }}
+          TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
           {
-            echo "### The CI binary (${{ matrix.arch }})"
+            echo "### The CI binary ($ARCH)"
             echo ''
             echo '```'
-            cat "target/ci/ciphr-ci-${{ matrix.target }}.sha256"
+            cat "target/ci/ciphr-ci-$TARGET.sha256"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

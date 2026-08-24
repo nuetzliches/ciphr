@@ -87,6 +87,13 @@ jobs:
       - name: forbid(unsafe_code) in every crate root
         run: sh ci/check-forbid-unsafe.sh
 
+      # F1 of the review of 2026-08-24. A `${{ … }}` inside a `run:` block is
+      # substituted before the shell parses it, so a ref name -- which whoever can
+      # create a tag chooses, apostrophes and all -- becomes program text in a job
+      # that holds package-write credentials.
+      - name: No workflow expression reaches a shell script
+        run: sh ci/check-workflow-interpolation.sh
+
       - name: No raw HTML injection in the UI
         run: sh ci/check-no-v-html.sh
 
@@ -366,14 +373,19 @@ jobs:
           persist-credentials: false
 
       - name: Add the musl target
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
-          rustup target add ${{ matrix.target }}
+          set -euo pipefail
+          rustup target add "$TARGET"
           sudo apt-get update
           sudo apt-get install -y musl-tools
 
       # `tests/wrapper.rs` covers the real exec path and one resolution by name.
       - name: Test the wrapper as a static binary
-        run: cargo test --locked -p ciphr-run --target ${{ matrix.target }}
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo test --locked -p ciphr-run --target "$TARGET"
 
       # Verifies static linkage and holds the binary to a size budget. The budget
       # is a review trigger rather than a performance one: a jump means a new
@@ -396,7 +408,9 @@ jobs:
           if-no-files-found: error
 
       - name: Test the CI binary as a static binary
-        run: cargo test --locked -p ciphr-ci --target ${{ matrix.target }}
+        env:
+          TARGET: ${{ matrix.target }}
+        run: cargo test --locked -p ciphr-ci --target "$TARGET"
 
       - name: Build the CI binary, verify linkage, and check the budget
         env:
