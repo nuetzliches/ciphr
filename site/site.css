@@ -186,6 +186,54 @@ pre code {
   white-space: pre;
 }
 
+/* ── The six classes inside a code block ─────────────────────────────────────
+ *
+ * Written by `ci/site-highlight/highlight.mjs`, which uses Shiki as a tokenizer
+ * and nothing else: no script runs on these pages, and Shiki's own HTML output
+ * would carry a `style` attribute per token that `style-src 'self'` refuses.
+ * `ci/check-site-highlighting.sh` fails if the markup in the tree stops being
+ * what that tool produces.
+ *
+ * Four of the six colours are the palette this file already defines, so the light
+ * scheme below needs two values rather than six — and a change to the accent
+ * moves the code blocks with it. Only the keyword and the comment are their own,
+ * because neither has an existing token that reads correctly at 13px on the sunk
+ * background.
+ *
+ * Six is a decision, not a limit reached by accident. Plain YAML scalars, shell
+ * command arguments and Rust identifiers deliberately stay in the body colour:
+ * these blocks are read as an argument about which flag matters, and a
+ * twenty-line compose file in eleven colours is read as decoration. */
+
+:root {
+  --code-keyword: #b49ae0;
+  --code-comment: #7a8492;
+}
+
+.t-com { color: var(--code-comment); font-style: italic; }
+.t-key { color: var(--accent); }
+.t-str { color: var(--good); }
+.t-kw { color: var(--code-keyword); }
+.t-var { color: var(--warn); }
+
+/* A value the reader has to replace before the example runs. Route A shipped with
+ * `v0.11.0`, and its example still writes `<tag>`; the two checksums in it exist
+ * only once that release's job summary does, which is what the page's status line
+ * says. Marking them is that sentence made visible at the places it applies to,
+ * rather than a pair of angle brackets to notice or miss. */
+.t-ph {
+  color: var(--bad);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --code-keyword: #6b3fa0;
+    --code-comment: #626b77;
+  }
+}
+
 /* ── Blocks that carry a judgement ───────────────────────────────────────── */
 
 .note {
