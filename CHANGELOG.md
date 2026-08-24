@@ -8,6 +8,31 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Changed — the root README carries the current release, not eleven of them
+
+The status block was 161 lines and eleven release narratives, and it stood between the project's name
+and the sentence explaining what the project is. A reader arriving from a search result met `v0.5.1`'s
+correction to a claim about `bulk_export` before they met "a small secret manager for machine
+identities".
+
+It is 28 lines now: what the current release is, the one thing to pin, the two things that break on
+purpose, and the security-review position. History moves to nothing, because it was already in two
+places — [`CHANGELOG.md`](CHANGELOG.md) has a section per release and
+[`docs/operations/upgrade.md`](docs/operations/upgrade.md) has the required action per version, both
+verified to cover every version dropped here. The README now names those two and says which answers
+which: the changelog is what changed, the upgrade guide is what to *do* about it.
+
+**The security paragraph is not shortened**, and it is the reason this is a separate change rather
+than a tidy-up. `AGENTS.md` requires stating what is not protected next to what is; a README that
+compressed "no human has reviewed this, and publication was a decision against a recorded condition"
+into a link would be doing the opposite while looking neater. It keeps its own paragraph, still says
+OpenBao is the right answer where an independent assessment is what a deployment needs, and now also
+points at `docs/assurance/` for the evidence behind it.
+
+The one release fact written to outlive its release — `v0.6.0` published a server image and no
+wrapper, so those assets do not exist — was checked before removal: it has its own section in the
+upgrade guide, which is where somebody hitting it would look.
+
 ### Added — a gate holds the documentation indexes to the tree
 
 `docs/README.md` is the page that tells a reader what exists. That job is only done if the page is
