@@ -180,6 +180,7 @@ sh ci/check-surface-entries.sh   # the CLI knows every surface entry the server 
 sh ci/check-sdk-reexports.sh     # a ciphr-sdk consumer needs no dependency on ciphr-core
 sh ci/check-docs.sh              # every doc under docs/ carries a date
 sh ci/check-doc-commands.sh      # a command a document tells you to run exists
+sh ci/check-doc-index.sh         # every doc is in an index, and the ADR count matches
 sh ci/check-changelog.sh         # a commit touching crates/ also touches CHANGELOG.md
 sh ci/check-changelog-releases.sh # the released version has a section, and every section a link
 sh ci/build-wrapper.sh           # ciphr-run: static musl, verified linkage, size budget
@@ -320,9 +321,22 @@ Documentation is part of the change, not a follow-up. The rules and the reasonin
 - **Same commit as the code.** A documentation update that trails its change is a window in which the
   documentation is wrong.
 
+- **In an index.** Four pages are indexes — `docs/README.md`, `docs/adr/README.md`,
+  `docs/operations/README.md`, `docs/assurance/README.md` — and `ci/check-doc-index.sh` fails the
+  build on a document none of them links to. A deliberately unindexed file goes in that script's
+  allowlist with a reason.
+
 For anything hard to undo — master key handling, rotating a secret that cannot be rotated — the
 document belongs in `docs/operations/` and says what breaks, what it looks like when it breaks, and
 what to do instead.
+
+**Where a document goes.** `docs/` describes the system as it is now; a page there is expected to be
+kept true. `docs/assurance/reviews/` and `docs/assurance/field-reports/` hold *snapshots* — a record
+of a tree on a given day — and are expected **not** to be updated, because the date is the finding's
+provenance. Two gates enforce that difference rather than trusting it: `check-doc-dates.sh` does not
+require a snapshot's status date to move when it is edited, and `check-doc-commands.sh` does not
+require a command it quotes to still exist. Both make the same exceptions for `docs/adr/`, for the
+same reason. Editing a record to match today's code destroys the only thing it was kept for.
 
 ## Commits and changelog
 

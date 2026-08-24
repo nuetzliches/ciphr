@@ -42,6 +42,21 @@ procedures name exact commands and exact file paths, and say which of them do no
 describes is a window in which the documentation is wrong, and those windows never close on their
 own.
 
+## If you came here to do one thing
+
+The table below is ordered by *risk*, which is the right order when the question is what a mistake
+costs. These are the shorter paths when you already know what you are doing.
+
+| You are | Start at |
+|---|---|
+| **Integrating a consumer** | The [integration page](https://nuetzliches.github.io/ciphr/integrate.html) for which of the four routes fits, then [operations/ci.md](operations/ci.md) for a CI job, [operations/wrapper.md](operations/wrapper.md) for a container, or `cargo doc -p ciphr-sdk --open` for an application |
+| **Operating a deployment** | [operations/README.md](operations/README.md), ordered by task — then [operations/monitoring.md](operations/monitoring.md), which is the one to read *before* something is wrong |
+| **Responding to an incident** | [operations/honeypots.md](operations/honeypots.md) if a tripwire fired, [operations/master-key.md](operations/master-key.md) if the key is what leaked, [operations/backup.md](operations/backup.md) if you are restoring — and note what a restore silently undoes |
+| **Upgrading** | [operations/upgrade.md](operations/upgrade.md), the section for *every* version you are skipping |
+| **Changing security-critical code** | [`../AGENTS.md`](../AGENTS.md) for the rules and the gates, [authorization.md](authorization.md) and [crypto.md](crypto.md) for the two that decide every access, [adr/](adr/README.md) for why it is shaped this way |
+| **Reviewing this project** | [security-review.md](security-review.md) — scope, claims, and what would falsify each — then [assurance/](assurance/README.md) for what has already been read and by whom |
+| **Deciding whether to use it at all** | [why-build-this.md](why-build-this.md), which names the condition under which OpenBao is the right answer instead, and [threat-model.md](threat-model.md) |
+
 ## By risk area
 
 The parts where a mistake is expensive, and where to read before making one.
@@ -71,7 +86,7 @@ The parts where a mistake is expensive, and where to read before making one.
 
 | Document | What it is for |
 |---|---|
-| [adr/](adr/) | The twenty-one records, one file each — one accepted in part, one deferred, one proposed — including what was rejected and why |
+| [adr/](adr/README.md) | The twenty-five records, one file each — one accepted in part, one deferred, one proposed — including what was rejected and why |
 | [threat-model.md](threat-model.md) | Adversaries A1–A9, the boundaries deliberately not defended, and the availability trade |
 | [crypto.md](crypto.md) | The implemented key hierarchy and wire format, and what the known-answer tests pin |
 | [authorization.md](authorization.md) | The policy file, the pattern language, and the four rules of the decision |

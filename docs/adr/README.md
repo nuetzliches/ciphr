@@ -1,7 +1,12 @@
 # Architecture decision records
 
-**Status:** current as of 2026-08-23. Twenty-four records: twenty-two accepted — one of them in one
+**Status:** current as of 2026-08-24. Twenty-five records: twenty-three accepted — one of them in one
 tier only — one deferred, and one proposed. Each file carries its own date and status.
+
+The count and the table are checked against the directory by `ci/check-doc-index.sh`: a record with
+no row, a row pointing at a file that is not there, and a written-out count that no longer matches
+are all build failures. That gate exists because this line said twenty-four while the directory held
+twenty-five and `../README.md` said twenty-one.
 
 One file per decision. Each records what was decided, why, and what was rejected — the rejected
 options matter as much as the chosen one, because they are what a future reader would otherwise
@@ -27,12 +32,12 @@ parts that later turned out to be wrong.
 | [ADR-12](0012-ui-auth-token-paste.md) | UI authentication: token paste in v1 | Accepted; phase 5 |
 | [ADR-13](0013-mcp-separate-stateless-process.md) | MCP server: separate, stateless process | Accepted; post-v1 |
 | [ADR-14](0014-ciphr-run-injects-into-a-child-process.md) | `ciphr run` injects secrets into a child process | Accepted; built as `ciphr-run` |
-| [ADR-15](0015-honeypots-and-what-a-tripwire-may-do.md) | Honeypots, and what a tripwire may do | **Accepted** in the `alert` tier only; not built, phase 8 still waits on the review |
+| [ADR-15](0015-honeypots-and-what-a-tripwire-may-do.md) | Honeypots, and what a tripwire may do | **Accepted** in the `alert` tier only; built 2026-08-21 as the `honeypot_alert` surface entry and released in `v0.5.0` — absent from a default build, and the surface it adds does not inherit the review's acceptance |
 | [ADR-16](0016-leak-reports-are-a-one-way-drop-box.md) | Leak reports are a one-way drop box, matched through a blind index | **Deferred**; reopens if the endpoint would get a listener reachable without a token |
 | [ADR-17](0017-certificate-provenance.md) | Certificate provenance: a private CA for machines, a public certificate for the browser | Accepted |
 | [ADR-18](0018-one-rule-for-the-variable-name.md) | One rule for the environment variable name of a secret | Accepted |
 | [ADR-19](0019-sdk-transport-blocking-ureq.md) | The SDK's transport: blocking, and unable to trust the public CA set | Accepted |
-| [ADR-20](0020-optional-surface.md) | Optional surface, and the core it may not reach | Accepted; nothing implemented |
+| [ADR-20](0020-optional-surface.md) | Optional surface, and the core it may not reach | Accepted; built 2026-08-21 and released in `v0.5.0` — `honeypot_alert` at build time, `viewer_api` and `bulk_export` at runtime, with `ci/check-surface-entries.sh` as this record required |
 | [ADR-21](0021-a-scanner-is-a-sender-with-a-token.md) | A scanner is a sender with a token: leak reports arrive authenticated | **Proposed**; gives the leak machinery its first sender — ADR-16 stays deferred and anonymous |
 | [ADR-22](0022-the-trail-records-what-consumed-an-authority.md) | The trail records what consumed an authority | Accepted; the metadata listings run read-only — no lock, no master key, no entry |
 | [ADR-23](0023-the-control-plane-is-its-own-capability.md) | The control plane is its own capability | Accepted; `inspect` and `revoke` join the five secret verbs, and a secret capability under `sys/` is refused when the policy file loads |
