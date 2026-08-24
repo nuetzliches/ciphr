@@ -1,6 +1,6 @@
 # External review: scope, claims, and what would falsify them
 
-**Status:** prepared 2026-08-18, last revised 2026-08-22. **A commissioned review took place on
+**Status:** prepared 2026-08-18, last revised 2026-08-24. **A commissioned review took place on
 2026-08-21 against `v0.3.0`** and is recorded in [`review-2026-08-21.md`](review-2026-08-21.md) —
 findings, coverage, and the fitness statement this document asks for. The reviewer is an AI model
 (Claude Fable 5), commissioned by the maintainer: a different model from the one that co-authored
@@ -71,6 +71,20 @@ asks of an operator who proceeds on an accepted risk.
 second-tier files its coverage section names. It does not extend to what that section lists as
 skimmed or taken on trust — `ciphr-audit`, most of `ciphr-store`, the server's configuration and TLS
 code, `ui/`. Those are unreviewed, and this decision does not make them otherwise.
+
+**Added 2026-08-24, after the acceptance: `ciphr-export` and `ciphr-ci` (ADR-25).** Neither is on
+the authentication path and neither is in the reviewed crates, so this is a smaller note than the one
+below — but the rule is the same one and it is written rather than left to be inferred. What is new
+as *code*: a binary that holds a token file, opens one TLS connection, and writes to two sinks; and a
+crate that renders text. What is new as *surface*: nothing in `ciphr-crypto`, `ciphr-policy` or the
+path, pattern and secret code in `ciphr-core` — `ci/check-core-no-features.sh` enforces that rather
+than this sentence asserting it. The masking rules themselves are **moved, not written**: the code
+that produces `::add-mask::` lines and heredoc delimiters is the code the CLI has carried since
+2026-08-18, with its tests, now in a crate both binaries depend on. The client half is `ciphr-sdk`,
+unchanged except for the fallback described in ADR-25. A reviewer with limited time should spend it
+on the two rules that were already worth attacking — the delimiter's unpredictability and the
+ordering of masks against values — and on one thing that is genuinely new: `ciphr-ci` appends to a
+file whose path comes from an environment variable the runner sets.
 
 **Added 2026-08-21, after the acceptance: the `honeypot_alert` surface entry.** Claims C11, C12 and
 D10 describe it, and they are marked as new for a reason the acceptance states in its own words — new

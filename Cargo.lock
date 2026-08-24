@@ -278,16 +278,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "ciphr-ci"
+version = "0.10.0"
+dependencies = [
+ "axum",
+ "axum-server",
+ "ciphr-audit",
+ "ciphr-core",
+ "ciphr-crypto",
+ "ciphr-export",
+ "ciphr-policy",
+ "ciphr-sdk",
+ "ciphr-server",
+ "ciphr-store",
+ "clap",
+ "rcgen",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "ciphr-cli"
 version = "0.10.0"
 dependencies = [
  "ciphr-audit",
  "ciphr-core",
  "ciphr-crypto",
+ "ciphr-export",
  "ciphr-policy",
  "ciphr-store",
  "clap",
- "getrandom 0.4.3",
  "serde",
  "serde_json",
  "tempfile",
@@ -319,6 +340,15 @@ dependencies = [
  "subtle",
  "tempfile",
  "zeroize",
+]
+
+[[package]]
+name = "ciphr-export"
+version = "0.10.0"
+dependencies = [
+ "ciphr-core",
+ "getrandom 0.4.3",
+ "serde_json",
 ]
 
 [[package]]

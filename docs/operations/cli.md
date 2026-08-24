@@ -1,7 +1,9 @@
 # The `ciphr` command
 
-**Status:** implemented and tested as of 2026-08-23, released in `v0.10.0`. Every command below
-works and every one of them is in a release. Deployment
+**Status:** implemented and tested as of 2026-08-24, released in `v0.10.0` except where a line says
+otherwise. Every command below works and every one of them is in a release. The export *rendering*
+moved into `ciphr-export` on 2026-08-24 and is now shared with `ciphr-ci` (ADR-25); no command's
+behaviour changed with it. Deployment
 — containers, reverse proxy, certificates — is documented in `docs/operations/` and in the
 deployment's own repository, not here.
 
@@ -11,7 +13,9 @@ verifying the chain, and exporting for migration all need the master key and hav
 design (ADR-3). A CLI that spoke HTTP would need a privileged API to do its job — the API this
 project does not have.
 
-Remote access is `curl` (see `openapi.yaml`) or, from phase 7, the SDK.
+Remote access is `curl` (see `openapi.yaml`), the SDK, `ciphr-run` for a container, or `ciphr-ci`
+for a CI job — the last of which is what the `actions-env` format below is for, since this command
+cannot run where that format is wanted.
 
 ## Three rules that shape every command
 
@@ -211,6 +215,12 @@ The variable name is the **last path segment**: `infra/service-a/DB_PASSWORD` be
 reasoning about what the shell will do with `$`, backticks, or backslashes.
 
 ### The masking trap
+
+**This command runs on a host, and a CI job is not one.** Everything in this section is about the
+rendering, which `ciphr-ci` shares through `ciphr-export` (ADR-25) — but `ciphr export` itself opens
+the store, takes the exclusive lock and needs the master key, so a runner cannot use it and should not
+try. The workflow-side page is [`ci.md`](ci.md); this section stays here because the rules are the
+same ones and this is where the format is documented.
 
 **No forge masks a value fetched at runtime.** Only its own native secrets are masked. A bare
 `curl | jq` puts secrets in the job log the moment anyone adds `set -x` — and that log is usually

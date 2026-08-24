@@ -162,7 +162,9 @@ policies. No PKI, no SSH CA, no dynamic secrets. If those are ever needed,
   `Serialize`, which makes logging one a compile error rather than a code-review question.
   This is the main reason the implementation language is Rust.
 - **Runner-agnostic CI access.** The API is HTTPS plus a bearer token, so the minimal client
-  is `curl`. No agent, no plugin, no forge integration required.
+  is `curl`. No agent, no plugin, no forge integration required. What a job should reach for instead
+  is `ciphr-ci` — the same fetch, with the masking a forge does not do for a value fetched at runtime
+  ([ADR-25](docs/adr/0025-the-ci-side-fetch-is-its-own-binary.md)).
 - **The viewer is a separate container, and read-only.** It cannot write a secret, change a policy,
   or issue a token, and the server has no mode that serves it — so asset handling never runs in the
   process that holds plaintext ([ADR-11](docs/adr/0011-ui-is-an-optional-separate-package.md),
@@ -190,11 +192,14 @@ are retrofittable without a data format change, because the master key wraps exa
 read a value, not what the runner did with it afterwards — and no forge masks a value fetched at
 runtime, only its own native secrets. A bare `curl | jq` therefore puts secrets in the job log the
 moment anyone adds `set -x`, and that log is usually readable by more people than the secret store
-is. This is why masking is part of the product rather than of the documentation: `export --format
-actions-env` emits `::add-mask::` for every value before it emits anything else. The name contains
-*CI*, so the integration is not an afterthought to the security model — it is where most of the
-remaining risk lives. Read [`docs/operations/cli.md`](docs/operations/cli.md) before writing the
-first workflow.
+is. This is why masking is part of the product rather than of the documentation: the `actions-env`
+render emits `::add-mask::` for every value before it emits anything else — and since 2026-08-24 a job
+can reach it. `ciphr-ci` fetches over the API with a token and renders through the same code `ciphr
+export` uses on a host; before it, that rendering lived only in a CLI command that needs the store,
+the master key and the service stopped, so a job's honest options were `curl` and a page of
+documentation. The name contains *CI*, so the integration is not an afterthought to the security model
+— it is where most of the remaining risk lives. Read [`docs/operations/ci.md`](docs/operations/ci.md)
+before writing the first workflow.
 
 The realistic end state is **one secret per host**, not zero — plus an audit trail, plus rotation,
 plus a bounded blast radius per token. The full threat model, including everything else that is
@@ -205,7 +210,7 @@ deliberately out of scope, is in [`docs/threat-model.md`](docs/threat-model.md).
 | Where | What |
 |---|---|
 | [`docs/`](docs/README.md) | The documentation index, including a table of risk areas |
-| [`docs/adr/`](docs/adr/) | The 21 architecture records, one file each, with what was rejected and why |
+| [`docs/adr/`](docs/adr/) | The 25 architecture records, one file each, with what was rejected and why |
 | [`docs/crypto.md`](docs/crypto.md) | The implemented key hierarchy and wire format, and what the tests establish |
 | [`docs/authorization.md`](docs/authorization.md) | The policy file, the pattern language, and the four rules of the decision |
 | [`docs/security-review.md`](docs/security-review.md) | What an external reviewer should attack, and what would falsify each claim |
@@ -214,6 +219,7 @@ deliberately out of scope, is in [`docs/threat-model.md`](docs/threat-model.md).
 | [`docs/operations/monitoring.md`](docs/operations/monitoring.md) | What to poll, what each `/v1/health` field means, and the check the endpoint cannot answer |
 | [`docs/operations/upgrade.md`](docs/operations/upgrade.md) | What each version's breaking changes require, and the backup rule that holds for all of them |
 | [`docs/operations/wrapper.md`](docs/operations/wrapper.md) | `ciphr-run`: where to get it, what its exit codes mean, and what it does not solve |
+| [`docs/operations/ci.md`](docs/operations/ci.md) | `ciphr-ci` and the composite action: the workflow step, the token shape, and what is measured about masking |
 | [`docs/ui.md`](docs/ui.md) | The viewer: what it shows, what it refuses to do, and how it is deployed |
 | [`openapi.yaml`](openapi.yaml) | The HTTP API |
 | [`docs/operations/`](docs/operations/) | Procedures for what is hard to undo: the master key, backups and restores, and rotating secrets that break things |

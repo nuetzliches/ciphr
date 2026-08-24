@@ -1,0 +1,223 @@
+name: ciphr
+description: Fetch secrets into a job, with the masking a forge does not do for a value fetched at runtime.
+
+# ── What this is, and what it deliberately is not ────────────────────────────
+#
+# A thin wrapper around `ciphr-ci` (ADR-25). Every decision that matters -- the
+# order of masks and assignments, the heredoc delimiter, the refusal on a
+# colliding name -- is in that binary, where it is written once and tested. What
+# is left here is the part an action is actually good at: getting the binary,
+# checking it is the binary that was published, and putting the token in a file
+# rather than in an argument.
+#
+# **The masking is not implemented here, and must not be.** A composite action
+# is shell, and shell is where `::add-mask::` ordering gets subtly wrong in a way
+# no gate in this repository would catch. If this file ever grows a `printf
+# '::add-mask::%s'`, that is the moment the second implementation was born.
+#
+# The composite-action syntax is the same on GitHub Actions, Forgejo Actions and
+# Gitea Actions. Two things about that are narrower than they look, and both are
+# in `docs/operations/ci.md`: the download step needs `gh`, which is claimed only
+# for GitHub-hosted runners -- elsewhere pass `binary:` -- and `::add-mask::` was
+# measured on a Forgejo runner on 2026-08-18 and is claimed there and on GitHub,
+# while act_runner stays unmeasured and therefore unclaimed.
+
+inputs:
+  url:
+    description: The ciphr instance, as an https URL.
+    required: true
+  token:
+    description: >
+      The job's ciphr token. Pass the forge secret holding it; it is written to a
+      file in the runner's temporary directory and removed at the end of the step,
+      because the binary deliberately has no flag that takes a token value.
+    required: true
+  ca:
+    description: >
+      The internal certificate authority, as PEM. Not a secret -- pass it as a
+      variable. Either the PEM itself or a path to a file already on the runner.
+    required: true
+  paths:
+    description: >
+      Whitespace-separated secret paths to fetch. Needs the `read` capability, and
+      is the form to prefer: the set is what the workflow names rather than what
+      the store happens to hold.
+    required: false
+    default: ""
+  prefix:
+    description: >
+      Fetch everything under this prefix instead. Needs `list` as well as `read`,
+      and takes whatever exists under the prefix at that moment.
+    required: false
+    default: ""
+  format:
+    description: >
+      Only `actions-env` today, which is the one that masks and the one with somewhere
+      to put the values. The binary also renders `dotenv` and `json`, but both write
+      values to standard output — which on a runner is the job log — so getting them
+      anywhere useful needs a redirection an action cannot do for you. Call `ciphr-ci`
+      directly for those; `docs/operations/ci.md` shows it.
+    required: false
+    default: actions-env
+  binary:
+    description: >
+      Path to a `ciphr-ci` already on the runner. Given this, nothing is downloaded
+      and `version`/`sha256` are ignored -- which is the shape for a self-hosted
+      runner that bakes the binary into its image.
+    required: false
+    default: ""
+  version:
+    description: The release to download the binary from, as a tag (for example `v0.10.0`).
+    required: false
+    default: ""
+  sha256:
+    description: >
+      The expected checksum of the downloaded binary. **Required when downloading.**
+      A fetch that verifies nothing is a fetch that trusts whoever answered.
+    required: false
+    default: ""
+  repository:
+    description: The repository to download the release asset from.
+    required: false
+    default: nuetzliches/ciphr
+  github-token:
+    description: >
+      A token that may read that repository's releases. While the repository is
+      private this is required to download the asset at all.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Fetch and verify ciphr-ci
+      id: binary
+      shell: bash
+      env:
+        INPUT_BINARY: ${{ inputs.binary }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_SHA256: ${{ inputs.sha256 }}
+        INPUT_REPOSITORY: ${{ inputs.repository }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+
+        if [ -n "$INPUT_BINARY" ]; then
+          echo "path=$INPUT_BINARY" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        if [ -z "$INPUT_VERSION" ] || [ -z "$INPUT_SHA256" ]; then
+          echo "ciphr: pass 'binary', or both 'version' and 'sha256'." >&2
+          echo "ciphr: a download without an expected checksum is not offered." >&2
+          exit 1
+        fi
+
+        asset=ciphr-ci-x86_64-unknown-linux-musl
+        target="$RUNNER_TEMP/$asset"
+
+        # `gh` is preinstalled on GitHub-hosted runners and authenticates with the
+        # token above, which is why the download needs no third-party action pinned
+        # into this file. Whether a Forgejo or Gitea runner has it is **not measured
+        # by this project**; on a runner that does not, pass `binary:` and fetch the
+        # file however that forge does it.
+        gh release download "$INPUT_VERSION" \
+          --repo "$INPUT_REPOSITORY" \
+          --pattern "$asset" \
+          --output "$target" \
+          --clobber
+
+        # Verified before it is made executable, so a mismatch is a file that was
+        # never runnable rather than one that was run first.
+        echo "$INPUT_SHA256  $target" | sha256sum --check --status || {
+          echo "ciphr: $asset does not match the expected checksum." >&2
+          echo "ciphr: the published number is in the release's job summary." >&2
+          rm -f "$target"
+          exit 1
+        }
+
+        chmod 0700 "$target"
+        echo "path=$target" >> "$GITHUB_OUTPUT"
+
+    - name: Fetch the secrets
+      shell: bash
+      env:
+        CIPHR_URL: ${{ inputs.url }}
+        # Through the environment rather than as an argument: an argument is in
+        # `/proc/<pid>/cmdline` while the step runs and in the log of any runner
+        # that echoes command lines.
+        CIPHR_TOKEN: ${{ inputs.token }}
+        CIPHR_CA: ${{ inputs.ca }}
+        CIPHR_PATHS: ${{ inputs.paths }}
+        CIPHR_PREFIX: ${{ inputs.prefix }}
+        CIPHR_FORMAT: ${{ inputs.format }}
+        CIPHR_BINARY: ${{ steps.binary.outputs.path }}
+      run: |
+        set -euo pipefail
+        # No `set -x`, here or in a job that uses this action: a runner matches a
+        # mask as a literal string, and bash re-quotes an argument before xtrace
+        # prints it -- a value containing a single quote or a tab reaches the log
+        # in clear text. See docs/operations/ci.md.
+
+        # Refused rather than passed through with `--force`. The other two formats
+        # write values to standard output, and standard output here is the job log:
+        # an action that quietly added `--force` would be an action that prints
+        # secrets into the record it cannot redact afterwards.
+        if [ "$CIPHR_FORMAT" != "actions-env" ]; then
+          echo "ciphr: this action supports format 'actions-env' only." >&2
+          echo "ciphr: dotenv and json write values to standard output, which here is" >&2
+          echo "ciphr: the job log. Call ciphr-ci directly and redirect it -- see" >&2
+          echo "ciphr: docs/operations/ci.md." >&2
+          exit 1
+        fi
+
+        if [ -n "$CIPHR_PATHS" ] && [ -n "$CIPHR_PREFIX" ]; then
+          echo "ciphr: pass 'paths' or 'prefix', not both." >&2
+          exit 1
+        fi
+        if [ -z "$CIPHR_PATHS" ] && [ -z "$CIPHR_PREFIX" ]; then
+          echo "ciphr: pass 'paths' or 'prefix'; there is nothing to fetch." >&2
+          exit 1
+        fi
+
+        # The token goes to a file the binary opens once and inspects through that
+        # descriptor. `$RUNNER_TEMP` rather than the workspace: the workspace is
+        # checked-out code, and a token beside it is a token in reach of whatever
+        # the job builds.
+        token_file="$RUNNER_TEMP/ciphr-token"
+        install -m 0600 /dev/null "$token_file"
+        printf '%s' "$CIPHR_TOKEN" > "$token_file"
+
+        # Removed on every exit, including a failing fetch. The runner cleans its
+        # temporary directory too, but "eventually, if the runner is ephemeral" is
+        # not the same statement.
+        trap 'rm -f "$token_file"' EXIT
+
+        # The PEM either is the certificate or names a file holding it.
+        if [ -f "$CIPHR_CA" ]; then
+          ca_file="$CIPHR_CA"
+        else
+          ca_file="$RUNNER_TEMP/ciphr-ca.crt"
+          printf '%s\n' "$CIPHR_CA" > "$ca_file"
+        fi
+
+        set -- --url "$CIPHR_URL" --token-file "$token_file" --ca "$ca_file" \
+               --format "$CIPHR_FORMAT"
+
+        if [ "$CIPHR_FORMAT" = "actions-env" ]; then
+          set -- "$@" --github-env
+        fi
+
+        if [ -n "$CIPHR_PREFIX" ]; then
+          set -- "$@" --prefix "$CIPHR_PREFIX"
+        else
+          # Unquoted on purpose: the input is whitespace-separated paths, and a
+          # secret path contains no whitespace (ciphr-core refuses one that does),
+          # so word splitting here cannot split a path in half.
+          # shellcheck disable=SC2086
+          for path in $CIPHR_PATHS; do
+            set -- "$@" --path "$path"
+          done
+        fi
+
+        "$CIPHR_BINARY" "$@"

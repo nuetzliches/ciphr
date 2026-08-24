@@ -1,7 +1,7 @@
 # Documentation
 
-**Status:** current as of 2026-08-23, `v0.10.0` released; the external review was against `v0.3.0`. Phases 0-3, 7 and 8 are
-in it; the viewer (phase 5) ships as its own image on its own cadence. Describes what is built, and
+**Status:** current as of 2026-08-24, `v0.10.0` released; the external review was against `v0.3.0`. Phases 0-3, 7 and 8 are
+in it; route A's binary (`ciphr-ci`, ADR-25) is built and not yet in a release; the viewer (phase 5) ships as its own image on its own cadence. Describes what is built, and
 says so where something is not.
 
 **Phase 8 shipped in `v0.5.0`.** The `alert` tier of ADR-15, behind the `honeypot_alert` surface entry
@@ -53,7 +53,7 @@ The parts where a mistake is expensive, and where to read before making one.
 | **Trusting the audit trail too far** | A hash chain detects partial tampering, not a forward rewrite by someone who can write to the store. | [operations/audit-trail.md](operations/audit-trail.md) |
 | **A full audit volume** | Fail-closed means it is a total outage, not a logging gap. That is intended and needs monitoring — and it is the one check `/v1/health` cannot answer. | [operations/audit-trail.md](operations/audit-trail.md), [operations/monitoring.md](operations/monitoring.md) |
 | **Alerting on a constant** | `status` and `sealed` on `/v1/health` are hardcoded. One field on that endpoint carries live state, and a rule written against the others watches nothing. | [operations/monitoring.md](operations/monitoring.md) |
-| **A secret in a CI job log** | No forge masks a value fetched at runtime. Only the `actions-env` export does, and only if the masks are emitted first. | [operations/cli.md](operations/cli.md) |
+| **A secret in a CI job log** | No forge masks a value fetched at runtime. Only the `actions-env` render does, and only if the masks are emitted first — which is why fetching in a job is a program rather than a documented `curl` line. | [operations/ci.md](operations/ci.md) |
 | **A secret in shell history** | A value passed as an argument is readable by every process on the host while the command runs. | [operations/cli.md](operations/cli.md) |
 | **A tripwire nobody polls** | The alert is a field on `/v1/health` and an entry in the trail. Nothing here can page a human, and bait whose output nobody reads is decoration. | [operations/honeypots.md](operations/honeypots.md) |
 | **Bait under a prefix something fetches** | A prefix fetch reads the value of every path under it, so misplaced bait trips on every service start — and gets switched off in week two. | [operations/honeypots.md](operations/honeypots.md) |
@@ -81,6 +81,7 @@ The parts where a mistake is expensive, and where to read before making one.
 | [operations/monitoring.md](operations/monitoring.md) | Every field on `/v1/health`, which of them change, the three ways to read it wrong, and why backup freshness is deliberately not there |
 | [operations/upgrade.md](operations/upgrade.md) | What to do about each version's breaking changes, and the rules that hold for every upgrade |
 | [operations/wrapper.md](operations/wrapper.md) | `ciphr-run`: where the file comes from, what its exit codes mean, and what route B does not solve |
+| [operations/ci.md](operations/ci.md) | `ciphr-ci` and the composite action: the workflow step, where the binary comes from, what is measured about masking and what is only claimed |
 | [operations/honeypots.md](operations/honeypots.md) | Planting bait, where it must not go, and what to do when it fires |
 | [operations/](operations/) | Procedures for the things that are hard to undo: the master key, rotating secrets, the audit trail, and the freeze a tripwire can engage |
 | [`../openapi.yaml`](../openapi.yaml) | The HTTP API, maintained in the same commit as the code |

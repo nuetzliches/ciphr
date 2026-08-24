@@ -23,7 +23,13 @@ cd "$(dirname "$0")/.."
 # error message and, with `--report`, variable *names* — never a value. The
 # compile-time half of the rule still applies to everything it depends on:
 # `ciphr-sdk` and `ciphr-core` carry the lint attribute.
+# `ciphr-ci` is exempt on the same terms as `ciphr-run`: a whole binary crate
+# rather than a `main.rs` beside a library. What it prints is its own error
+# message, the runner's mask commands, and -- with `--report` -- variable
+# *names*. Never a value: `ciphr-export` renders and returns, and this gate is
+# what keeps that crate from growing a shortcut.
 libs=$(find crates -name '*.rs' -path '*/src/*' \
+    ! -path 'crates/ciphr-ci/*' \
     ! -path 'crates/ciphr-cli/*' \
     ! -path 'crates/ciphr-run/*' \
     ! -path 'crates/ciphr-server/src/main.rs')

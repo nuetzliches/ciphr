@@ -8,6 +8,53 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — `ciphr-ci`, so the masking this project ships is reachable from a CI job
+
+**The name contains *CI*, and the one thing this project does about the masking trap could not be
+run by a CI job.** `ciphr export --format actions-env` is where the `::add-mask::` discipline lives —
+masks before anything else, one per line, a heredoc delimiter drawn from the OS CSPRNG and verified
+against the value. It is a CLI command, and the CLI works on the local store: exclusive lock, master
+key, service stopped. A runner has none of that and must not. What a job could actually reach was
+`curl`, `jq`, and a page of documentation asking it to reimplement the masking itself — the shape
+the README rejects for exactly this rule.
+
+**`ciphr-ci` is that fetch as a program** ([ADR-25](docs/adr/0025-the-ci-side-fetch-is-its-own-binary.md)).
+It reads over the documented v1 API with a token, renders with the same code `ciphr export` renders
+with, and writes mask commands to standard output and assignments into `$GITHUB_ENV`. A static musl
+binary, published as a release asset with its checksum, beside `ciphr-run` and for the opposite
+audience: a job downloads it, a host mounts the other one.
+
+- **`action.yml`** is a composite action that downloads the asset, verifies the published checksum,
+  writes the token to a mode-0600 file in `$RUNNER_TEMP`, and calls the binary. It carries **no
+  masking logic**, deliberately: a second implementation in shell is the thing this release exists
+  to avoid.
+- **`ciphr-export` is a new crate**, holding the three render formats. `ciphr export` and `ciphr-ci`
+  now share one implementation of the masking order and the delimiter rule, with one set of tests.
+  `getrandom` moved with it and left `ciphr-cli`. No behaviour changed on the host side.
+- **`ci/build-ci-binary.sh`** checks static linkage and a size budget, as the wrapper's script does
+  and for its own reasons. Its budget is derived from the wrapper's measurement rather than measured;
+  the script says so and says to replace it with the first real number.
+
+New documentation: [`docs/operations/ci.md`](docs/operations/ci.md) — the workflow step, the token
+shape (`ci-<repo>`, shorter TTLs), `paths` against `prefix`, what a failure looks like, and the
+`set -x` caveat that masking does not cover.
+
+### Added — the examples a consumer copies
+
+Three routes were documented as prose where the reader needed code, and the fourth had one line in
+an API document. That is now written down:
+
+- **`docs/operations/wrapper.md` shows the compose file**, which is the thing somebody actually edits
+  for route B — the `entrypoint:` override in list form, the two read-only mounts, and why the token
+  volume is not the working directory.
+- **`ciphr-sdk`'s front page carries two more examples**, both doctests so they cannot rot: the retry
+  loop the crate deliberately does not contain (bounded, and only for the two failures that can
+  resolve themselves), and handing the values to a child process with `Command::env` — which the
+  documentation described and did not show.
+- **`docs/operations/ci.md` has the `curl` route in full**, with the three things it leaves the job to
+  do: the masking, telling the status codes apart, and not reading an empty listing as an empty
+  prefix.
+
 ### Fixed — a job on a default deployment could not fetch at all
 
 `POST /v1/export` is a surface entry and is off unless a deployment names it (ADR-20). Route B and

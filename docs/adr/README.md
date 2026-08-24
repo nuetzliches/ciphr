@@ -37,6 +37,7 @@ parts that later turned out to be wrong.
 | [ADR-22](0022-the-trail-records-what-consumed-an-authority.md) | The trail records what consumed an authority | Accepted; the metadata listings run read-only — no lock, no master key, no entry |
 | [ADR-23](0023-the-control-plane-is-its-own-capability.md) | The control plane is its own capability | Accepted; `inspect` and `revoke` join the five secret verbs, and a secret capability under `sys/` is refused when the policy file loads |
 | [ADR-24](0024-revocation-is-the-one-write-the-api-may-do.md) | Revocation is the one write the API may do | Accepted; one optional route behind `token_revoke`, `revoke` on `sys/tokens`, no master key — ADR-3 narrowed by a named exception |
+| [ADR-25](0025-the-ci-side-fetch-is-its-own-binary.md) | The CI-side fetch is its own binary | Accepted; `ciphr-ci` beside `ciphr-run`, the export renderer shared through `ciphr-export`, and `action.yml` a wrapper that carries no masking of its own |
 
 Two of these carry more weight than the rest, because they describe the properties the project
 exists for: ADR-1 (secrets cannot be logged) and ADR-9 (one path normalizer, shared by router and

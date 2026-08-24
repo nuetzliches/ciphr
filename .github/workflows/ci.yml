@@ -330,16 +330,17 @@ jobs:
         run: cargo audit --deny warnings
 
   wrapper:
-    name: The static wrapper builds, runs, and fits its budget
+    name: The static binaries build, run, and fit their budgets
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
 
-      # `ciphr-run` is bind-mounted into images this project does not own (ADR-14),
-      # so it is the one artefact whose linkage is part of its contract: it must
-      # need nothing from the image it lands in.
+      # Two artefacts, one toolchain. `ciphr-run` is bind-mounted into images this
+      # project does not own (ADR-14) and `ciphr-ci` is downloaded onto whatever a
+      # runner happens to be (ADR-25), so linkage is part of the contract for both:
+      # each must need nothing from the machine it lands on.
       - name: Add the musl target
         run: |
           rustup target add x86_64-unknown-linux-musl
@@ -368,6 +369,23 @@ jobs:
         with:
           name: ciphr-run-x86_64-unknown-linux-musl
           path: target/wrapper/
+          if-no-files-found: error
+
+      # The same two properties for the CI-side binary, for its own reasons: a
+      # runner is whatever the job's image is, and a static binary is what makes
+      # "download it and run it" a statement about every runner rather than about
+      # the one it was tried on.
+      - name: Test the CI binary as a static binary
+        run: cargo test --locked -p ciphr-ci --target x86_64-unknown-linux-musl
+
+      - name: Build the CI binary, verify linkage, and check the budget
+        run: sh ci/build-ci-binary.sh target/ci
+
+      - name: Keep the CI binary
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ciphr-ci-x86_64-unknown-linux-musl
+          path: target/ci/
           if-no-files-found: error
 
   fuzz:

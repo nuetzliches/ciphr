@@ -34,6 +34,11 @@ env:
   # `ci/build-wrapper.sh` derives the same name from its `$TARGET`, and the CI
   # artifact in `ci.yml` has always been spelled this way.
   WRAPPER_ASSET: ciphr-run-x86_64-unknown-linux-musl
+  # The same rule for the CI-side binary (ADR-25). `ci/build-ci-binary.sh` derives
+  # this name from its own `$TARGET`, and `action.yml` downloads it by this name --
+  # which is exactly why it carries the triple: an action's `--pattern` is a fetch
+  # script like any other.
+  CI_ASSET: ciphr-ci-x86_64-unknown-linux-musl
 
 jobs:
   # The image is only built if the code that goes into it passes. Duplicating
@@ -262,5 +267,70 @@ jobs:
             echo "${{ env.REGISTRY_IMAGE }}/run:${{ steps.version.outputs.version }}"
             echo "${{ steps.build.outputs.digest }}"
             cat "target/wrapper/$WRAPPER_ASSET.sha256"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # The second artefact that is not an image, and the one a workflow rather than
+  # a host consumes: `ciphr-ci` (ADR-25).
+  #
+  # A release asset and no image, which is the opposite of the wrapper's answer
+  # and rests on the same argument. The wrapper has an image because the host
+  # that mounts it authenticates to a registry and not to the forge. This binary
+  # is fetched by a *job*, and a job always holds a token for the forge it runs
+  # on -- so the channel that is awkward for a host is the natural one here, and
+  # a second image would be a second thing to keep in step for no reader.
+  #
+  # Built on the runner rather than in a container: the wrapper's image exists
+  # anyway and carries its build along, and there is no image here to carry this
+  # one. `ci/build-ci-binary.sh` is the same script CI runs, so the linkage check
+  # and the size budget apply to the file that actually ships.
+  ci-binary:
+    name: Publish the static CI binary
+    needs: [verify, wrapper-image]
+    # A manual run publishes no tag and gets no release to attach a file to.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      # Only `contents`, and only to attach two files. This job pushes no image
+      # and therefore needs nothing from the registry.
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Add the musl target
+        run: |
+          set -euo pipefail
+          rustup target add x86_64-unknown-linux-musl
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools
+
+      - name: Build it, verify linkage, and check the budget
+        run: sh ci/build-ci-binary.sh target/ci
+
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "$TAG" --generate-notes
+          fi
+          gh release upload "$TAG" \
+            "target/ci/$CI_ASSET" \
+            "target/ci/$CI_ASSET.sha256" \
+            --clobber
+
+      # The number a workflow passes to the action as `sha256`. Printed into the
+      # run's own record, because that is where somebody writing the workflow
+      # will look for it -- and because a checksum that only exists inside the
+      # file it describes is a checksum nobody can use before downloading.
+      - name: Report the checksum
+        run: |
+          {
+            echo "### The CI binary"
+            echo ''
+            echo '```'
+            cat "target/ci/$CI_ASSET.sha256"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

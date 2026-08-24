@@ -30,8 +30,9 @@ use ciphr_policy::PolicySet;
 use ciphr_store::{AuditFilter, SealState, SqliteAuditDevice, SqliteStore, Store};
 use clap::{Args, Parser, Subcommand};
 
+use ciphr_export::{ExportFormat, Exported, render_actions_env};
 use error::{CliError, parse_duration_millis};
-use formats::{ExportFormat, Exported, parse_dotenv, render_actions_env};
+use formats::parse_dotenv;
 use session::{Session, guard_secret_output, now_millis, read_value_from_stdin};
 
 /// A secret manager for machine identities.
@@ -1331,21 +1332,16 @@ fn init(cli: &Context) -> Result<(), CliError> {
 
 /// `ciphr export`.
 fn export(cli: &Context, args: &ExportArgs) -> Result<(), CliError> {
-    let format = match args.format.as_str() {
-        "dotenv" => ExportFormat::Dotenv,
-        "actions-env" => ExportFormat::ActionsEnv,
-        "json" => ExportFormat::Json,
-        other => {
-            return Err(CliError::Duration {
-                found: format!("format '{other}'; use dotenv, actions-env or json"),
-            });
-        }
-    };
+    // The same parser `ciphr-ci --format` uses, so the two accept the same three words
+    // and refuse the same fourth one with the same sentence (ADR-25).
+    let format = ExportFormat::parse(&args.format).map_err(|error| CliError::Duration {
+        found: error.to_string(),
+    })?;
 
     // `actions-env` writes assignments into a file the runner reads, so it is allowed to
     // produce output on a pipe: that is its whole purpose. Everything else needs
     // --force.
-    if format != ExportFormat::ActionsEnv {
+    if format.writes_values_to_stdout() {
         guard_secret_output(args.force)?;
     }
 

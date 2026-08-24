@@ -240,6 +240,22 @@ from_error!(ciphr_policy::PolicyError, Policy);
 from_error!(ciphr_core::PathError, Path);
 from_error!(ciphr_core::RotationError, Rotation);
 from_error!(ciphr_core::EnvNameError, EnvName);
+
+/// The renderer's two failures, in this program's words.
+///
+/// Mapped variant by variant rather than wrapped: both already exist here, and both
+/// already have a message written for the person who ran the command. A third variant
+/// carrying `ExportError` would print the same thing one indirection further away.
+impl From<ciphr_export::ExportError> for CliError {
+    fn from(error: ciphr_export::ExportError) -> Self {
+        match error {
+            ciphr_export::ExportError::EnvName(error) => Self::EnvName(error),
+            ciphr_export::ExportError::Delimiter { name, reason } => {
+                Self::ExportDelimiter { name, reason }
+            }
+        }
+    }
+}
 from_error!(ciphr_audit::ChainBreak, ChainBroken);
 from_error!(std::io::Error, Io);
 

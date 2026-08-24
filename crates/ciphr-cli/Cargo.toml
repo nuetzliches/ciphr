@@ -12,18 +12,17 @@ publish.workspace = true
 ciphr-audit.workspace  = true
 ciphr-core.workspace   = true
 ciphr-crypto.workspace = true
+# The export formats, shared with `ciphr-ci` (ADR-25). The rendering rules -- above all
+# the masking order and the heredoc delimiter -- are the half of an export that must be
+# identical in both binaries, and the way to keep two implementations identical is not
+# to have two. This is also where `getrandom` moved to: the delimiter needs it, and this
+# crate no longer does.
+ciphr-export.workspace = true
 ciphr-policy.workspace = true
 ciphr-store.workspace  = true
 clap.workspace         = true
 serde.workspace        = true
 serde_json.workspace   = true
-# OS randomness, for the heredoc delimiter in `export --format actions-env`.
-# Nothing new in the dependency graph: `ciphr-crypto` is already a dependency here
-# and already takes `getrandom` for keys, nonces and tokens, so this declares a
-# crate that is compiled either way rather than adding one. Declared rather than
-# reached through `ciphr-crypto`, because a delimiter is not a cryptographic
-# operation and hiding it behind a re-export would suggest it is.
-getrandom.workspace    = true
 # For `ciphr surface show`, which reads the `[[surface]]` stanzas out of a server
 # configuration on the host. Nothing new in the dependency graph: `ciphr-policy` is
 # already a dependency here and already takes `toml` (ADR-2), so this declares a crate

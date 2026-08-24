@@ -5,7 +5,8 @@
 | **Written** | 2026-08-18 |
 | **Background** | Evaluated OpenBao, Vault Community, Infisical CE, Conjur OSS. Result: OpenBao meets the requirement completely. Building this is a product decision, not a workaround. |
 
-**Status:** current as of 2026-08-23, with `v0.10.0` released.
+**Status:** current as of 2026-08-24, with `v0.10.0` released and section 14's job-side fetch built
+but unreleased (ADR-25).
 
 This paragraph deliberately carries **one** date and no other. `ci/check-doc-dates.sh` takes the
 latest date in the status paragraph as the claim, so a second date here — a release, a decision, a
@@ -950,8 +951,11 @@ runner, a Gitea act_runner, or something more exotic.
    integration as a precondition. That is the property that makes this runner-agnostic.
 2. **Authentication:** two routes. A bootstrap token (the baseline, works everywhere) and OIDC
    federation (where the forge supports it, the long-lived secret disappears entirely).
-3. **Consumption in the job:** CLI export formats, a composite action for the Actions family,
-   and a documented curl fallback for everything else.
+3. **Consumption in the job:** `ciphr-ci`, a static binary that fetches over the API and renders
+   with the masking rules, plus a composite action that wraps it and a documented curl fallback for
+   anything that cannot run a binary. **Built 2026-08-24 (ADR-25)**, and the shape changed from what
+   this section first proposed: the CLI cannot be that binary, because it works on the local store.
+   The bullet under *Consumption in the job — and the masking trap* below records the correction.
 
 ### Auth support matrix (verified 2026-08-18)
 
@@ -1017,14 +1021,20 @@ audience = "ciphr"                                  # mandatory, compared exactl
 secrets are. A bare `curl | jq` writes secrets into the job log on any `set -x` or debug echo.
 Masking is therefore part of the product, not of the documentation:
 
-- `ciphr export --format actions-env` first emits `::add-mask::<value>` for each value (per
-  line for multi-line values), then writes the variables to the file named by `$GITHUB_ENV`.
+- The `actions-env` render first emits `::add-mask::<value>` for each value (per line for
+  multi-line values), then writes the variables to the file named by `$GITHUB_ENV`. `ciphr-ci`
+  does this in a job; `ciphr export` does the same thing on a host, through the same code.
   Forgejo runners honour that convention — measured, section 21. Gitea's act_runner documents
   the same convention and is unmeasured; the convention is shared, the claim is not.
-- Composite action `ciphr-action` (one repository, usable from GitHub, Forgejo and Gitea
-  workflows — the syntax is identical): inputs `url`, `token` **or** `oidc: true`, `paths`,
-  `format`. Downloads the pinned, checksum-verified static CLI binary (musl build) or falls
-  back to curl.
+- **Correction, 2026-08-24.** This bullet said the action downloads "the pinned, checksum-verified
+  static CLI binary (musl build) or falls back to curl". Neither half was available: `ciphr export`
+  opens the store, takes the exclusive lock and needs the master key, so the CLI cannot fetch
+  remotely at all — and a curl fallback means reimplementing the masking in shell, which is the one
+  thing this section says not to do. What was built instead is `ciphr-ci` (ADR-25): its own binary,
+  static musl, published as a release asset with its checksum, rendering through `ciphr-export`,
+  which `ciphr export` now renders through as well. `action.yml` is the wrapper — inputs `url`,
+  `token`, `ca`, `paths` or `prefix`, `format`, and either `binary` or `version` + `sha256` — and it
+  carries no masking logic of its own. `oidc: true` remains unbuilt, with the rest of OIDC.
 - The curl fallback is a documented first-class route in `openapi.yaml` — for Woodpecker,
   Jenkins, and anything that does not speak Actions syntax:
   `curl --cacert "$CIPHR_CA" -H "Authorization: Bearer $CIPHR_TOKEN" …/v1/export`.

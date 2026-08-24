@@ -22,6 +22,7 @@ publish      = false
 ciphr-audit  = { path = "crates/ciphr-audit" }
 ciphr-core   = { path = "crates/ciphr-core" }
 ciphr-crypto = { path = "crates/ciphr-crypto" }
+ciphr-export = { path = "crates/ciphr-export" }
 ciphr-policy = { path = "crates/ciphr-policy" }
 ciphr-sdk    = { path = "crates/ciphr-sdk" }
 ciphr-store  = { path = "crates/ciphr-store" }

@@ -1,0 +1,27 @@
+[package]
+name = "ciphr-export"
+description = "Renders a set of secrets into the forms a process can consume: dotenv, Actions environment files, JSON."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# The renderer is here rather than in either binary because both of them need it and a
+# second copy of the masking rules is how the two start to disagree (ADR-25). Nothing in
+# this list reaches a store, a key, or the network: this crate turns values it is handed
+# into text.
+[dependencies]
+ciphr-core.workspace = true
+# OS randomness, for the heredoc delimiter in the Actions format. Taken directly rather
+# than through a wrapper, because a delimiter is not a cryptographic operation and
+# reaching it through `ciphr-crypto` would suggest it is -- and would put a key
+# implementation in the dependency graph of a text renderer.
+getrandom.workspace  = true
+# The JSON format, and only that. `serde_json` is in the graph of every consumer of this
+# crate already.
+serde_json.workspace = true
+
+[lints]
+workspace = true

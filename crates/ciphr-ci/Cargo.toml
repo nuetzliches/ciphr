@@ -1,0 +1,43 @@
+[package]
+name = "ciphr-ci"
+description = "Fetches secrets on a CI runner and renders them with the masking a forge does not do."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# The same discipline as `ciphr-run` (ADR-14), for a different reason (ADR-25). This
+# binary is downloaded onto a runner that also holds a token, so what it can contain
+# matters: no store, no cryptography, no master-key handling, because those crates are
+# not dependencies and a `use` cannot reintroduce them. It has one dependency `ciphr-run`
+# does not, and that one is the whole point of the binary: the renderer that masks.
+[dependencies]
+ciphr-core.workspace   = true
+ciphr-export.workspace = true
+ciphr-sdk.workspace    = true
+clap.workspace         = true
+
+[dev-dependencies]
+axum.workspace         = true
+axum-server.workspace  = true
+ciphr-audit.workspace  = true
+ciphr-crypto.workspace = true
+ciphr-policy.workspace = true
+ciphr-server.workspace = true
+ciphr-store.workspace  = true
+rcgen.workspace        = true
+# The JSON format's test reads back what it wrote, rather than comparing a string to a
+# string: what that format promises is a document a consumer can parse.
+serde_json.workspace   = true
+tempfile.workspace     = true
+tokio.workspace        = true
+
+[lints]
+workspace = true
+
+# One binary, and its name is what a workflow step calls.
+[[bin]]
+name = "ciphr-ci"
+path = "src/main.rs"

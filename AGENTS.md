@@ -36,6 +36,23 @@ crate are not obvious from its code:
   Anything that reorders those checks so a fetch precedes a refusal changes what the audit trail
   means.
 
+**`ciphr-ci` is implemented** (ADR-25, accepted 2026-08-24) and is route A: the fetch a CI job runs.
+It reads over the API with `ciphr-sdk`, renders with `ciphr-export`, and writes mask commands to
+standard output and assignments into `$GITHUB_ENV`. Three things about it are not obvious from its
+code:
+
+- **It is a sibling of `ciphr-run`, not a mode of it.** The wrapper `exec`s and therefore reads no
+  environment variable, uses the `docker run` exit-code convention, and keeps a dependency list that
+  is itself a guarantee. This one terminates, reads `$GITHUB_ENV`, exits `0` or `1`, and is
+  downloaded rather than mounted. ADR-25 records why folding them together was rejected.
+- **`action.yml` carries no masking logic and must not acquire any.** It downloads the asset,
+  verifies the published checksum, writes the token to a mode-0600 file, and calls the binary. A
+  `printf '::add-mask::…'` in that file is a second implementation of the one rule this project
+  ships instead of documenting.
+- **`ciphr-export` is where the rendering lives**, shared with `ciphr export` on a host. The masking
+  order, the per-line masks and the random heredoc delimiter exist once. Adding a fourth format, or
+  a second copy of any of those rules, is a change to that crate and to both binaries' tests.
+
 **Phase 5 is built:** the read-only viewer in `ui/`, its own package and its own image, released on
 its own cadence (`ui-v*` tags). It is documented in [`docs/ui.md`](docs/ui.md), and the rules it is
 held to are in the enforced list below. Phase 5's other condition holds by construction rather than
@@ -162,11 +179,12 @@ sh ci/check-doc-commands.sh      # a command a document tells you to run exists
 sh ci/check-changelog.sh         # a commit touching crates/ also touches CHANGELOG.md
 sh ci/check-changelog-releases.sh # the released version has a section, and every section a link
 sh ci/build-wrapper.sh           # ciphr-run: static musl, verified linkage, size budget
+sh ci/build-ci-binary.sh         # ciphr-ci: the same two properties, its own budget
 ```
 
-`build-wrapper.sh` needs the `x86_64-unknown-linux-musl` target and a musl linker, so it does not run
-on Windows. CI runs it, and runs `cargo test -p ciphr-run --target x86_64-unknown-linux-musl` next to
-it — the tests execute *as* static binaries rather than merely being built as them, because static
+`build-wrapper.sh` and `build-ci-binary.sh` need the `x86_64-unknown-linux-musl` target and a musl
+linker, so neither runs on Windows. CI runs both, and runs `cargo test -p ciphr-run --target
+x86_64-unknown-linux-musl` and the same for `ciphr-ci` next to them — the tests execute *as* static binaries rather than merely being built as them, because static
 musl is where name resolution breaks and a build-only gate would not notice.
 
 The viewer has its own CI job, its own pinned Node version, and its own budget, because it is its own
