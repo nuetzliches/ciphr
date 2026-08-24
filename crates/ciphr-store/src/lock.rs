@@ -68,6 +68,15 @@ use crate::error::StoreError;
 #[derive(Debug)]
 pub struct StoreLock {
     path: PathBuf,
+    /// The bytes this guard wrote into the lock file, and the only thing that makes
+    /// it *this* guard's lock rather than whatever currently has the name.
+    ///
+    /// F2 of the review of 2026-08-24: the lock used to be the file's existence and
+    /// nothing else, so every operation on it acted on a pathname. Two processes
+    /// could both classify one dead holder as stale, and the second one's removal
+    /// then deleted the *first* one's fresh lock -- after which both held it. `Drop`
+    /// had the same shape: it removed whatever was at the path.
+    identity: String,
 }
 
 impl StoreLock {
@@ -88,30 +97,55 @@ impl StoreLock {
                 .open(&path)
             {
                 Ok(mut file) => {
-                    // Best effort: the lock is the file's existence, not its
-                    // contents. A failure to write costs a worse error message later
-                    // and a lock that has to be cleared by hand, not correctness.
+                    // The contents are load-bearing now: they are what identifies
+                    // this guard's lock later, to `Drop` and to anyone deciding
+                    // whether a stale file is still the one they looked at. A lock
+                    // that cannot be identified is not one to hold, so a failed
+                    // write removes the file and reports rather than proceeding.
                     let pid = std::process::id();
-                    let _ = match start_time(pid) {
-                        Some(started) => write!(file, "{pid} {started}"),
-                        None => write!(file, "{pid}"),
+                    let identity = match start_time(pid) {
+                        Some(started) => format!("{pid} {started}"),
+                        None => format!("{pid}"),
                     };
-                    return Ok(Self { path });
+                    if let Err(error) = file.write_all(identity.as_bytes()) {
+                        drop(file);
+                        let _ = fs::remove_file(&path);
+                        return Err(StoreError::Io {
+                            detail: format!("cannot write {}: {error}", path.display()),
+                        });
+                    }
+                    drop(file);
+
+                    // Read back what is at the path. Between the create above and
+                    // here, another process that had already decided the *previous*
+                    // holder was stale can have removed this file and created its
+                    // own -- the second half of F2. If these bytes are not ours, we
+                    // do not hold this lock, whatever `create_new` returned.
+                    if read_raw(&path).as_deref() != Some(identity.as_str()) {
+                        continue;
+                    }
+
+                    return Ok(Self { path, identity });
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    let holder = read_holder(&path);
+                    let Some(existing) = read_raw(&path) else {
+                        // Unreadable or empty: cannot verify, so do not assume.
+                        return Err(StoreError::Locked { holder: None });
+                    };
+                    let holder = parse_holder(&existing);
                     match holder {
                         Some((pid, started)) if is_alive(pid, started) => {
                             return Err(StoreError::Locked { holder: Some(pid) });
                         }
-                        Some((pid, _)) => {
-                            // The holder is gone. Clear it and try once more; if
-                            // another process wins the race, the next iteration
-                            // finds a live holder and reports that instead.
-                            let _ = fs::remove_file(&path);
-                            let _ = pid;
+                        Some(_) => {
+                            // The holder is gone. Remove **the file we just looked
+                            // at**, not whatever has the name by the time this runs:
+                            // another process may already have cleared it and taken
+                            // the lock, and deleting that would hand the store two
+                            // writers (F2). If the bytes have changed, the next
+                            // iteration reads them and reports the new holder.
+                            remove_if_unchanged(&path, &existing);
                         }
-                        // Unreadable or empty: cannot verify, so do not assume.
                         None => return Err(StoreError::Locked { holder: None }),
                     }
                 }
@@ -132,9 +166,14 @@ impl StoreLock {
 
 impl Drop for StoreLock {
     fn drop(&mut self) {
-        // Best effort. A lock left behind by a crash is recognised as stale on the
-        // next acquisition, which is why this does not need to be reliable.
-        let _ = fs::remove_file(&self.path);
+        // Only this guard's own lock. Removing whatever has the name would let a
+        // process that has finished delete a lock somebody else is holding, which
+        // is the same defect as the takeover race one level up (F2).
+        //
+        // Still best effort in the other direction: a lock left behind by a crash
+        // is recognised as stale on the next acquisition, which is why this does
+        // not need to succeed.
+        remove_if_unchanged(&self.path, &self.identity);
     }
 }
 
@@ -150,11 +189,37 @@ fn lock_path(store: &Path) -> PathBuf {
 
 /// The holder recorded in a lock file: its process id, and its start time when the
 /// writer was able to determine one.
-fn read_holder(path: &Path) -> Option<(u32, Option<u64>)> {
+/// What the lock file says, verbatim.
+///
+/// Verbatim because the bytes are the identity: a decision about a lock has to be
+/// carried out against the same bytes it was made about, and a parsed form cannot
+/// answer "is this still the file I looked at".
+fn read_raw(path: &Path) -> Option<String> {
     let text = fs::read_to_string(path).ok()?;
+    if text.trim().is_empty() {
+        return None;
+    }
+    Some(text)
+}
+
+fn parse_holder(text: &str) -> Option<(u32, Option<u64>)> {
     let mut fields = text.split_whitespace();
     let pid = fields.next()?.parse().ok()?;
     Some((pid, fields.next().and_then(|s| s.parse().ok())))
+}
+
+/// Remove the lock file **only if it still holds `expected`**.
+///
+/// Not atomic, and it does not have to be: what it prevents is a decision made
+/// about one holder being executed against a different one. The window that
+/// remains -- the file changing between this read and the removal -- is closed one
+/// level up, where a fresh lock is read back after it is created and a guard that
+/// does not find its own bytes tries again instead of returning a lock it does not
+/// hold.
+fn remove_if_unchanged(path: &Path, expected: &str) {
+    if read_raw(path).as_deref() == Some(expected) {
+        let _ = fs::remove_file(path);
+    }
 }
 
 /// When a process started, in clock ticks since boot.
@@ -312,6 +377,91 @@ mod tests {
         let directory = tempfile::tempdir().expect("temp dir");
         let store = directory.path().join("store.db");
         std::fs::write(lock_path(&store), "not-a-pid").expect("write");
+
+        assert!(matches!(
+            StoreLock::acquire(&store),
+            Err(StoreError::Locked { holder: None })
+        ));
+    }
+
+    /// F2 of the review of 2026-08-24, as the step where it actually goes wrong.
+    ///
+    /// Two processes find the same dead holder and both decide it is stale. The
+    /// first clears it and takes the lock. The second then executes the removal it
+    /// had already decided on — and before this fix that removal deleted the *new*
+    /// holder's file, after which both processes held the store.
+    ///
+    /// What this test does not do is orchestrate two processes: it drives the step
+    /// that carries out the decision. That is the whole of the defect, and a test
+    /// that spawned two processes would assert the same thing with a scheduler in
+    /// the way.
+    #[test]
+    fn a_decision_about_one_holder_is_not_carried_out_against_another() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let store = directory.path().join("store.db");
+        let path = lock_path(&store);
+
+        // What the second process read: a holder it has classified as dead.
+        let stale = "4242 100";
+        std::fs::write(&path, stale).expect("write");
+
+        // What the first process left there in the meantime.
+        let winner = "5151 200";
+        std::fs::write(&path, winner).expect("write");
+
+        super::remove_if_unchanged(&path, stale);
+
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("the lock must still be there"),
+            winner,
+            "a stale-lock decision must not remove a lock somebody else now holds"
+        );
+    }
+
+    /// The same defect in `Drop`, which used to remove whatever had the name.
+    #[test]
+    fn dropping_a_guard_does_not_remove_a_lock_it_no_longer_owns() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let store = directory.path().join("store.db");
+        let path = lock_path(&store);
+
+        let guard = StoreLock::acquire(&store).expect("nothing holds it");
+
+        // Whatever put this here, it is not the guard below.
+        let somebody_else = "9999 300";
+        std::fs::write(&path, somebody_else).expect("write");
+
+        drop(guard);
+
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("the lock must still be there"),
+            somebody_else,
+            "a guard must release its own lock and nobody else's"
+        );
+    }
+
+    /// And the ordinary case still has to work: a guard releases what it took.
+    #[test]
+    fn dropping_a_guard_removes_the_lock_it_does_own() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let store = directory.path().join("store.db");
+        let path = lock_path(&store);
+
+        drop(StoreLock::acquire(&store).expect("nothing holds it"));
+
+        assert!(!path.exists(), "the lock file must be gone");
+    }
+
+    /// The identity is what the file says, so an empty one is not a lock.
+    ///
+    /// Before this fix the write was best effort and an empty lock file counted as
+    /// held-by-nobody-identifiable. It still counts as held — that asymmetry is
+    /// deliberate — but a guard can no longer *return* holding one.
+    #[test]
+    fn a_lock_file_with_no_identity_is_not_a_lock_anybody_holds() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let store = directory.path().join("store.db");
+        std::fs::write(lock_path(&store), "   ").expect("write");
 
         assert!(matches!(
             StoreLock::acquire(&store),

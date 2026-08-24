@@ -8,6 +8,30 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — a stale store lock could be taken over by two processes at once
+
+**F2 of [`docs/review-2026-08-24-full-repository.md`](docs/review-2026-08-24-full-repository.md).**
+The lock was the lock *file* and nothing else, so every operation on it acted on a pathname rather
+than on a holder. Two processes could both read the same dead holder and both classify it as stale;
+the first removed it and created its own, and the second then carried out the removal it had already
+decided on — deleting the first one's fresh lock. Both returned success, and the store had two
+writers.
+
+That is the one thing this module exists to prevent, and the consequence is the one it documents from
+a measurement: two writers hold different in-memory audit heads, the second record collides on a
+sequence number, no device accepts it, and fail-closed refuses **every** request until the process is
+restarted.
+
+`Drop` had the same shape, and that half is what a test can show directly: it removed whatever had the
+lock path, so a guard that had finished could delete a lock somebody else was holding.
+
+The lock now carries an identity — the bytes the guard wrote — and every operation is about those
+bytes. A stale lock is removed only if it still holds what the decision was made about; a freshly
+created lock is read back, and a guard that does not find its own bytes tries again instead of
+returning a lock it does not hold; `Drop` releases only its own. Writing the identity is no longer
+best effort, because a lock nobody can identify is not one to hold.
+
+
 ### Added — every image and every binary is published for arm64 as well
 
 The rest of [issue #4](https://github.com/nuetzliches/ciphr/issues/4). The three images —
