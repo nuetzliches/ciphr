@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+<title>ciphr — integrating a consumer</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+
+<header class="site-bar">
+  <a class="site-mark" href="index.html">ciphr <span>/ secrets for machines</span></a>
+  <nav class="site-nav" aria-label="Sections">
+    <a href="index.html">Overview</a>
+    <a href="integrate.html" aria-current="page">Integrate</a>
+    <a href="security.html">Security notes</a>
+    <a href="layers.html">Security layers</a>
+    <a class="site-nav-out" href="https://github.com/nuetzliches/ciphr">Repository</a>
+  </nav>
+</header>
+
+<main class="page is-wide">
+
+  <h1>Integrating a consumer</h1>
+  <p class="lede">Four routes, and which one applies is decided by what the consumer is, not by
+  preference. Every example below is the code that is in the documentation it links to.</p>
+
+  <p class="status"><strong>Status:</strong> routes B, C and D are in <code>v0.10.0</code>. Route A's
+  binary and its action are built and covered by tests that run the real program against the real
+  service, and are <strong>not in a release yet</strong> — so the version and checksum in that example
+  are placeholders until the next tag exists.</p>
+
+  <h2>What every consumer needs</h2>
+
+  <p>Three things, and none of them is optional or has a default worth guessing:</p>
+
+  <div class="table-scroll">
+  <table>
+    <thead>
+      <tr><th>What</th><th>Where it comes from</th><th>Secret?</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>--url</code></td>
+        <td>The instance, as an <code>https</code> URL. TLS terminates at the service; there is no
+        plaintext listener to fall back to.</td>
+        <td>No</td>
+      </tr>
+      <tr>
+        <td><code>--ca</code></td>
+        <td>The internal certificate authority, as PEM. <strong>Required by design</strong>: no
+        client here can be built to trust the public CA set, so <code>-k</code> appears in no example
+        on this site — not even for testing.</td>
+        <td>No — distribute it as an ordinary variable</td>
+      </tr>
+      <tr>
+        <td><code>--token-file</code></td>
+        <td>One credential per identity, from a file. There is deliberately <strong>no flag that
+        takes a token value</strong>: an argument is in <code>/proc/&lt;pid&gt;/cmdline</code> while
+        the process runs and in the log of any runner that echoes command lines.</td>
+        <td>Yes, and it is the one secret a consumer holds</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>And one rule that decides what the values are called: <strong>the variable name is the last path
+  segment</strong>. <code>infra/service-a/DB_PASSWORD</code> becomes <code>DB_PASSWORD</code>, in every
+  route, from one implementation. A set in which two paths want the same name is refused whole rather
+  than delivered with one of them silently winning.</p>
+
+  <p class="source">Source:
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/adr/0018-one-rule-for-the-variable-name.md">ADR-18</a>,
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/adr/0017-certificate-provenance.md">ADR-17</a>,
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/openapi.yaml">openapi.yaml</a></p>
+
+  <h2>Route A — a CI job</h2>
+  <ul class="route-meta">
+    <li>needs: read</li>
+    <li>list only for a prefix</li>
+    <li>binary: ciphr-ci</li>
+    <li>not released yet</li>
+  </ul>
+
+  <p>A build or deploy job that needs values at runtime. The thing that makes this its own program
+  rather than a documented <code>curl</code> line is masking: <strong>no forge masks a value fetched at
+  runtime</strong>, only its own native secrets, so a job that reads a value with <code>curl | jq</code>
+  has it in the log the moment anybody adds <code>set -x</code>.</p>
+
+<pre><code>- name: Fetch secrets
+  uses: nuetzliches/ciphr@&lt;tag&gt;
+  with:
+    url: ${{ vars.CIPHR_URL }}
+    ca: ${{ vars.CIPHR_CA }}                # not a secret: the internal CA, as PEM
+    token: ${{ secrets.CIPHR_TOKEN }}       # the one forge secret that stays
+    paths: ci/widget/DB_PASSWORD ci/widget/API_KEY
+    version: &lt;the first tag that carries the asset&gt;
+    sha256: &lt;the number from that release's job summary&gt;
+
+- name: Deploy
+  run: ./deploy.sh                          # DB_PASSWORD and API_KEY are in the environment</code></pre>
+
+  <p>The action is a wrapper and carries no masking logic of its own: it downloads the asset, verifies
+  the published checksum before making the file executable, writes the token to a mode-0600 file in
+  <code>$RUNNER_TEMP</code>, and calls the binary. On a runner without the GitHub CLI — which is most
+  non-GitHub runners — pass <code>binary:</code> pointing at a <code>ciphr-ci</code> that is already
+  there, and nothing is downloaded.</p>
+
+  <p>Without the action, on anything that can run a shell:</p>
+
+<pre><code>install -m 0600 /dev/null "$RUNNER_TEMP/ciphr-token"
+printf %s "$CIPHR_TOKEN" &gt; "$RUNNER_TEMP/ciphr-token"
+
+ciphr-ci --url "$CIPHR_URL" \
+         --token-file "$RUNNER_TEMP/ciphr-token" \
+         --ca /etc/ciphr/ca.crt \
+         --path ci/widget/DB_PASSWORD \
+         --format actions-env --github-env</code></pre>
+
+  <p>What that writes: <code>::add-mask::</code> for every value on standard output <strong>before
+  anything else</strong>, one mask per line for a multi-line value, then the assignments into the file
+  the runner reads back — a multi-line value with a heredoc whose delimiter is 128 random bits checked
+  against the value, so a value cannot close its own assignment and define variables for later steps.</p>
+
+  <p>The identity this runs as, in the policy file. One per repository, because that is the granularity
+  at which the trail is worth reading:</p>
+
+<pre><code>[[identity]]
+name     = "ci-widget"
+kind     = "machine"
+policies = ["ci-widget"]
+
+[[policy]]
+name = "ci-widget"
+
+  [[policy.rule]]
+  path         = "ci/widget/**"
+  capabilities = ["read"]</code></pre>
+
+  <p class="source">Source:
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/operations/ci.md">docs/operations/ci.md</a>,
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/adr/0025-the-ci-side-fetch-is-its-own-binary.md">ADR-25</a></p>
+
+  <h2>Route B — a container that only understands environment variables</h2>
+  <ul class="route-meta">
+    <li>needs: read</li>
+    <li>list only for a prefix</li>
+    <li>binary: ciphr-run</li>
+  </ul>
+
+  <p>An image this project does not own, and no derived Dockerfile: mount one file, override the
+  entrypoint, leave the image alone. The wrapper fetches, then <code>exec</code>s the real entrypoint
+  with the values in its environment.</p>
+
+<pre><code>services:
+  app:
+    image: someone-elses/app@sha256:&lt;digest&gt;   # unchanged, and no derived Dockerfile
+    entrypoint:
+      - /ciphr-run
+      - --url
+      - https://ciphr.internal:4400
+      - --token-file
+      - /run/secrets/ciphr-token
+      - --ca
+      - /etc/ciphr/ca.crt
+      - --path
+      - infra/host/app/DB_PASSWORD
+      - --path
+      - infra/host/app/API_KEY
+      - --report
+      - --
+      # Everything after `--` is what the image's own entrypoint was.
+      - /original/entrypoint
+      - --config
+      - /etc/app.conf
+    volumes:
+      - ./ciphr-run:/ciphr-run:ro
+      - ciphr-token:/run/secrets:ro            # not a directory this service can write
+      - ./ca.crt:/etc/ciphr/ca.crt:ro</code></pre>
+
+  <p>The list form of <code>entrypoint:</code> is required — the string form goes through a shell,
+  which puts the flags back into something that re-splits them. Overriding an entrypoint means owning
+  it, so <code>--report</code> prints the delivered variable <em>names</em> and the program about to be
+  executed to standard error, never a value: a base image that moves its entrypoint then shows up in
+  the container log rather than only in the outage.</p>
+
+  <div class="note is-warn">
+    <h3>Exit codes are part of the contract</h3>
+    <p><strong>125</strong> means the wrapper failed and <em>no child was started</em>: an unreadable
+    token file, an unreachable service, a certificate the CA does not sign, an empty listing, a path
+    that cannot become a variable name. <strong>126</strong> is a command that exists and cannot be
+    executed, <strong>127</strong> one that was not found, and anything else is the child's own code. A
+    restart policy can therefore tell "my service crashed" from "it never started".</p>
+  </div>
+
+  <p class="source">Source:
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/operations/wrapper.md">docs/operations/wrapper.md</a>,
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/adr/0014-ciphr-run-injects-into-a-child-process.md">ADR-14</a></p>
+
+  <h2>Route C — an application that fetches its own secrets</h2>
+  <ul class="route-meta">
+    <li>needs: read</li>
+    <li>list only for a prefix</li>
+    <li>crate: ciphr-sdk</li>
+    <li>Rust</li>
+  </ul>
+
+  <p>The route with the smallest footprint: no plaintext on disk, none in the container configuration,
+  and the audit entry names the <em>service</em> rather than the deploy runner that started it.</p>
+
+<pre><code>use ciphr_sdk::{Client, SecretPath};
+
+// All three are required, and the certificate authority is required by design:
+// there is no way to build a client that trusts the public CA set.
+let client = Client::builder(
+    "https://ciphr.internal:4400",
+    &amp;std::fs::read_to_string("/run/secrets/ciphr-token")?,
+    &amp;std::fs::read("/etc/ciphr/ca.crt")?,
+)
+.build()?;
+
+let environment = client.environment(&amp;SecretPath::parse("infra/service-a")?)?;
+
+// Names are safe to log; values are not, and the type system enforces the
+// difference rather than a review catching it.
+let password = environment.get("DB_PASSWORD").expect("under the prefix");</code></pre>
+
+  <p>Three properties hold by construction rather than by discipline. The client <strong>cannot trust
+  the public CA set</strong> — the transport is compiled without web root certificates and the trust
+  anchor is a constructor argument. It <strong>cannot log a secret</strong> — values live in a type
+  implementing neither <code>Debug</code>, <code>Display</code> nor <code>Serialize</code>. And it
+  <strong>cannot set an environment variable</strong> — that is <code>unsafe</code> in this edition and
+  the crate forbids unsafe code, so what it hands back is a mapping you read from, which keeps the
+  value out of <code>/proc/&lt;pid&gt;/environ</code> entirely.</p>
+
+  <p>Where the consumer is a child process that only reads environment variables, hand them over
+  without setting any of your own:</p>
+
+<pre><code>let mut command = Command::new("/usr/local/bin/migrate");
+for (name, value) in environment.into_entries() {
+    command.env(name.as_str(), std::str::from_utf8(value.expose())?);
+}
+let status = command.status()?;</code></pre>
+
+  <p>There is deliberately no retry loop in the crate and no <code>Client::from_env()</code>: how long
+  a service waits for its secrets is the service's policy, and where its credential comes from is a
+  deployment decision. <code>SdkError::is_retryable</code> says which failures could change on their
+  own — the transport, and an audit trail that could not be written — and the crate documentation
+  carries the loop to copy.</p>
+
+  <p class="source">Source:
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/crates/ciphr-sdk/src/lib.rs">crates/ciphr-sdk</a>,
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/adr/0019-sdk-transport-blocking-ureq.md">ADR-19</a></p>
+
+  <h2>Route D — plain <code>curl</code></h2>
+  <ul class="route-meta">
+    <li>needs: read</li>
+    <li>list only for a prefix</li>
+    <li>no binary</li>
+    <li>last resort</li>
+  </ul>
+
+  <p>The API is HTTPS plus a bearer token, so this has always been a complete client. Use it where a
+  binary cannot be placed on the machine — and read what it leaves you to do before you do.</p>
+
+<pre><code>set -eu    # and not `set -x`
+
+# One secret, by path. The value is JSON-encoded, so `jq -r` is what unescapes it.
+value=$(curl --fail --silent --show-error \
+             --cacert "$CIPHR_CA" \
+             -H "Authorization: Bearer $CIPHR_TOKEN" \
+             "$CIPHR_URL/v1/secrets/ci/widget/DB_PASSWORD" | jq -er '.value')
+
+# A whole prefix is two requests, because there is no "export a prefix" operation:
+# list authorizes every path it returns, then each path is read.
+curl --fail --silent --show-error \
+     --cacert "$CIPHR_CA" \
+     -H "Authorization: Bearer $CIPHR_TOKEN" \
+     "$CIPHR_URL/v1/list/ci/widget" | jq -r '.paths[]'</code></pre>
+
+  <div class="note is-bad">
+    <h3>What this route leaves to you</h3>
+    <p><strong>The masking.</strong> Nothing above emits <code>::add-mask::</code>. Doing it correctly
+    is more than one <code>printf</code>: masks before anything else, one per line for a multi-line
+    value, and a heredoc delimiter the value cannot reproduce — a guessable one lets a value close its
+    own assignment and define variables for later workflow steps, which was a real finding against this
+    project rather than a hypothetical.</p>
+    <p><strong>The status codes.</strong> <code>--fail</code> loses which one it was.
+    <code>401</code> is the token, <code>403</code> the policy, <code>404</code> the path, and
+    <code>503</code> means <em>the audit trail could not be written, so nothing was served and nothing
+    changed</em> — a deployment outage rather than something to retry past.</p>
+    <p><strong>The empty listing.</strong> A token without <code>list</code> gets
+    <code>{"paths":[]}</code> and a <code>200</code>, exactly as an empty prefix does. A job that reads
+    that as "nothing to fetch" starts with no secrets and fails later, somewhere else.</p>
+  </div>
+
+  <p class="source">Source:
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/openapi.yaml">openapi.yaml</a>,
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/operations/ci.md">docs/operations/ci.md</a></p>
+
+  <h2>Two things that apply to all four</h2>
+
+  <p><strong>Name the paths rather than the prefix, wherever the set is known.</strong>
+  <code>--path</code> needs only <code>read</code>; a prefix needs <code>list</code> as well and takes
+  whatever exists under it at that moment. Two failure modes belong to the prefix form alone: a listing
+  that loses a path does so silently, because every returned path is authorized individually — and
+  somebody else's new secret under the same prefix can collide with a name you depend on and refuse the
+  whole fetch.</p>
+
+  <p><strong>You do not have to turn on an optional route to fetch.</strong> The bulk read
+  <code>POST /v1/export</code> is a surface entry and is off unless a deployment names it. Consumers
+  read through it where it exists and one path per request where it does not, so a deployment that made
+  no decision still serves every route above. The audit trail is identical either way — the bulk route
+  writes one entry per secret served, never one per call.</p>
+
+  <p class="source">Source:
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/adr/0020-optional-surface.md">ADR-20</a>,
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/authorization.md">docs/authorization.md</a></p>
+
+</main>
+
+<footer class="site-foot">
+  <p>Every example here is the code that is in the linked document. Where the two ever disagree, the
+  document is the one that is maintained with the software.</p>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="ciphr">
+  <!-- The same statement as the diagram, at 16 pixels: one centre holding the
+       asset, and boundaries around it. Fixed colours rather than currentColor,
+       because a favicon is painted by the browser chrome and not by the page —
+       both of these read on a dark and on a light tab strip. -->
+  <circle cx="16" cy="16" r="14" fill="none" stroke="#7fb2d9" stroke-width="2"/>
+  <circle cx="16" cy="16" r="9" fill="none" stroke="#7fb2d9" stroke-width="1.5" opacity="0.6"/>
+  <circle cx="16" cy="16" r="4" fill="#e0b341"/>
+</svg>

@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+<title>ciphr — security notes for a consumer</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+
+<header class="site-bar">
+  <a class="site-mark" href="index.html">ciphr <span>/ secrets for machines</span></a>
+  <nav class="site-nav" aria-label="Sections">
+    <a href="index.html">Overview</a>
+    <a href="integrate.html">Integrate</a>
+    <a href="security.html" aria-current="page">Security notes</a>
+    <a href="layers.html">Security layers</a>
+    <a class="site-nav-out" href="https://github.com/nuetzliches/ciphr">Repository</a>
+  </nav>
+</header>
+
+<main class="page">
+
+  <h1>Security notes for a consumer</h1>
+  <p class="lede">What the integration has to get right, and the three things this design deliberately
+  does not defend. Everything here is about the code that <em>calls</em> ciphr — the operator's side is
+  in the threat model and the operational procedures.</p>
+
+  <p class="status"><strong>Status:</strong> against <code>v0.10.0</code>. Where a claim was measured,
+  the date and the thing measured are named; where it was not, that is said instead of implied.</p>
+
+  <h2>The token is the whole credential</h2>
+
+  <p>A consumer holds exactly one secret, and everything it may do follows from it.</p>
+
+  <ul>
+    <li><strong>From a file, never from an argument.</strong> No client here has a flag that takes a
+    token value, and adding one would be a regression: an argument is readable in
+    <code>/proc/&lt;pid&gt;/cmdline</code> by every other process while the command runs, and it lands
+    in the log of any runner that echoes command lines.</li>
+
+    <li><strong>Not world-readable, and not world-writable.</strong> Group bits are allowed — a
+    root-owned file read by a service group is a legitimate arrangement. World bits stop the process.
+    Writable counts for a reason worth stating: whoever can replace the file does not have to learn the
+    token in it, they can substitute one of their own and have the fetch run under an identity they
+    control.</li>
+
+    <li><strong>The directory matters as much as the file.</strong> The file is opened once and both
+    its permissions and its content come from that one descriptor, so a file swapped in afterwards is
+    not the file that was read. What no check can settle is who could have written it <em>before</em>:
+    whoever can create entries in that directory can put their own token there at mode 0600 and pass
+    every rule. Mount it from a directory the consumer cannot write — a secrets mount, a named volume,
+    <code>$RUNNER_TEMP</code> on a runner — and never from a working directory shared with the
+    application.</li>
+
+    <li><strong>One identity per consumer.</strong> One per repository for CI (<code>ci-&lt;repo&gt;</code>),
+    one per host for a deployment. That is the granularity at which the trail is worth reading, and the
+    granularity at which a leak is bounded. A host-wide token covering several services means one
+    compromised service reads the others'.</li>
+
+    <li><strong>Shorter lifetimes for CI than for a host.</strong> Those tokens are spread across more
+    systems.</li>
+  </ul>
+
+  <div class="note is-warn">
+    <h3>Plan the revocation before you need it</h3>
+    <p>Revoking a token through the CLI needs the <em>service stopped</em>. There is a route that does
+    it without an outage — but it is an optional surface entry, and turning it on requires the revoking
+    identity to hold a credential that was issued <em>before</em> the incident. Turning on outage-free
+    revocation costs that one outage; paying it during the incident is the expensive order.</p>
+  </div>
+
+  <p class="source">Source:
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/operations/wrapper.md">wrapper.md</a>,
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/operations/ci.md">ci.md</a>,
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/adr/0024-revocation-is-the-one-write-the-api-may-do.md">ADR-24</a></p>
+
+  <h2>Ask for the least the consumer can work with</h2>
+
+  <p><code>read</code> serves a value. <code>list</code> is what a prefix fetch needs in addition, and
+  it is the one to leave out where the set of secrets is known when the deployment is written: naming
+  paths removes both of the prefix form's failure modes at once.</p>
+
+  <p>Policies are deny-by-default and live in version control rather than behind a write API, so a
+  permission change is a commit with an author, a diff and a reviewer. Two things about writing them
+  that a consumer's author should know:</p>
+
+  <ul>
+    <li><strong>A rule granting everything means secrets, and only secrets.</strong>
+    <code>path = "**"</code> with <code>read</code> used to include the audit trail, the identity
+    inventory and the policy structure. Reading those is its own capability now
+    (<code>inspect</code>), and a rule that still asks for a secret capability under the reserved
+    prefix is refused when the policy file loads, naming the replacement.</li>
+    <li><strong>An empty capability list is an explicit denial</strong> and beats any less specific
+    permission. That is how a consumer is kept out of a neighbouring prefix.</li>
+  </ul>
+
+  <p class="source">Source:
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/authorization.md">docs/authorization.md</a>,
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/adr/0023-the-control-plane-is-its-own-capability.md">ADR-23</a></p>
+
+  <h2>Masking: what is measured, and where it stops</h2>
+
+  <p><strong>No forge masks a value fetched at runtime</strong> — only its own native secrets. That is
+  why masking is part of the product: the CI-side render emits <code>::add-mask::</code> for every value
+  before it emits anything else, one mask per line, because runners match literal strings and a value
+  containing a newline is never matched as a whole.</p>
+
+  <p><strong>Measured on 2026-08-18</strong>, on a real Forgejo runner in the same execution mode a job
+  uses, against values differing in a single character: the same step, across steps through the
+  environment file, multi-line values, a value inside a composed URL, and a value in the stderr of a
+  failing command. The multi-line round trip was verified by comparing digests rather than by printing
+  anything.</p>
+
+  <div class="note is-bad">
+    <h3>It does not hold under <code>set -x</code></h3>
+    <p>A runner matches a mask as a literal substring, and bash re-quotes an argument before xtrace
+    prints it. A value containing a single quote renders with bytes inserted in the middle; one
+    containing a tab renders as an escape sequence. Both reach the log in clear text. Everything else
+    survives — a space, a dollar sign, a backtick, a double quote, a backslash.</p>
+    <p>So the rule for a job that holds fetched values is <strong><code>set -x</code> off</strong>, not
+    "the mask will catch it". A generated password from a full punctuation alphabet contains a single
+    quote roughly every third time at usual lengths.</p>
+  </div>
+
+  <p><strong>act_runner is not claimed.</strong> "Both are act derivatives" is precisely the assumption
+  this project refused to make about the Forgejo runner before measuring it, and it stays refused:
+  measuring needs a Gitea runner to measure on, and where there is none the only alternative to
+  measuring is assuming.</p>
+
+  <p class="source">Source:
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/operations/ci.md">ci.md</a>,
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/operations/cli.md">cli.md</a></p>
+
+  <h2>The transport</h2>
+
+  <ul>
+    <li><strong>The trust anchor is this deployment's own CA</strong>, and no client here can be built
+    to trust the public CA set. <code>-k</code> and <code>--insecure</code> appear in no example in this
+    project, not even for testing.</li>
+    <li><strong>HTTP/1.1 only.</strong> The listener used to negotiate HTTP/2 through a transitive
+    dependency feature rather than through any decision; the protocol list is deliberate now. Clients
+    fall back on their own — <code>curl --http2-prior-knowledge</code> does not, and will fail.</li>
+    <li><strong>Every response carries <code>Cache-Control: no-store</code></strong>, including errors.
+    A cached response to a secret read is a secret without an expiry date.</li>
+    <li><strong>Redirects are not followed</strong> by the SDK. This API has no redirect contract, so a
+    <code>3xx</code> is a transport or configuration failure rather than a hop to take.</li>
+  </ul>
+
+  <p class="source">Source:
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/adr/0008-tls-terminates-at-the-service.md">ADR-8</a>,
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/adr/0009-http-stack-axum-but-narrow.md">ADR-9</a>,
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/openapi.yaml">openapi.yaml</a></p>
+
+  <h2>What the trail records, and what a <code>503</code> means</h2>
+
+  <p>Every read of a value is recorded before the value leaves the process, under the identity of the
+  token that asked — which is the argument for a service fetching its own secrets rather than being
+  handed them: the entry then names the service instead of the runner that deployed it. Bulk reads
+  write one entry per secret served, never one per call.</p>
+
+  <div class="note is-warn">
+    <h3><code>503</code> is not a rate limit</h3>
+    <p>It means the audit trail could not be written, and therefore <strong>no secret was served and
+    nothing was changed</strong>. Fail-closed is the design: a full audit volume is an outage rather
+    than a logging gap. A client may retry it without wondering whether its write half-happened, but
+    the thing that fixes it is on the deployment's side.</p>
+  </div>
+
+  <p class="source">Source:
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/operations/audit-trail.md">audit-trail.md</a>,
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/adr/0022-the-trail-records-what-consumed-an-authority.md">ADR-22</a></p>
+
+  <h2>Rotation is not a property of the tool</h2>
+
+  <p>A secret carries a class saying how safe it is to rotate, and a secret nobody classified says
+  <code>unclassified</code> rather than claiming to be safe. That default is deliberate: it warns
+  instead of reassuring. Before a consumer or a job rotates anything, the classes that mean "do not"
+  — a value whose rotation destroys data, or invalidates every session — are the ones to read, because
+  the tool will happily write a new version either way.</p>
+
+  <p class="source">Source:
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/operations/rotating-secrets.md">rotating-secrets.md</a></p>
+
+  <h2>Three things this does not defend</h2>
+
+  <ol>
+    <li><strong>Root on the host reads the master key and process memory.</strong> A deliberate
+    consequence of unattended startup — an availability decision, not a cryptographic one. Moving that
+    boundary needs split-key unsealing or an HSM, both retrofittable without a data format change.</li>
+
+    <li><strong>A value in a process environment is readable by that process's neighbourhood.</strong>
+    Route B puts the values in <code>/proc/&lt;pid&gt;/environ</code> of the service, which is where
+    that image wanted them; a CI job puts them in the environment of every step that follows. Only an
+    application that fetches its own secrets and reads them from a mapping avoids this, and that is the
+    reason route C exists.</li>
+
+    <li><strong>A secret that has left ciphr is the pipeline's problem.</strong> The trail records that
+    a consumer read a value, never what it did with it afterwards. A runner, in particular, is a machine
+    somebody administers, and that somebody is not necessarily whoever owns the secrets the job
+    fetched.</li>
+  </ol>
+
+  <p>What ciphr adds is that a value has an owner, an expiry, a policy and a trail entry naming who
+  read it — not that it stops being a secret once a process holds it. The full list of adversaries,
+  defended and undefended boundaries, and the availability trade is in the threat model.</p>
+
+  <p class="source">Source:
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/threat-model.md">docs/threat-model.md</a>,
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/security-review.md">docs/security-review.md</a></p>
+
+  <h2>Reporting something</h2>
+
+  <p>The disclosure process and what is in scope are in
+  <a href="https://github.com/nuetzliches/ciphr/blob/main/SECURITY.md">SECURITY.md</a>. The external
+  review of 2026-08-21 is recorded with its coverage and its findings, including who performed it — an
+  AI model commissioned by the maintainer, not a human practitioner — and what that is worth.</p>
+
+</main>
+
+<footer class="site-foot">
+  <p>This page states what the code claims and where each claim lives. A claim that outruns the code is
+  the one thing it must not contain — if you find one, that is a finding.</p>
+</footer>
+
+</body>
+</html>

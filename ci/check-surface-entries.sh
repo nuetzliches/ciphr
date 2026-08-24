@@ -57,8 +57,9 @@ cd "$(dirname "$0")/.."
 
 server='crates/ciphr-server/src/surface.rs'
 cli='crates/ciphr-cli/src/main.rs'
+site='site/layers.js'
 
-for file in "$server" "$cli"; do
+for file in "$server" "$cli" "$site"; do
     if [ ! -f "$file" ]; then
         echo "check-surface-entries: $file is missing -- has the layout changed?" >&2
         exit 1
@@ -129,16 +130,57 @@ extract() {
         sort
 }
 
+# The diagram in site/ carries a third copy, and it is the one nobody compiles.
+# Names only, not kind and cost: that page is a drawing of the mechanism rather
+# than a second implementation of it, and each entry there also carries geometry
+# and prose this script has no business having an opinion about. What it must not
+# do is silently show three of five, which is exactly what it did between the
+# release that added `token_status` and 2026-08-24.
+extract_site() {
+    awk '
+        /^const ENTRIES = \[/ { inside = 1; next }
+        inside && /^\];/       { exit }
+        inside && /^[[:space:]]+id:[[:space:]]*.[a-z_]+.,/ {
+            line = $0
+            sub(/^[[:space:]]*id:[[:space:]]*./, "", line)
+            sub(/.,.*$/, "", line)
+            print line
+        }
+    ' "$1" | sort
+}
+
 extract "$server" > "$work/server"
 extract "$cli" > "$work/cli"
+cut -f1 "$work/server" > "$work/server-names"
+extract_site "$site" > "$work/site"
 
 if [ ! -s "$work/server" ]; then
     echo "check-surface-entries: no entries found in $server -- has the list moved?" >&2
     exit 1
 fi
 
+if [ ! -s "$work/site" ]; then
+    echo "check-surface-entries: no entries found in $site -- has the table moved?" >&2
+    exit 1
+fi
+
+if ! cmp -s "$work/server-names" "$work/site"; then
+    echo "check-surface-entries: the diagram in $site draws a different set of entries." >&2
+    echo >&2
+    diff -u "$work/server-names" "$work/site" |
+        sed "s@^---.*@--- $server@; s@^+++.*@+++ $site@" >&2
+    cat >&2 <<'MSG'
+
+Add the missing entry to `ENTRIES` in site/layers.js, with an arc angle that does
+not overlap its neighbours on the same ring, and to `state.entries` beside it.
+An entry that is on the server and not on the page is a diagram that says a
+deployment has fewer decisions to make than it has.
+MSG
+    exit 1
+fi
+
 if cmp -s "$work/server" "$work/cli"; then
-    echo "check-surface-entries: ok ($(wc -l < "$work/server" | tr -d ' ') entries)"
+    echo "check-surface-entries: ok ($(wc -l < "$work/server" | tr -d ' ') entries, and the diagram draws all of them)"
     exit 0
 fi
 

@@ -55,6 +55,30 @@ an API document. That is now written down:
   do: the masking, telling the status codes apart, and not reading an empty listing as an empty
   prefix.
 
+### Added — `site/` becomes a site, and publishes itself the day this repository is public
+
+It was one page — the interactive diagram of the security layers — and it
+is now four with a shared navigation: an overview, an integration page carrying the examples above,
+security notes for whoever writes a consumer, and the diagram. The whole directory is English now,
+including the diagram, which was German; the pages are static, carry the same strict
+Content-Security-Policy as the viewer, and three of the four run no script at all.
+
+Two corrections fell out of re-reading the diagram against the current code, and both were things
+this release itself had made false: `bulk_export`'s cost is one request per path rather than "route B
+cannot fetch at all", and the CI client names `ciphr-ci` rather than a CLI command a runner cannot
+run. **`token_status` and `token_revoke` are drawn now as well** — they were added to the server after
+the diagram was made, so it had been showing three of five entries. `ci/check-surface-entries.sh`
+covers the diagram from here on: it compared the server against the CLI and left the third copy, the
+one nobody compiles, unchecked.
+
+**`.github/workflows/pages.yml` publishes the site, and refuses to while this repository is
+private.** The decision that the site goes online *with* the go-public decision used to be
+implemented by the workflow not existing, which stops working the moment somebody wants the file. It
+is a guard now: the first job asks the API whether the repository is public and the deployment runs
+only if it is — `workflow_dispatch` included. Nothing has to be remembered on the day the visibility
+flips, and nothing publishes early because a branch got pushed. `site/README.md` lists what is still
+manual on that day.
+
 ### Fixed — a job on a default deployment could not fetch at all
 
 `POST /v1/export` is a surface entry and is off unless a deployment names it (ADR-20). Route B and

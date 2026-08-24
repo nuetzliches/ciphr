@@ -1,0 +1,120 @@
+# Publishes `site/` to GitHub Pages — and refuses to do so while this repository
+# is private.
+#
+# ── Why the guard is in the workflow rather than in somebody's memory ────────
+#
+# `site/README.md` records the decision this file implements: the site goes
+# online **with** the decision to make the repository public, not before it. The
+# reason is not secrecy — the pages contain nothing `docs/` does not say, and the
+# threat model explicitly declines to rely on obscurity. It is that every claim
+# on those pages links to `blob/main/…`, and from a private repository each of
+# those links is a 404 for the reader. A published page whose sources nobody can
+# open is the state in which documentation produces confident errors.
+#
+# That decision used to be implemented by the workflow not existing, which is a
+# guard that stops working the moment somebody wants the file. So the file exists
+# and the guard is a job: `visibility` asks the API whether this repository is
+# public, and `publish` runs only if the answer is yes. **Nothing has to be
+# remembered on the day the visibility flips** — and nothing publishes early
+# because a branch got pushed.
+#
+# The check reads the repository rather than the event payload on purpose: it is
+# one API call, it is true at the moment of the run, and it says in one line what
+# it is checking. `workflow_dispatch` goes through the same guard, so a manual
+# run cannot bypass it either.
+#
+# ── Why an Actions workflow rather than a branch source ──────────────────────
+#
+# From a branch, GitHub Pages publishes only `/` or `/docs`. Publishing `/` would
+# put `README.md` and the whole repository through Jekyll; `/docs` would render
+# the documentation, which is written for a reader of the repository and links
+# by relative path. This workflow publishes `site/` and leaves both alone. The
+# artefact route also runs no Jekyll at all, so the pages are served exactly as
+# they are in the tree.
+#
+# Third-party actions are pinned to a commit hash rather than a tag, for the
+# reason `ci.yml` gives: a tag can be moved. The comment after each hash records
+# which release it was.
+name: Publish the site
+
+on:
+  push:
+    branches: ["main"]
+    # Only what is actually served, plus this file. A commit that touches neither
+    # has nothing to publish, and a deployment that runs anyway is a deployment
+    # nobody can attribute to a change.
+    paths:
+      - "site/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deployment at a time, and **not** cancel-in-progress. A half-replaced site
+# is worse than a late one, and these runs are seconds long.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  visibility:
+    name: Is this repository public
+    runs-on: ubuntu-latest
+    outputs:
+      public: ${{ steps.check.outputs.public }}
+    steps:
+      # `gh` is preinstalled on the runner and authenticates with the job token,
+      # so this needs no third-party action pinned into the guard itself.
+      - name: Ask the API, not the memory of whoever pushed
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          private=$(gh api "repos/${{ github.repository }}" --jq .private)
+          if [ "$private" = "false" ]; then
+            echo "public=true" >> "$GITHUB_OUTPUT"
+            echo "The repository is public; the site will be published."
+          else
+            echo "public=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### The site was not published"
+              echo ''
+              echo 'This repository is still private. Every source link on those pages points'
+              echo 'at `blob/main/…`, which is a 404 for anyone who can open the site but not'
+              echo 'the repository — so publishing now would ship a page whose citations lead'
+              echo 'nowhere. See `site/README.md`, section *Publishing*.'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  publish:
+    name: Build and deploy
+    needs: visibility
+    if: needs.visibility.outputs.public == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      # The three Pages needs and nothing else: `pages` to deploy, `id-token` for
+      # the deployment's OIDC handshake, `contents` to read the tree.
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      # `site/` as it is in the tree. There is no build step and there is not
+      # supposed to be one: three of the four pages run no script at all, and the
+      # fourth assembles its diagram in the browser from a table in one file.
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

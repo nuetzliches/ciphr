@@ -1,78 +1,130 @@
-# site/ — die Sicherheitsschichten als Seite
+# site/ — the pages that go online with the repository
 
-**Status:** current as of 2026-08-22, gegen `v0.5.1` (das Panel `honeypot_alert` trägt die am 2026-08-22 verengte Behauptung C11). Die Seite existiert und läuft lokal.
-**Sie ist nicht veröffentlicht**, und der Workflow, der sie veröffentlichen würde, existiert
-absichtlich nicht — siehe *Veröffentlichung* unten.
+**Status:** current as of 2026-08-24. Four pages, three of them written on that date; the fourth is
+the security-layers diagram, which is drawn against `v0.5.1`, carries the complete surface list, and
+says both on itself. The site exists and runs locally. **It is not published, and it publishes
+itself the day this repository becomes public** — see *Publishing* below.
 
-Eine interaktive Darstellung der Sicherheitsschichten: `index.html`, `layers.css`, `layers.js`.
-Drei Dateien, keine Abhängigkeit, kein externer Request. Sie ordnet, was in `docs/` steht; sie ist
-nicht dessen Quelle. Jedes Element verweist auf das Dokument, das die Sache entschieden hat.
+Everything here is English, like the rest of the repository. The three new pages were written that
+way; the diagram was translated from German on 2026-08-24, when the site grew a navigation that would
+otherwise have led from English pages into a German one.
 
-## Ansehen
+## The pages
 
-Das Dokument trägt eine strikte Content-Security-Policy (`default-src 'none'`, kein
-`unsafe-inline`), dieselbe Haltung wie beim Viewer. `'self'` passt bei `file://` nicht, also über
-einen Server öffnen:
+| File | What it is |
+|---|---|
+| `index.html` | The landing page: what the project is, the three questions it answers, the design in one screen, and what it is not. |
+| `integrate.html` | The four consumer routes — a CI job, a container, an application, plain `curl` — with the code for each, the capabilities it needs, and a link to the document that owns the example. |
+| `security.html` | What an integration has to get right: the token, least privilege, masking and where it stops, the transport, the trail, and the three things this design does not defend. |
+| `layers.html` | The interactive diagram of the security layers. `layers.css` and `layers.js` belong to it. |
+| `site.css` | The shell every page shares: the navigation bar, and the prose and code styles the reading pages use. |
+| `favicon.svg` | The tab icon: one centre with boundaries around it — the diagram at 16 pixels. |
+
+No dependency, no build step, and no external request from any page. `layers.html` is the only one
+that runs a script at all; the other three carry `default-src 'none'` with no `script-src`, so nothing
+on them can run.
+
+## Viewing it
+
+Every page carries a strict Content-Security-Policy, the same stance as the viewer. `'self'` does not
+work under `file://`, so open it through a server:
 
 ```sh
-cd site && python -m http.server 8791     # dann http://localhost:8791/
+cd site && python -m http.server 8791     # then http://localhost:8791/
 ```
 
-Zustand steckt in der URL: `?on=viewer_api,bulk_export` zeigt eine Surface-Konfiguration,
-`#band` oder `#cut_root` springt auf ein Element. Ohne Parameter ist es der **Default-Build** —
-das Artefakt, das ein Deployment tatsächlich bekommt.
+On `layers.html` the state is in the URL: `?on=viewer_api,bulk_export` shows a surface configuration,
+and `#band` or `#cut_root` jumps to an element. With no parameter it is the **default build** — the
+artefact a deployment actually gets.
 
-## Was die Darstellung behauptet, und warum sie so gebaut ist
+## What the pages claim, and how they are held to it
 
-Drei Regeln, die die Geometrie tragen. Sie stehen hier, weil eine Änderung an der Grafik, die eine
-davon bricht, keine Layout-Änderung ist, sondern eine inhaltliche.
+**The site orders what is in `docs/`; it is not their source.** Every claim links to the document that
+decided the thing, and where the two ever disagree the document is the one maintained with the
+software. That is also the known weakness of putting examples on a page: the code in
+`integrate.html` is a copy, and nothing in CI compares it to the documents it came from. Whoever
+changes an example in `docs/operations/` should grep this directory for it.
 
-1. **Ringe sind Grenzen mit einem Gate, keine Qualitätsstufen.** Ihre Reihenfolge ist die
-   Reihenfolge, in der ein Request sie kreuzt. Nach außen nimmt nicht die Qualität ab, sondern die
-   Zahl der Parteien zu.
-2. **Crates sind keine Ringe.** Der reviewed core ist ein *Band* über mehrere Ringe, weil das seine
-   Eigenschaft ist: in jedem Build in einer Gestalt (ADR-20 Property 1). Dass es Zentrum, Authz- und
-   Auth-Ring kreuzt und die äußeren nicht, ist die Reichweite des Reviews vom 2026-08-21 — Geometrie
-   als Aussage, nicht als Ästhetik.
-3. **Was keinen Ring kreuzt, wird als Schnitt gezeichnet.** Root auf dem Host und die
-   Build-Pipeline ignorieren die Zwiebel. Eine Zwiebel ohne diese Schnitte wäre Werbung.
+The rules from [`../docs/README.md`](../docs/README.md) apply here too: the pages describe what is
+built, and mark separately what is **designed and not built** (MCP, the severe tripwire tiers) and
+what is **deferred** (ADR-16, `POST /v1/report`). They carry their own dates, and they change in the
+same commit as the statement they present.
 
-Und die Regeln aus [`../docs/README.md`](../docs/README.md) gelten hier genauso: die Seite zeigt,
-was gebaut ist, und markiert getrennt, was **entworfen und nicht gebaut** (MCP, die schweren
-Tripwire-Tiers) und was **zurückgestellt** ist (ADR-16, `POST /v1/report`). Sie trägt ihr eigenes
-Datum, und sie ändert sich im selben Commit wie die Aussage, die sie darstellt.
+**No deployment specifics.** No hostnames, no paths, and not which surface entries *our* instance has
+named. The site describes the product, not an installation — the same separation the product
+documentation keeps.
 
-**Keine deployment-spezifischen Angaben.** Keine Hostnamen, keine Pfade, und nicht, welche
-Surface-Entries *unsere* Instanz benannt hat. Die Seite beschreibt das Produkt, nicht eine
-Installation — dieselbe Trennung, die die Produktdokumentation einhält.
+### Three rules that carry the diagram
 
-## Veröffentlichung
+They are here because a change to the drawing that breaks one of them is not a layout change but a
+change of statement.
 
-**Kein Workflow, und das ist eine Entscheidung, keine Lücke.** Diese Seite geht mit der
-Entscheidung, das Repository öffentlich zu machen, online — nicht vorher und nicht getrennt davon.
+1. **Rings are boundaries with a gate, not quality levels.** Their order is the order in which a
+   request crosses them. Outwards it is not the quality that decreases but the number of parties that
+   increases.
+2. **Crates are not rings.** The reviewed core is a *band* across several rings, because that is its
+   property: one shape in every build (ADR-20 property 1). That it crosses the centre, the authz and
+   the auth ring and not the outer ones is the reach of the review of 2026-08-21 — geometry as a
+   statement, not as decoration.
+3. **What crosses no ring is drawn as a cut.** Root on the host and the build pipeline ignore the
+   onion. An onion without those cuts would be advertising.
 
-Der Grund ist nicht Geheimhaltung: die Grafik enthält nichts, was `docs/` nicht ohnehin sagt, und
-das Threat Model beruft sich ausdrücklich nicht auf Unklarheit. Der Grund ist, dass eine
-veröffentlichte Seite aus einem privaten Repository eine Aussage über ein System wäre, dessen
-Quelle niemand nachlesen kann — jeder Verweis auf `docs/…` und jede Zeilenangabe führt dann ins
-Leere. Das ist genau der Zustand, in dem eine Dokumentation zuversichtliche Fehler produziert.
+### What the diagram was behind on, and what was done about it
 
-Was die go-public-Entscheidung für diese Seite auslöst:
+It was drawn against `v0.5.1` and was re-read on 2026-08-24. Two elements were **corrected** then,
+because the project had made their old text false:
 
-- **Einen Actions-Workflow** (`upload-pages-artifact` / `deploy-pages`) für `site/`. Aus einem
-  Branch veröffentlicht GitHub Pages nur `/` oder `/docs`, und `/docs` würde die Markdown-Doku durch
-  Jekyll schicken. Der Workflow ist der einzige Weg, der `site/` publiziert und `docs/` unberührt
-  lässt. Actions dritter Anbieter werden auf einen Commit-Hash gepinnt, nicht auf einen Tag — wie in
-  `ci.yml` und `release.yml`.
-- **Einen Verweis** aus [`../README.md`](../README.md) und [`../docs/README.md`](../docs/README.md).
-  Bewusst noch nicht gesetzt, solange die Seite nirgends erreichbar ist.
-- **Die Links prüfen.** Alle Quellenverweise zeigen auf `blob/main/…` im Repository. Aus einem
-  privaten Repository sind sie für Fremde 404, und das fällt erst öffentlich auf.
+- `bulk_export`'s cost is one request per path instead of one for all, and no longer "route B cannot
+  fetch at all". The clients fall back since ADR-25.
+- The CI client names `ciphr-ci` as the thing that masks, rather than a CLI command a runner cannot
+  run.
 
-Zwei Absätze, die dieselbe Entscheidung auslöst und die nicht hierher gehören, aber zusammen
-gelesen werden sollten: die Reproduzierbarkeit der Builds in
-[`../docs/threat-model.md`](../docs/threat-model.md) — sie kauft erst etwas, wenn ein Dritter ein
-Image gegen die Quelle nachbauen kann, und das `apt-get install` in der Runtime-Stage des
-`Dockerfile` muss dafür weichen — und die Messlatte für das externe Review in
-[`../docs/security-review.md`](../docs/security-review.md), die mit einem öffentlichen Repository
-wieder auf einen menschlichen Prüfer steigt.
+**The surface list is complete again as of that date.** `token_status` and `token_revoke` were added
+to the server after `v0.5.1` and are now drawn: two arcs on the surface ring at 80° and 56°, each
+with the cost sentence from `crates/ciphr-server/src/surface.rs` and the record that decided it.
+Four entries now sit on that ring in one run from 44° to 140°, abutting rather than overlapping, and
+`honeypot_alert` stays on the auth ring because that is where it adds code.
+
+The rest of the diagram — rings, cuts, clients, the band — is the `v0.5.1` drawing, re-read on
+2026-08-24 and left as it was because it still holds. That is a weaker statement than "verified
+against `v0.10.0`" and is meant to be.
+
+## Publishing
+
+**This site goes online with the decision to make the repository public** — not before it, and not
+separately from it. The reason is not secrecy: the pages contain nothing `docs/` does not say, and the
+threat model explicitly does not rely on obscurity. It is that every claim here links to
+`blob/main/…`, and from a private repository each of those links is a 404 for the reader. A published
+page whose sources nobody can open is exactly the state in which documentation produces confident
+errors.
+
+**Since 2026-08-24 that decision is a guard rather than a missing file.**
+[`../.github/workflows/pages.yml`](../.github/workflows/pages.yml) publishes `site/` on a push that
+touches it — and its first job asks the API whether this repository is public and skips the
+deployment while the answer is no. `workflow_dispatch` goes through the same guard, so a manual run
+cannot get past it either. Nothing has to be remembered on the day the visibility flips, and nothing
+publishes early because a branch got pushed.
+
+It uses the artefact route rather than a branch source: from a branch, GitHub Pages publishes only
+`/` or `/docs`, and `/docs` would send the Markdown documentation through Jekyll. This way `site/` is
+served exactly as it is in the tree and `docs/` is untouched. Actions are pinned to a commit hash
+rather than a tag, as in `ci.yml` and `release.yml`.
+
+What is still to be done by hand, on the day:
+
+- **A link** from [`../README.md`](../README.md) and [`../docs/README.md`](../docs/README.md).
+  Deliberately not set while the site is reachable nowhere.
+- **Checking the links.** Every source reference points at `blob/main/…`. They all resolve in the
+  working tree today — that was checked on 2026-08-24 — but nothing in CI keeps them resolving, and a
+  rename in `docs/` breaks them silently.
+- **The version placeholders in `integrate.html`.** Route A names a tag and a checksum that do not
+  exist until `ciphr-ci` is released. The page says so; a published page should say it or carry the
+  real numbers.
+
+Two paragraphs that the same decision triggers and that do not belong here, but should be read
+together with it: the reproducibility of the builds in
+[`../docs/threat-model.md`](../docs/threat-model.md) — it buys something only once a third party can
+rebuild an image from source, and the `apt-get install` in the runtime stage of the `Dockerfile` has
+to go for that — and the bar for the external review in
+[`../docs/security-review.md`](../docs/security-review.md), which rises back to a human reviewer with
+a public repository.

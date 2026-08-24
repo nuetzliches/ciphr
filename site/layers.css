@@ -1,6 +1,11 @@
-/* ciphr — Sicherheitsschichten. Eine Datei, keine Abhängigkeit, kein externer
-   Request. Farben liegen als Tokens vor, dunkel und hell, weil die Seite in der
-   Umgebung des Lesers erscheint und nicht in unserer. */
+/* ciphr — the security layers. One file, no dependency, no external request.
+   The colours are tokens, dark and light, because the page appears in the
+   reader's environment rather than in ours.
+
+   `site.css` is loaded before this file on that page and carries the shared
+   navigation bar. It defines the same token values; where the two overlap, this
+   file wins, which is the intended order — the geometry here must not change
+   because a shell style changed. */
 
 :root {
   --bg: #0d1014;
@@ -12,13 +17,13 @@
   --text-dim: #97a1ae;
   --text-faint: #67717d;
 
-  --asset: #e0b341;        /* Zentrum: Plaintext und Keymaterial */
-  --gate: #7fb2d9;         /* Ringe mit einem Gate im Code */
+  --asset: #e0b341;        /* centre: plaintext and key material */
+  --gate: #7fb2d9;         /* rings with a gate in the code */
   --gate-soft: #3d5568;
-  --switch: #56b98a;       /* schaltbar */
+  --switch: #56b98a;       /* switchable */
   --band: #c88be0;         /* reviewed core */
-  --cut: #e0655f;          /* Schnitte */
-  --absent: #566070;       /* nicht gebaut, zurückgestellt */
+  --cut: #e0655f;          /* cuts */
+  --absent: #566070;       /* not built, deferred */
 
   --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   --mono: ui-monospace, Cascadia Mono, Menlo, Consolas, monospace;
@@ -59,7 +64,7 @@ body {
   flex-direction: column;
 }
 
-/* ── Kopf ─────────────────────────────────────────────────────────────── */
+/* ── Masthead ─────────────────────────────────────────────────────────────── */
 
 .masthead {
   display: flex;
@@ -92,7 +97,7 @@ body {
 .masthead-links a { color: var(--gate); text-decoration: none; border-bottom: 1px solid transparent; }
 .masthead-links a:hover { border-bottom-color: var(--gate); }
 
-/* ── Rahmen ───────────────────────────────────────────────────────────── */
+/* ── Frame ───────────────────────────────────────────────────────────── */
 
 .frame {
   flex: 1;
@@ -120,7 +125,7 @@ body {
   border: 1px dashed var(--line-strong); color: var(--text-dim);
 }
 
-/* ── Steuerung ────────────────────────────────────────────────────────── */
+/* ── Controls ────────────────────────────────────────────────────────── */
 
 .control-block { padding: 16px 18px; border-bottom: 1px solid var(--line); }
 
@@ -230,7 +235,7 @@ body {
 }
 .panel-close:hover { color: var(--text); border-color: var(--line-strong); }
 
-/* ── Grafik ───────────────────────────────────────────────────────────── */
+/* ── Diagram ───────────────────────────────────────────────────────────── */
 
 .node { cursor: pointer; }
 .node:focus { outline: none; }

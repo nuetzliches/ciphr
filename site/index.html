@@ -1,94 +1,143 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- Kein externer Request, keine Inline-Ausführung. Dieselbe Haltung wie die CSP
-     des Viewers (docs/ui.md), auch wenn diese Seite nichts Geheimes hält:
-     eine Doku-Seite, die eine strikte Policy nicht einhalten kann, ist ein
-     schlechtes Beispiel für ein Projekt, dessen Argument sie darstellt.
-     Wegen 'self' lokal über einen Server öffnen, nicht per file://. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
-<title>ciphr — die Sicherheitsschichten</title>
-<link rel="stylesheet" href="layers.css">
+<!-- No external request, no inline execution, and on this page no script at all:
+     `default-src 'none'` covers script-src, so nothing here can run. The same
+     stance as the viewer's CSP (docs/ui.md). Because of 'self', open it through a
+     server locally rather than over file://. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+<title>ciphr — a secret manager for machine identities</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="site.css">
 </head>
 <body>
 
-<header class="masthead">
-  <div class="masthead-title">
-    <h1>ciphr — die Sicherheitsschichten</h1>
-    <p class="status"><strong>Stand:</strong> 2026-08-21, <code>v0.5.1</code>. Zeigt, was gebaut ist, und markiert, was nicht gebaut oder zurückgestellt ist. Abgeleitet aus <span class="src">docs/threat-model.md</span>, <span class="src">ADR-20</span>, <span class="src">docs/security-review.md</span>, <span class="src">docs/ui.md</span>.</p>
-  </div>
-  <nav class="masthead-links">
-    <a id="repo-link" href="#">Repository</a>
-    <a id="tm-link" href="#">Threat Model</a>
+<header class="site-bar">
+  <a class="site-mark" href="index.html">ciphr <span>/ secrets for machines</span></a>
+  <nav class="site-nav" aria-label="Sections">
+    <a href="index.html" aria-current="page">Overview</a>
+    <a href="integrate.html">Integrate</a>
+    <a href="security.html">Security notes</a>
+    <a href="layers.html">Security layers</a>
+    <a class="site-nav-out" href="https://github.com/nuetzliches/ciphr">Repository</a>
   </nav>
 </header>
 
-<main class="frame">
+<main class="page">
 
-  <aside class="controls" aria-label="Steuerung">
-    <section class="control-block">
-      <h2>Build</h2>
-      <p class="build-readout" id="build-readout"></p>
-      <p class="hint">Der Ausgangszustand ist der <strong>Default-Build</strong> — das Artefakt, das ein Deployment tatsächlich bekommt. Nicht „alles an".</p>
-    </section>
+  <h1>A small secret manager for machine identities</h1>
+  <p class="lede">Key/value secrets, gap-free access auditing, and path-based authorization. The
+  name contains <em>CI</em>: the primary consumer is a build and deploy pipeline, not a human.</p>
 
-    <section class="control-block">
-      <h2>Surface Entries <span class="tag tag-switch">schaltbar</span></h2>
-      <p class="hint">ADR-20. Jeder Eintrag ist aus, bis ein Deployment ihn benennt — mit Datum und Grund, sonst startet der Server nicht.</p>
-      <ul class="switch-list" id="surface-switches"></ul>
-    </section>
+  <p class="status"><strong>Status:</strong> <code>v0.10.0</code> released and usable end to end.
+  The CI-side binary described under <a href="integrate.html">Integrate</a> is built and tested but
+  <strong>not in a release yet</strong>. This page describes what exists and says so where something
+  does not.</p>
 
-    <section class="control-block">
-      <h2>Ebenen</h2>
-      <ul class="switch-list">
-        <li><label><input type="checkbox" id="lens-p4"> <span>Was nie schaltbar werden darf</span></label><span class="switch-note">ADR-20 Property 4 — die geschlossene Liste</span></li>
-        <li><label><input type="checkbox" id="lens-review"> <span>Deckung des Reviews von 2026-08-21</span></label><span class="switch-note">blendet aus, was das Review nicht gelesen hat</span></li>
-        <li><label><input type="checkbox" id="lens-cuts" checked> <span>Schnitte anzeigen</span></label><span class="switch-note">was die Zwiebel nicht darstellen kann</span></li>
-      </ul>
-    </section>
+  <h2>Why it exists</h2>
 
-    <section class="control-block">
-      <h2>Lesart</h2>
-      <ul class="legend">
-        <li><span class="key key-solid"></span> gebaut, nicht schaltbar</li>
-        <li><span class="key key-dashed"></span> Eigenschaft des Deployments, kein Code</li>
-        <li><span class="key key-switch"></span> schaltbar (Surface Entry)</li>
-        <li><span class="key key-absent"></span> nicht gebaut oder zurückgestellt</li>
-        <li><span class="key key-band"></span> reviewed core — ein Band, kein Ring</li>
-        <li><span class="key key-cut"></span> Schnitt: ignoriert jeden Ring</li>
-      </ul>
-      <p class="hint">Ringe sind keine Qualitätsstufen. Jeder Ring ist eine Grenze mit einem Gate; das Label sagt, was geprüft wird. Nach außen nimmt nicht die Qualität ab, sondern die Zahl der Parteien zu.</p>
-    </section>
+  <p>Storing deployment secrets as forge secrets and rendering them into <code>.env</code> files
+  works, and it cannot answer three questions:</p>
 
-    <section class="control-block">
-      <h2>Navigation</h2>
-      <div class="zoom-row">
-        <button type="button" id="zoom-out" aria-label="Herauszoomen">−</button>
-        <button type="button" id="zoom-in" aria-label="Hineinzoomen">+</button>
-        <button type="button" id="zoom-reset">Ansicht zurücksetzen</button>
-      </div>
-      <p class="hint">Ziehen verschiebt, Mausrad zoomt. Tab springt zwischen den Elementen, Enter öffnet eines, Esc schließt.</p>
-    </section>
-  </aside>
+  <ol>
+    <li><strong>Who read which secret, and when?</strong> There is no access log.</li>
+    <li><strong>Can service A's runner reach service B's secrets?</strong> Yes, and nothing prevents
+    it.</li>
+    <li><strong>Where is the authoritative value?</strong> In two places at once — the forge and the
+    host.</li>
+  </ol>
 
-  <div class="stage">
-    <noscript><p class="noscript">Die Grafik wird im Browser aus einer Tabelle von Elementen aufgebaut und braucht dafür JavaScript. Die Inhalte selbst stehen unverkürzt in <code>docs/</code> — die Grafik ordnet sie, sie ist nicht ihre Quelle.</p></noscript>
-    <svg id="canvas" role="application" aria-label="Die Sicherheitsschichten von ciphr als Ringe, Sektoren und Schnitte"></svg>
+  <p>ciphr answers all three. It is deliberately small: key/value secrets, an audit trail, and
+  policies. No PKI, no SSH CA, no dynamic secrets. If those are ever needed,
+  <a href="https://openbao.org/">OpenBao</a> is the right answer rather than this project.</p>
+
+  <h2>The design in one screen</h2>
+
+  <ul>
+    <li><strong>Envelope encryption.</strong> A master key wraps a root key; the root key wraps one
+    data encryption key per secret <em>version</em>. One key encrypts exactly one payload, so nonce
+    reuse cannot occur on a value. Path and version are bound as additional authenticated data, so a
+    ciphertext cannot be moved from one path to another.</li>
+
+    <li><strong>Fail-closed auditing.</strong> If no audit device accepts the record, the request is
+    refused and no secret is served. Entries form a hash chain, so tampering is detectable rather
+    than merely unlikely. A full audit volume is an outage, not a logging gap — which is intended,
+    and needs monitoring.</li>
+
+    <li><strong>Deny by default.</strong> Path-based capabilities with glob matching. Policies come
+    from configuration under version control, not from a write API, so the commit history is itself
+    an audit trail.</li>
+
+    <li><strong>Secrets cannot be logged.</strong> Secret-bearing types implement neither
+    <code>Debug</code>, <code>Display</code> nor <code>Serialize</code>, which makes logging one a
+    compile error rather than a code-review question. This is the main reason the implementation
+    language is Rust.</li>
+
+    <li><strong>Runner-agnostic access.</strong> The API is HTTPS plus a bearer token, so the minimal
+    client is <code>curl</code>. No agent, no plugin, no forge integration required — and for a CI
+    job there is a binary that adds the masking a forge does not do.</li>
+
+    <li><strong>TLS terminates at the service, not at the reverse proxy.</strong> A deviation on
+    purpose: the content of these connections is plaintext secrets, and a compromised container on a
+    shared network is a realistic adversary. The proxy connects over HTTPS with a pinned internal
+    certificate.</li>
+
+    <li><strong>The viewer is a separate container, and read-only.</strong> It cannot write a secret,
+    change a policy or issue a token, and the server has no mode that serves it — so asset handling
+    never runs in the process that holds plaintext.</li>
+  </ul>
+
+  <h2>What it is not</h2>
+
+  <p>A password manager for humans, Bitwarden API compatibility, feature parity with Vault,
+  multi-tenancy, and high availability. Each of those is a recorded decision rather than a gap, and
+  the reasoning for each is in the plan.</p>
+
+  <div class="note is-warn">
+    <h3>The boundary this project does not pretend about</h3>
+    <p>Root on the host reads the master key and process memory. That is a deliberate consequence of
+    choosing unattended startup — an availability decision, not a cryptographic one. The realistic end
+    state is <strong>one secret per host</strong>, not zero, plus an audit trail, plus rotation, plus a
+    bounded blast radius per token.</p>
+    <p>And a secret that has left ciphr is the pipeline's problem: the trail records that a runner read
+    a value, never what it did with it afterwards. <a href="security.html">The security notes</a> say
+    what that means for the code you are about to write.</p>
   </div>
 
-  <aside class="panel" id="panel" aria-live="polite">
-    <div class="panel-empty" id="panel-empty">
-      <h2>Ein Element anklicken</h2>
-      <p>Jedes Ring-, Sektor- und Schnitt-Element trägt hier seinen Text: was das Gate prüft, was es nicht prüft, und welcher Record das entschieden hat.</p>
-      <p class="hint">Was die Zwiebel <em>nicht</em> kann, steht unten links: <strong>root auf dem Host</strong> und die <strong>Build-Pipeline</strong> kreuzen keine Ringe, sie ignorieren sie. Eine Zwiebel ohne diese beiden Schnitte wäre Werbung.</p>
-    </div>
-    <article class="panel-body" id="panel-body" hidden></article>
-  </aside>
+  <h2>Where to go next</h2>
+
+  <ul class="cards">
+    <li class="card">
+      <h3><a href="integrate.html">Integrate</a></h3>
+      <p>The four ways a consumer gets a value — a CI job, a container, an application, plain
+      <code>curl</code> — with the code for each and the capabilities it needs.</p>
+    </li>
+    <li class="card">
+      <h3><a href="security.html">Security notes</a></h3>
+      <p>What the integration has to get right: the token, the masking, least privilege, and the
+      three things this design deliberately does not defend.</p>
+    </li>
+    <li class="card">
+      <h3><a href="layers.html">Security layers</a></h3>
+      <p>The interactive diagram: every ring is a boundary with a gate, every element names the
+      record that decided it, and the two cuts that ignore the rings entirely.</p>
+    </li>
+    <li class="card">
+      <h3><a href="https://github.com/nuetzliches/ciphr/tree/main/docs">Documentation</a></h3>
+      <p>The threat model, the architecture records, the cryptographic design, and the operational
+      procedures for what is hard to undo.</p>
+    </li>
+  </ul>
 
 </main>
 
-<script src="layers.js"></script>
+<footer class="site-foot">
+  <p>Licensed under Apache-2.0 or MIT, at your option. This page orders what is in
+  <code>docs/</code>; it is not their source, and every claim on it links to the document that
+  decided the thing.</p>
+</footer>
+
 </body>
 </html>

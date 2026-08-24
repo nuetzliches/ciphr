@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- No external request, no inline execution. The same stance as the viewer's CSP
+     (docs/ui.md), even though this page holds nothing secret: a documentation page
+     that cannot hold a strict policy is a poor advertisement for the project whose
+     argument it presents. Because of 'self', open it locally through a server
+     rather than over file://. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+<title>ciphr — the security layers</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="site.css">
+<link rel="stylesheet" href="layers.css">
+</head>
+<body>
+
+<header class="site-bar">
+  <a class="site-mark" href="index.html">ciphr <span>/ secrets for machines</span></a>
+  <nav class="site-nav" aria-label="Sections">
+    <a href="index.html">Overview</a>
+    <a href="integrate.html">Integrate</a>
+    <a href="security.html">Security notes</a>
+    <a href="layers.html" aria-current="page">Security layers</a>
+    <a class="site-nav-out" href="https://github.com/nuetzliches/ciphr">Repository</a>
+  </nav>
+</header>
+
+<header class="masthead">
+  <div class="masthead-title">
+    <h1>The security layers</h1>
+    <p class="status"><strong>As of:</strong> 2026-08-24. Drawn against <code>v0.5.1</code>, re-read and corrected against <code>v0.10.0</code> on that date; the surface list is complete as of it. Shows what is built, and marks what is not built or deferred. Derived from <span class="src">docs/threat-model.md</span>, <span class="src">ADR-20</span>, <span class="src">docs/security-review.md</span>, <span class="src">docs/ui.md</span>.</p>
+  </div>
+  <nav class="masthead-links">
+    <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/threat-model.md">Threat model</a>
+    <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/adr/">Records</a>
+  </nav>
+</header>
+
+<main class="frame">
+
+  <aside class="controls" aria-label="Controls">
+    <section class="control-block">
+      <h2>Build</h2>
+      <p class="build-readout" id="build-readout"></p>
+      <p class="hint">The starting state is the <strong>default build</strong> — the artefact a deployment actually gets. Not "everything on".</p>
+    </section>
+
+    <section class="control-block">
+      <h2>Surface entries <span class="tag tag-switch">switchable</span></h2>
+      <p class="hint">ADR-20. Every entry is off until a deployment names it — with a date and a reason, or the server does not start.</p>
+      <ul class="switch-list" id="surface-switches"></ul>
+      <p class="hint"><strong>All five.</strong> The list is the one in <code>crates/ciphr-server/src/surface.rs</code> as of 2026-08-24. Four sit on this ring; <code>honeypot_alert</code> sits on the auth ring, because that is where it adds code.</p>
+    </section>
+
+    <section class="control-block">
+      <h2>Lenses</h2>
+      <ul class="switch-list">
+        <li><label><input type="checkbox" id="lens-p4"> <span>What may never become switchable</span></label><span class="switch-note">ADR-20 property 4 — the closed list</span></li>
+        <li><label><input type="checkbox" id="lens-review"> <span>Coverage of the review of 2026-08-21</span></label><span class="switch-note">hides what that review did not read</span></li>
+        <li><label><input type="checkbox" id="lens-cuts" checked> <span>Show the cuts</span></label><span class="switch-note">what the onion cannot represent</span></li>
+      </ul>
+    </section>
+
+    <section class="control-block">
+      <h2>How to read it</h2>
+      <ul class="legend">
+        <li><span class="key key-solid"></span> built, not switchable</li>
+        <li><span class="key key-dashed"></span> a property of the deployment, not code</li>
+        <li><span class="key key-switch"></span> switchable (surface entry)</li>
+        <li><span class="key key-absent"></span> not built, or deferred</li>
+        <li><span class="key key-band"></span> reviewed core — a band, not a ring</li>
+        <li><span class="key key-cut"></span> a cut: ignores every ring</li>
+      </ul>
+      <p class="hint">Rings are not quality levels. Each ring is a boundary with a gate, and its label says what is checked. Outwards it is not the quality that decreases but the number of parties that increases.</p>
+    </section>
+
+    <section class="control-block">
+      <h2>Navigation</h2>
+      <div class="zoom-row">
+        <button type="button" id="zoom-out" aria-label="Zoom out">−</button>
+        <button type="button" id="zoom-in" aria-label="Zoom in">+</button>
+        <button type="button" id="zoom-reset">Reset the view</button>
+      </div>
+      <p class="hint">Drag to pan, wheel to zoom. Tab moves between elements, Enter opens one, Esc closes it.</p>
+    </section>
+  </aside>
+
+  <div class="stage">
+    <noscript><p class="noscript">The diagram is assembled in the browser from a table of elements and needs JavaScript for that. The content itself is in <code>docs/</code> in full — the diagram orders it, it is not its source.</p></noscript>
+    <svg id="canvas" role="application" aria-label="The security layers of ciphr, as rings, sectors and cuts"></svg>
+  </div>
+
+  <aside class="panel" id="panel" aria-live="polite">
+    <div class="panel-empty" id="panel-empty">
+      <h2>Click an element</h2>
+      <p>Every ring, sector and cut carries its text here: what the gate checks, what it does not check, and which record decided it.</p>
+      <p class="hint">What the onion <em>cannot</em> show is at the bottom left: <strong>root on the host</strong> and the <strong>build pipeline</strong> cross no rings, they ignore them. An onion without those two cuts would be advertising.</p>
+    </div>
+    <article class="panel-body" id="panel-body" hidden></article>
+  </aside>
+
+</main>
+
+<script src="layers.js"></script>
+</body>
+</html>

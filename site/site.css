@@ -1,0 +1,288 @@
+/* ciphr — the shell every page in site/ shares: the masthead, the navigation, and
+   the prose and code styles the reading pages use.
+ *
+ * `layers.css` keeps its own copy of the colour tokens below and is loaded *after*
+ * this file on that page, so the visualisation wins on anything the two both
+ * define. The duplication is deliberate rather than an oversight: that file is a
+ * self-contained rendering of one diagram, and pulling its palette out into a
+ * dependency would make a change to this file able to break the geometry there.
+ * The token *values* are the same set, and they should stay that way.
+ *
+ * No external request from any page here, and no web font: the CSP is
+ * `default-src 'none'`, and a documentation page that cannot hold the policy it
+ * describes is a poor advertisement for the argument it makes. */
+
+:root {
+  --bg: #0d1014;
+  --bg-raised: #14181e;
+  --bg-sunk: #090b0e;
+  --line: #262d36;
+  --line-strong: #3a444f;
+  --text: #dfe4ea;
+  --text-dim: #97a1ae;
+  --text-faint: #67717d;
+
+  --accent: #7fb2d9;
+  --good: #56b98a;
+  --warn: #e0b341;
+  --bad: #e0655f;
+
+  --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  --mono: ui-monospace, Cascadia Mono, Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f7f8fa;
+    --bg-raised: #ffffff;
+    --bg-sunk: #eceff3;
+    --line: #d6dbe2;
+    --line-strong: #aeb7c2;
+    --text: #1b2028;
+    --text-dim: #4d5663;
+    --text-faint: #7b8492;
+
+    --accent: #245c85;
+    --good: #1c7a51;
+    --warn: #8a6104;
+    --bad: #b7332c;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+/* ── The bar every page carries ──────────────────────────────────────────── */
+
+.site-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 22px;
+  padding: 14px 26px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-raised);
+}
+
+.site-mark {
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.site-mark span { color: var(--text-faint); font-weight: 400; }
+
+.site-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin-left: auto;
+}
+
+.site-nav a {
+  color: var(--text-dim);
+  text-decoration: none;
+  padding: 2px 0;
+  border-bottom: 2px solid transparent;
+}
+
+.site-nav a:hover { color: var(--text); }
+
+.site-nav a[aria-current="page"] {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.site-nav .site-nav-out::after {
+  content: " ↗";
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+/* ── Page body ───────────────────────────────────────────────────────────── */
+
+.page {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 34px 26px 90px;
+}
+
+.page.is-wide { max-width: 60rem; }
+
+h1 {
+  font-size: 28px;
+  line-height: 1.25;
+  margin: 0 0 6px;
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  font-size: 20px;
+  margin: 46px 0 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  letter-spacing: -0.01em;
+}
+
+h3 { font-size: 16px; margin: 26px 0 6px; }
+
+p, li { color: var(--text-dim); }
+p strong, li strong { color: var(--text); }
+
+a { color: var(--accent); }
+
+.lede {
+  font-size: 17px;
+  color: var(--text);
+  margin: 0 0 4px;
+}
+
+.status {
+  font-size: 13px;
+  color: var(--text-faint);
+  border-left: 2px solid var(--line-strong);
+  padding-left: 12px;
+  margin: 18px 0 0;
+}
+
+.status strong { color: var(--text-dim); }
+
+code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  background: var(--bg-sunk);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.5px 4px;
+}
+
+pre {
+  background: var(--bg-sunk);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  margin: 12px 0;
+}
+
+pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre;
+}
+
+/* ── Blocks that carry a judgement ───────────────────────────────────────── */
+
+.note {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  background: var(--bg-raised);
+  padding: 12px 16px;
+  margin: 18px 0;
+}
+
+.note.is-warn { border-left-color: var(--warn); }
+.note.is-bad { border-left-color: var(--bad); }
+.note.is-good { border-left-color: var(--good); }
+
+.note p { margin: 0; }
+.note p + p { margin-top: 8px; }
+.note h3 { margin: 0 0 6px; color: var(--text); font-size: 15px; }
+
+.source {
+  font-size: 13px;
+  color: var(--text-faint);
+  margin: 8px 0 0;
+}
+
+.source a { color: var(--text-dim); }
+
+/* ── Tables ──────────────────────────────────────────────────────────────── */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 14px 0;
+  font-size: 14px;
+}
+
+th, td {
+  text-align: left;
+  vertical-align: top;
+  padding: 8px 12px 8px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-dim);
+}
+
+th { color: var(--text); font-weight: 600; }
+
+.table-scroll { overflow-x: auto; }
+
+/* ── Cards, for the two places that route a reader onward ────────────────── */
+
+.cards {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  margin: 18px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  padding: 14px 16px;
+}
+
+.card h3 { margin: 0 0 4px; }
+.card h3 a { text-decoration: none; }
+.card p { margin: 0; font-size: 14px; }
+
+/* ── Route headers on the integration page ───────────────────────────────── */
+
+.route-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin: 6px 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.route-meta li {
+  font-size: 12px;
+  font-family: var(--mono);
+  color: var(--text-dim);
+  background: var(--bg-sunk);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+
+.site-foot {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 0 26px 60px;
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+.site-foot a { color: var(--text-dim); }
