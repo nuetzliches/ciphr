@@ -569,15 +569,22 @@ fn run(cli: Cli) -> Result<(), CliError> {
             // Audited before the write, so a failure to record leaves the store
             // unchanged — the same ordering the server uses.
             session.record(&Session::operator_entry(Action::Write, true, None).with_path(&path))?;
+            // Both decisions before the one write, and one write for both -- finding F13.
+            // A class used to be a second store operation after the version had been
+            // committed, so a failure between them left the value stored and the class
+            // unset, with an error on the way out.
+            if rotation.is_some() {
+                record_classification(&mut session, &path)?;
+            }
 
             let plaintext = Plaintext::from(value);
             let root = &session.root;
-            let version = session.store.put(&path, "cli", &mut |version| {
-                ciphr_crypto::encrypt(root, &path, version, &plaintext)
-            })?;
-            if let Some(class) = rotation {
-                classify(&mut session, &path, class)?;
-            }
+            let version =
+                session
+                    .store
+                    .put_with_rotation(&path, "cli", rotation, &mut |version| {
+                        ciphr_crypto::encrypt(root, &path, version, &plaintext)
+                    })?;
 
             println!("{path} version {version}");
             Ok(())
@@ -1425,10 +1432,26 @@ fn export(cli: &Context, args: &ExportArgs) -> Result<(), CliError> {
 ///
 /// Recorded before the change, like every other mutation here: a failure to record
 /// leaves the store as it was.
+///
+/// **Only the standalone `ciphr rotation` calls this now.** `put --rotation` and
+/// `import --rotation` write the class in the same store transaction as the value
+/// (finding F13 of the review of 2026-08-24), so they take [`record_classification`] and
+/// leave the store write to [`Store::put_with_rotation`]. The entry itself is still
+/// written in exactly one place, which is the drift this function was created to stop.
 fn classify(session: &mut Session, path: &SecretPath, class: Rotation) -> Result<(), CliError> {
-    session.record(&Session::operator_entry(Action::Classify, true, None).with_path(path))?;
+    record_classification(session, path)?;
     session.store.set_rotation(path, class)?;
     Ok(())
+}
+
+/// The audit entry a reclassification produces, without the store write.
+///
+/// Split out so that a write carrying a class records the same entry the standalone
+/// command does while leaving the change itself to one transaction. A second
+/// `operator_entry(Action::Classify, ..)` anywhere in this file is the drift to refuse in
+/// review.
+fn record_classification(session: &mut Session, path: &SecretPath) -> Result<(), CliError> {
+    session.record(&Session::operator_entry(Action::Classify, true, None).with_path(path))
 }
 
 /// `ciphr import --from-dotenv`.
@@ -1475,15 +1498,20 @@ fn import(cli: &Context, args: &ImportArgs) -> Result<(), CliError> {
     let mut session = open(cli)?;
     for (path, value) in targets {
         session.record(&Session::operator_entry(Action::Write, true, None).with_path(&path))?;
+        // As `put --rotation`, and for the same reason: one transaction for the value
+        // and its class (finding F13). An import that failed halfway used to leave rows
+        // whose class nobody had set, in a command whose whole point is bulk.
+        if rotation.is_some() {
+            record_classification(&mut session, &path)?;
+        }
 
         let plaintext = Plaintext::from(value.into_bytes());
         let root = &session.root;
-        session.store.put(&path, "cli:import", &mut |version| {
-            ciphr_crypto::encrypt(root, &path, version, &plaintext)
-        })?;
-        if let Some(class) = rotation {
-            classify(&mut session, &path, class)?;
-        }
+        session
+            .store
+            .put_with_rotation(&path, "cli:import", rotation, &mut |version| {
+                ciphr_crypto::encrypt(root, &path, version, &plaintext)
+            })?;
         println!("{path}");
     }
     Ok(())

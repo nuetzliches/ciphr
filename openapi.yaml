@@ -168,8 +168,16 @@ paths:
         An optional `rotation` carries the class along with the value, so that importing
         an estate over the API does not have to leave every path `unclassified` until
         somebody stops the service to say otherwise. It produces a second audit entry,
-        `classify`, and it is applied after the version exists — a class cannot be
-        recorded for a path that is not there yet.
+        `classify`, beside the `write`.
+
+        **The value and the class are one store transaction**, so this request either
+        establishes both or neither. It used to commit the version and then set the
+        class separately — justified by a class not being recordable for a path that
+        does not exist yet, which is true between two transactions and false inside one.
+        A failure in between left the value stored, the class unset and an error on the
+        wire, and a retry wrote a second version of the same value. Both audit decisions
+        are recorded before the write, and both get a correcting entry under the same
+        request id if it fails.
       requestBody:
         required: true
         content:

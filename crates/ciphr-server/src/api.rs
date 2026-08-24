@@ -667,40 +667,20 @@ async fn write_secret(
 
     state.authorize_and_record(&caller, Action::Write, Capability::Write, &path, &request)?;
 
-    let plaintext = Plaintext::from(body.value.into_bytes());
-    let root = state.root_key();
-    let outcome = state.with_store(|store| {
-        store
-            .put(&path, &caller.identity, &mut |version| {
-                ciphr_crypto::encrypt(root, &path, version, &plaintext)
-            })
-            .map_err(ApiError::from)
-    });
-
-    let version = match outcome {
-        Ok(version) => version,
-        Err(error) => {
-            // The trail already says the write was authorized; this says it did not
-            // happen. Two entries rather than one that over-claims.
-            state.record_outcome(
-                &caller,
-                Action::Write,
-                Some(&path),
-                &request,
-                error.status().as_u16(),
-                Some("write-failed"),
-            )?;
-            return Err(error);
-        }
-    };
-
-    // After the value, because a class cannot be recorded for a path that does not
-    // exist yet -- the store answers `NotFound` for one. The consequence is worth
-    // stating: if the classification fails, the version is already there and the
-    // response is an error, so a caller that retries writes a second version of the
-    // same value. That is the same ordering `ciphr put --rotation` has, and the
-    // alternative -- classifying first -- cannot work for a new path.
-    if let Some(class) = rotation {
+    // **Both decisions before the one mutation, and one mutation for both.** Finding F13
+    // of the review of 2026-08-24. The class used to be a second store write after the
+    // version had been committed, justified by the store answering `NotFound` for a class
+    // on a path that does not exist yet -- true between two transactions, false inside
+    // one. So a failure in the second write left the value stored, the class unset and an
+    // error on the wire: automation reads an HTTP failure as "the requested state was not
+    // established", and here it was established by half, missing the half that *says a
+    // secret is unclassified*. A retry then wrote a second version of the same value.
+    //
+    // Recording the classify decision here rather than after the write keeps the house
+    // rule that the decision precedes the change it authorizes. It costs an entry for a
+    // classification that then does not happen -- which is exactly what the correcting
+    // entry below is for, and what every other write on this route already does.
+    if rotation.is_some() {
         // Through the same evaluator, so the entry carries its own decision and the
         // rule that allowed it. `write` again: this is the capability the field costs.
         state.authorize_and_record(
@@ -710,15 +690,46 @@ async fn write_secret(
             &path,
             &request,
         )?;
-        state.complete_or_record(
-            &caller,
-            Action::Classify,
-            &path,
-            &request,
-            "classify-failed",
-            || state.with_store(|store| store.set_rotation(&path, class).map_err(ApiError::from)),
-        )?;
     }
+
+    let plaintext = Plaintext::from(body.value.into_bytes());
+    let root = state.root_key();
+    let outcome = state.with_store(|store| {
+        store
+            .put_with_rotation(&path, &caller.identity, rotation, &mut |version| {
+                ciphr_crypto::encrypt(root, &path, version, &plaintext)
+            })
+            .map_err(ApiError::from)
+    });
+
+    let version = match outcome {
+        Ok(version) => version,
+        Err(error) => {
+            // The trail already says the write was authorized; this says it did not
+            // happen. Two entries rather than one that over-claims -- and where a class
+            // was named, its decision needs the same correction, because nothing was
+            // written for either. Same request id, so the entries read as one event.
+            state.record_outcome(
+                &caller,
+                Action::Write,
+                Some(&path),
+                &request,
+                error.status().as_u16(),
+                Some("write-failed"),
+            )?;
+            if rotation.is_some() {
+                state.record_outcome(
+                    &caller,
+                    Action::Classify,
+                    Some(&path),
+                    &request,
+                    error.status().as_u16(),
+                    Some("classify-failed"),
+                )?;
+            }
+            return Err(error);
+        }
+    };
 
     Ok(Json(WriteResponse {
         path: path.as_str().to_owned(),

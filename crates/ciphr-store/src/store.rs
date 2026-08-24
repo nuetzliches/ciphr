@@ -139,10 +139,25 @@ pub trait Store {
     /// which would make every stored secret unreadable.
     fn replace_seal(&mut self, state: &SealState) -> Result<(), StoreError>;
 
-    /// Write a new version of a secret.
+    /// Write a new version of a secret, and its rotation class, as one fact.
     ///
     /// The next version number is allocated and handed to `encrypt` inside the
-    /// same transaction that stores the result.
+    /// same transaction that stores the result. `rotation` is applied in that same
+    /// transaction; `None` leaves whatever class the path already had, which for a new
+    /// path is [`Rotation::default`].
+    ///
+    /// **Implementations must make the two atomic**, and that is the whole reason this
+    /// method exists rather than a caller doing a write and then a classification.
+    /// Finding F13 of the review of 2026-08-24: a `PUT` carrying a class used to commit
+    /// the version and then set the class separately, so a failure between them left the
+    /// value stored, the class unset, and an error on the wire. An HTTP failure tells
+    /// automation that the requested state was not established — here it was established
+    /// by half, and the half that was missing is the one that *says a secret is
+    /// unclassified*. Retrying wrote a second version of the same value.
+    ///
+    /// The ordering argument that used to justify the split — that a class cannot be set
+    /// on a path which does not exist yet — is true between two transactions and false
+    /// inside one. That is what made this fixable rather than a trade.
     ///
     /// # Errors
     ///
@@ -150,13 +165,32 @@ pub trait Store {
     /// create; whatever `encrypt` returns, wrapped in [`StoreError::Crypto`];
     /// [`StoreError::VersionOverflow`] if the path has exhausted its version
     /// numbers; or [`StoreError::Sqlite`] on a database error. On any error the
-    /// transaction is rolled back and no version is created.
+    /// transaction is rolled back and **neither** the version nor the class is written.
+    fn put_with_rotation(
+        &mut self,
+        path: &SecretPath,
+        created_by: &str,
+        rotation: Option<Rotation>,
+        encrypt: EncryptForVersion<'_>,
+    ) -> Result<SecretVersion, StoreError>;
+
+    /// Write a new version of a secret, leaving its rotation class alone.
+    ///
+    /// [`Store::put_with_rotation`] with no class, and not separately implemented: the
+    /// two differ by one column, and two implementations would be two chances for the
+    /// atomicity above to hold in one of them.
+    ///
+    /// # Errors
+    ///
+    /// As [`Store::put_with_rotation`].
     fn put(
         &mut self,
         path: &SecretPath,
         created_by: &str,
         encrypt: EncryptForVersion<'_>,
-    ) -> Result<SecretVersion, StoreError>;
+    ) -> Result<SecretVersion, StoreError> {
+        self.put_with_rotation(path, created_by, None, encrypt)
+    }
 
     /// Read a version, or the current one if `version` is `None`.
     ///

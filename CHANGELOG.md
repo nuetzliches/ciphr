@@ -8,6 +8,40 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — a write carrying a rotation class can no longer half-succeed
+
+**F13 of [the full-repository review](docs/assurance/reviews/review-2026-08-24-full-repository.md).**
+A `PUT` with `rotation` — and `ciphr put --rotation`, and `ciphr import --rotation` — committed the
+version and *then* set the class as a second store operation. A failure between them left the value
+stored, the class unset, and an error on the wire. Automation reads an HTTP failure as *the requested
+state was not established*; here it was established by half, and the missing half is the one that
+**says a secret is unclassified**. A retry wrote a second version of the same value.
+
+**The argument that justified the split was true and stopped being relevant.** A class cannot be
+recorded for a path that does not exist yet — between two transactions. Inside one, the path exists by
+the time the class is written. So `Store::put_with_rotation` writes the version and the class in the
+same transaction, on the same statement, and `put` is now that method with no class rather than a
+second implementation of it: two implementations would be two chances for the atomicity to hold in
+only one.
+
+Both audit decisions are recorded **before** the write, keeping the house rule that a decision
+precedes the change it authorizes, and **both** get a correcting entry under the same request id if
+the write fails. Before this, a classification that failed left the `classify` entry standing over a
+class that was never set.
+
+**A write naming no class leaves the existing class alone.** The class is now in the `SET` list of
+every write, so that had to be made explicit rather than assumed — a `COALESCE`, with a test, because
+the alternative reading would have every ordinary `PUT` quietly unclassify a secret somebody had
+classified. That would be a worse defect than the one F13 named.
+
+**The rollback is tested rather than argued.** `crates/ciphr-store/tests/atomicity.rs` installs a
+SQLite trigger through a second connection to abort the statement mid-transaction — real fault
+injection into a real transaction, with no hook in the production code and no mock store. The store
+has had no fault-injection point (the audit side has `AuditKind::Broken`, this side had nothing), and
+that gap was named when F8 went in. Verified to discriminate: against the old two-step shape the test
+fails with the version pointer at 2 instead of 1.
+
+Nothing changes on the wire, and nothing migrates.
 ### Fixed — an export had no bounds, and paid for a malformed request before refusing it
 
 **F5 of [the full-repository review](docs/assurance/reviews/review-2026-08-24-full-repository.md).**

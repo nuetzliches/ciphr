@@ -1,6 +1,6 @@
 # Rotating secrets that do not want to be rotated
 
-**Status:** current as of 2026-08-22. The classification is implemented, stored, readable and
+**Status:** current as of 2026-08-24. The classification is implemented, stored, readable and
 filterable from the CLI, returned by the API, settable over the API since 2026-08-21, filterable
 over the API since 2026-08-21, and shown by the viewer.
 
@@ -168,11 +168,16 @@ Setting it needs `write` on the path and nothing more — the class is metadata 
 authorization decision, so naming what a value is safe for is not a broader privilege than setting
 the value.
 
-Two things to know when it is used against a service somebody else deploys. The class is applied
-*after* the version exists, so a failed classification leaves the value written and answers with an
-error — a retry then writes a second version of the same value. And a service older than the field
-ignores it the way any unknown property is ignored, in silence: one `GET /v1/versions/{path}` after
-the first import confirms the field arrived, rather than an estate quietly staying `unclassified`.
+One thing to know when it is used against a service somebody else deploys: a service older than the
+field ignores it the way any unknown property is ignored, in silence. One `GET /v1/versions/{path}`
+after the first import confirms the field arrived, rather than an estate quietly staying
+`unclassified`.
+
+**The value and the class are stored together, in one transaction**, so the request establishes both
+or neither. Until the review of 2026-08-24 the class was applied *after* the version existed, so a
+failed classification left the value written and answered with an error — and a retry wrote a second
+version of the same value. That is fixed, and it matters most where it used to hurt: during exactly
+the store failures where an operator needs the state to be what the response says it is.
 
 ## Who changed the classification, and when
 
