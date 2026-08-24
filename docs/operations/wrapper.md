@@ -185,6 +185,32 @@ the error names the path that was refused. The wrapper still `exec`s nothing in 
 Naming the entry is still worth doing where a service has many secrets: it is one request instead of
 one per path, at container start, which is when a service is waiting.
 
+## A name can decide how the service starts, and those names are refused
+
+Since 2026-08-24, F4 of [the full-repository review](../review-2026-08-24-full-repository.md).
+
+The variable name is the last path segment, and with `--prefix` the set of names is whatever the store
+holds when the fetch runs. So an identity holding `write` on that prefix does not only choose what the
+service reads — it chooses **variable names**, and a few names are read by the loader or by a language
+runtime *before* the program's own code runs. `LD_PRELOAD` and the rest of `LD_*`, `DYLD_*`,
+`NODE_OPTIONS`, `PYTHONPATH`, `PYTHONSTARTUP`, `RUBYOPT`, `PERL5OPT`, `BASH_ENV`, `JAVA_TOOL_OPTIONS`,
+`PATH`, `IFS`.
+
+The wrapper refuses those names now: **exit 125, nothing executed**, and the message names the
+variable and says why it is different from a password. If a deployment genuinely needs such a variable,
+it belongs in the container definition — where it is a line somebody reviewed — rather than in the
+store.
+
+**What that is worth, and what it is not.** Most of those names need a file inside the image to be
+useful, so the practical case is narrower than it sounds. `NODE_OPTIONS` is the exception worth
+knowing: `--inspect=0.0.0.0:9229` opens a debugger port and needs no file at all, which is the same
+mechanism that made GitHub Actions stop letting a workflow set environment variables through a log
+directive.
+
+**And a denylist is incomplete.** Every runtime has an option variable and this list cannot keep up
+with images this project does not own. It removes the names an attacker reaches for first; what
+actually bounds the problem is the next section.
+
 ## `--path` or `--prefix`
 
 `--prefix` needs `list` as well as `read` and takes whatever exists under the prefix at that moment;

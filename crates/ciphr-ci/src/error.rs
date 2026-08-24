@@ -65,6 +65,13 @@ pub(crate) enum CiError {
     },
     /// The set could not be rendered: no usable variable names, or no usable delimiter.
     Render(ExportError),
+    /// A fetched secret is named after a variable that decides how a process starts.
+    ProcessControlName {
+        /// The variable name. A path segment, not a secret.
+        name: String,
+        /// Why it is refused, in words.
+        reason: &'static str,
+    },
     /// A prefix produced nothing, which is two causes with one shape on the wire.
     NothingUnderPrefix {
         /// The prefix that produced nothing.
@@ -143,6 +150,10 @@ impl fmt::Display for CiError {
                  stored it"
             ),
             Self::Render(error) => write!(formatter, "{error}"),
+            Self::ProcessControlName { name, reason } => write!(
+                formatter,
+                "refusing to deliver {name}: {reason}, so a secret named after it would                  decide how the steps after this one run rather than what they read.                  Nothing was fetched and nothing was written. If this job genuinely needs                  that variable, set it in the workflow, where it is a line somebody                  reviewed"
+            ),
             Self::NothingUnderPrefix { prefix } => write!(
                 formatter,
                 "nothing is visible under {prefix}: either there is nothing there, or this \

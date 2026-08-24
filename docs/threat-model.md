@@ -44,6 +44,28 @@ database, the CLI, the optional read-only UI, and the optional MCP server.
 | A8 | LLM client at the MCP server | A valid token, but responses flow into model context and provider logs | Plaintext only through an opt-in capability on narrow paths, metadata by default; MCP context marked in the audit trail |
 | A9 | Anonymous reporter at `POST /v1/report` | Unauthenticated requests carrying a candidate secret value, and whatever volume they can generate | Identical response for a match and a miss, so the endpoint is no oracle; size and rate limits applied before the audit write and before the store lock; one monotonic metadata write per matched version, read by nothing that makes a decision; no path to any tripwire tier above `alert`; off unless a deployment enables it |
 
+### What `write` on a fetched prefix is worth (A6, and A3 where a runner may write)
+
+Added 2026-08-24, F4 of [the full-repository review](review-2026-08-24-full-repository.md).
+
+The environment variable name of a secret is its last path segment (ADR-18). Where a consumer fetches
+a **prefix**, the set of names is whatever the store holds at that moment — so an identity with
+`write` on that prefix chooses variable names for the consuming service, and a few names are read by
+the loader or by a language runtime *before* the program's own code runs. Write access to such a
+prefix was, in effect, close to code execution as the consumer.
+
+`ciphr-run` and `ciphr-ci` refuse those names now, and the list is in
+`crates/ciphr-core/src/process_env.rs` with the reasoning beside it. **Two things about that are
+worth stating rather than implying.** A denylist cannot be complete across runtimes and images this
+project does not own, so what it removes is the names an attacker reaches for first — `NODE_OPTIONS`
+being the one that needs no file in the image to be useful. And the property that actually bounds the
+problem is not the list: it is naming the paths. With `--path` or `paths:`, the set is what the
+deployment wrote down, and a secret somebody adds afterwards is not fetched at all.
+
+So the rule for a policy is the one this document implied and now says: **`write` on a prefix that
+something fetches is a strong grant.** Give it to the identity that provisions those secrets, and not
+to one that merely has business writing somewhere nearby.
+
 ### What a reader of the database file actually gets (A4)
 
 Corrected 2026-08-24, F10 of [the full-repository review](review-2026-08-24-full-repository.md). This

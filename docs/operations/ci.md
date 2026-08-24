@@ -202,6 +202,23 @@ that belong to the prefix form alone:
 - **Somebody else's new secret can break this job.** The name is the last path segment, so a secret
   added for a neighbouring service under the same prefix can make the next run refuse on a collision.
 
+## A name can decide how the next steps run, and those names are refused
+
+Since 2026-08-24, F4 of [the full-repository review](../review-2026-08-24-full-repository.md). The
+same rule as the wrapper's, and it bites harder here: `$GITHUB_ENV` sets variables for **every step
+that follows**, not for one program. That is the shape of CVE-2020-15228 — the reason GitHub Actions
+stopped letting a workflow set variables through a log directive.
+
+`ciphr-ci` refuses a fetched secret whose name is read by a loader or a runtime before the program
+starts: `LD_*`, `DYLD_*`, `NODE_OPTIONS`, `PYTHONPATH`, `PYTHONSTARTUP`, `RUBYOPT`, `PERL5OPT`,
+`BASH_ENV`, `JAVA_TOOL_OPTIONS`, `PATH`, `IFS`. **Before the fetch**, so a set that will be refused
+costs no reads and leaves no audit entries — and nothing is written to the environment file.
+
+With `paths:` the names are the ones the workflow lists, so this can only fire on something the
+workflow itself asked for. With `prefix:` the names come from the store, which is exactly the case the
+rule exists for: whoever may write under that prefix would otherwise choose an environment variable
+name for every later step of the job.
+
 ## What a failure looks like
 
 **Exit `1`, a message on standard error, and nothing written.** One code for every failure this

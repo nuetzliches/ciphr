@@ -8,6 +8,35 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — a secret name can no longer decide how a process starts
+
+**F4 of [`docs/review-2026-08-24-full-repository.md`](docs/review-2026-08-24-full-repository.md).**
+The variable name of a secret is its last path segment (ADR-18), and where a consumer fetches a
+**prefix**, the set of names is whatever the store holds at that moment. So an identity holding
+`write` on that prefix did not only choose what a service reads — it chose environment variable
+names, and a few names are read by the loader or a language runtime *before* the program runs.
+`write` was close to `exec`.
+
+`ciphr-run` and `ciphr-ci` refuse those names now: `LD_*`, `DYLD_*`, `NODE_OPTIONS`, `PYTHONPATH`,
+`PYTHONSTARTUP`, `RUBYOPT`, `PERL5OPT`, `BASH_ENV`, `JAVA_TOOL_OPTIONS`, `PATH`, `IFS` and a few
+more. The wrapper exits `125` with nothing executed; `ciphr-ci` refuses **before the fetch**, so a set
+that will be refused costs no reads and leaves no audit entries. Both messages name the variable and
+say why it is not like a password, because "refused" alone reads as a bug in the tool.
+
+**The rule is not in the naming rule.** ADR-18 answers "is this a name a shell can read" and keeps
+one answer for four consumers; this is a different question — "may a name somebody else chose decide
+how a process starts" — and it lives in its own module, applied only where a fetched set becomes a
+process environment. `ciphr export` is deliberately exempt: it writes a `.env` file for a human to
+place, and refusing a name there would refuse a corpus somebody is migrating.
+
+**Two limits, stated rather than implied.** A denylist cannot be complete across runtimes and images
+this project does not own — what it removes is the names an attacker reaches for first, with
+`NODE_OPTIONS` the one that needs no file in the image (`--inspect` opens a debugger port; the same
+mechanism behind CVE-2020-15228). And what actually bounds the problem is naming the paths: with
+`--path` or `paths:` a secret added afterwards is not fetched at all. The threat model now says both,
+and says that `write` on a fetched prefix is a strong grant.
+
+
 ### Fixed — a tag name could become shell in a job that publishes
 
 **F1 of [`docs/review-2026-08-24-full-repository.md`](docs/review-2026-08-24-full-repository.md), and
