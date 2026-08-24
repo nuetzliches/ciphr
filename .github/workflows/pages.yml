@@ -70,9 +70,10 @@ jobs:
         id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          private=$(gh api "repos/${{ github.repository }}" --jq .private)
+          private=$(gh api "repos/$REPOSITORY" --jq .private)
           if [ "$private" = "false" ]; then
             echo "public=true" >> "$GITHUB_OUTPUT"
             echo "The repository is public; the site will be published."

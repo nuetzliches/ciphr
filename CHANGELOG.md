@@ -8,6 +8,29 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — a tag name could become shell in a job that publishes
+
+**F1 of [`docs/review-2026-08-24-full-repository.md`](docs/review-2026-08-24-full-repository.md), and
+the highest-severity finding in it.** The release workflows wrote `ref='${{ github.ref }}'` into a
+shell script. That is not a variable and not an argument: the expression is substituted **before** the
+shell parses the line, so the value becomes program text — and shell quotes do not escape it, because
+a value containing an apostrophe closes the quote and everything after it is syntax. Git accepts an
+apostrophe in a ref name, and the review checked that rather than assuming it.
+
+The jobs that received it hold package-write credentials. So a repository writer who could create a
+tag — an ability that does not otherwise imply publishing anything — could run commands in the job
+that publishes images and release assets.
+
+Every value now goes through the step's `env:` and is read as a shell variable, and the derived
+version is validated against `X.Y.Z` before it reaches an image tag or an asset name. **The rule is
+enforced rather than remembered:** `ci/check-workflow-interpolation.sh` fails on any `${{` inside a
+`run:` — block scalar or one-liner — in any workflow. Mechanically, without judging which expressions
+are attacker-selectable: a gate that has to argue about that is a gate that argues on every change,
+and `env:` costs two lines.
+
+The Forgejo workflows the review also named were deleted earlier the same day for an unrelated reason.
+
+
 ### Fixed — two places where the software claimed more than it does
 
 Both from [`docs/review-2026-08-24-full-repository.md`](docs/review-2026-08-24-full-repository.md),
