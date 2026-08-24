@@ -1,6 +1,6 @@
 # Upgrading
 
-**Status:** current as of 2026-08-23, covering every released version up to `0.10.0`.
+**Status:** current as of 2026-08-24, covering every released version up to `0.11.0`.
 
 The changelog says what changed. This says what to *do* about it, and it exists because the two are
 not the same document: a changelog entry sinks under the next release, while the person upgrading two
@@ -91,6 +91,83 @@ rather than a report somebody remembers to read:
 A review host wants to fail on `1` and `2` and to accept `3`; the host itself wants `0` and nothing
 else ([field-report-2026-08-23.md](../field-report-2026-08-23.md), finding 1, and
 [field-report-2026-08-23-b.md](../field-report-2026-08-23-b.md), finding 1).
+
+## 0.11.0
+
+Two things to do, and both come from
+[the full-repository review of 2026-08-24](../review-2026-08-24-full-repository.md). Nothing migrates:
+the schema stays at 6, no route changed, no capability changed, no default moved.
+
+### The `sqlite` audit device is required, and the server refuses to start without it
+
+**Do this before upgrading.** Look at the `[[audit]]` stanzas in the server configuration. If none of
+them is `type = "sqlite"`, add one:
+
+```toml
+[[audit]]
+type = "sqlite"
+```
+
+A file device beside it stays exactly as it is. It is a second copy on separate storage, which is the
+reason to run both.
+
+**Why, and it is worse than a missing check.** The chain head a restart resumes from is read from the
+store and from nowhere else. A configuration with only a file device was accepted — and then resumed
+from a table its records had never reached, while the file device appends without reading what it is
+appending after. Every restart therefore began a *new* chain in the same file: a run whose `prev_hash`
+names a record that is not the line above it. That is what a truncated or rewritten trail looks like,
+produced by starting the service, against the one asset this project calls protected in its own right.
+
+**If a deployment ran file-only**, that file already contains more than one chain, and
+[audit-trail.md](audit-trail.md) says what that looks like when verifying. The upgrade does not repair
+it and cannot: the missing records were never written anywhere else.
+
+**What the refusal looks like:**
+
+```
+the `sqlite` audit device is required and is not configured. The chain head a
+restart resumes from is read from the store, so a configuration without it
+starts a second chain in whatever devices it does have …
+```
+
+Refusing is the smaller of the two honest fixes. The other is to read each durable device's own head
+at startup and require them to agree, and the code says when that becomes worth building (F3).
+
+### `ciphr-run` and `ciphr-ci` refuse a secret named after a process-control variable
+
+**Check this if anything fetches by prefix.** The variable name of a secret is its last path segment,
+so a set fetched with `--prefix` or `prefix:` takes its names from whatever the store holds. These
+names are refused now:
+
+`LD_*`, `DYLD_*`, `NODE_OPTIONS`, `NODE_REPL_EXTERNAL_MODULE`, `PYTHONPATH`, `PYTHONHOME`,
+`PYTHONSTARTUP`, `PYTHONWARNINGS`, `RUBYLIB`, `RUBYOPT`, `PERL5LIB`, `PERL5OPT`, `BASH_ENV`, `ENV`,
+`JAVA_TOOL_OPTIONS`, `_JAVA_OPTIONS`, `JDK_JAVA_OPTIONS`, `GLIBC_TUNABLES`, `GCONV_PATH`,
+`MALLOC_CONF`, `PATH`, `IFS`.
+
+A deployment that fetches one of them gets exit `125` from the wrapper with nothing executed, or exit
+`1` from `ciphr-ci` with nothing fetched and nothing written. **The listing above is the whole check**,
+so a `ciphr list <prefix>` answers whether this release will refuse anything — and it runs read-only
+against a live service.
+
+**Why.** Those names are read by the dynamic loader or by a language runtime *before* the program's
+own code runs, so an identity holding `write` on a fetched prefix was choosing how the consuming
+service starts rather than what it reads. `NODE_OPTIONS` is the one that needs nothing else:
+`--inspect=0.0.0.0:9229` opens a debugger port (F4).
+
+**If a deployment genuinely needs such a variable**, set it in the container definition or the
+workflow, where it is a line somebody reviewed, and not in the store.
+
+### Two things that change and ask nothing
+
+**The images are manifest lists now.** `<image>:0.11.0` resolves to an amd64 or an arm64 image
+depending on the host. A deployment that pins a digest keeps working; the digest to pin from here on
+is the one the release summary prints, which is the index rather than one architecture. Pulling by tag
+is unchanged.
+
+**The wrapper has two assets.** `ciphr-run-x86_64-unknown-linux-musl` is unchanged and
+`ciphr-run-aarch64-unknown-linux-musl` is new beside it, each with its own checksum. A fetch script
+written against the existing name needs no edit — that name was qualified in `0.7.0` precisely so that
+this release could add to it rather than rename it.
 
 ## 0.10.0
 

@@ -1,6 +1,6 @@
 # Threat model
 
-**Status:** current as of 2026-08-24, `v0.10.0` released, phases 0-3, 7 and 8 in it. The adversaries and boundaries are settled. **A3 gains an optional detection** rather than
+**Status:** current as of 2026-08-24, `v0.11.0` released, phases 0-3, 7 and 8 in it. The adversaries and boundaries are settled. **A3 gains an optional detection** rather than
 a new defence: the `honeypot_alert` entry (ADR-15, ADR-20) is absent from a default build, and where a
 deployment turns it on, taking bait is a signal that needs no interpretation. The boundary itself does
 not move — a compromised runner still holds a valid token and still reads what its policy allows. The cryptographic, storage, authorization, audit and transport defences
