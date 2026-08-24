@@ -75,7 +75,7 @@ Three commitments keep that option real:
    `ciphr-core` before the first production use.** Those crates *are* the project; everything else is
    packaging. Self-review is not sufficient, and if no review can be arranged, that in itself is an
    argument for falling back to OpenBao. **Done on 2026-08-21**
-   ([`review-2026-08-21.md`](review-2026-08-21.md)), by an AI model rather than a human practitioner
+   ([`review-2026-08-21.md`](assurance/reviews/review-2026-08-21.md)), by an AI model rather than a human practitioner
    — a qualified yes on fitness, its two blocking findings fixed, and nothing that touched the exit
    condition: no finding put the envelope scheme or the evaluator in question.
 3. **No feature creep towards Vault.** PKI, SSH certificate authorities, KMIP, and high availability

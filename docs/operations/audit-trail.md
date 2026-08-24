@@ -76,7 +76,7 @@ Two operational consequences, both intended:
 - **The server refuses to start with no audit device configured.** A secret store without an audit
   trail is a configuration error in this project, not an operating mode.
 - **And it refuses to start without the SQLite device specifically** (since 2026-08-24, F3 of
-  [the full-repository review](../review-2026-08-24-full-repository.md)). The chain head a restart
+  [the full-repository review](../assurance/reviews/review-2026-08-24-full-repository.md)). The chain head a restart
   resumes from is read from the store and from nowhere else. A file-only configuration was accepted
   before that date and did something worse than fail: every restart began a *second* chain in the same
   file, with a `prev_hash` naming a record that is not the line above it. A trail that looks rewritten,

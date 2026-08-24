@@ -129,7 +129,7 @@ impl core::error::Error for CredentialError {}
 
 /// Open a credential file **once**, and inspect the file that was actually opened.
 ///
-/// **Check-then-open was the defect** (F10 of `docs/review-2026-08-21-current-tree.md`,
+/// **Check-then-open was the defect** (F10 of `docs/assurance/reviews/review-2026-08-21-current-tree.md`,
 /// issue #13). Both callers — the master key file in `ciphr-crypto`, the token file in
 /// `ciphr-run` — used to call `metadata(path)` and then `read_to_string(path)`: two
 /// resolutions of one name, with a window between them. Whoever can create entries in the

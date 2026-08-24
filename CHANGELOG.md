@@ -8,6 +8,35 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Changed — review records and field reports moved to `docs/assurance/`
+
+The eleven dated snapshots — six reviews, five field reports — now live under
+`docs/assurance/reviews/` and `docs/assurance/field-reports/`, with an index at
+[`docs/assurance/README.md`](docs/assurance/README.md). **Every old `docs/review-*.md` and
+`docs/field-report-*.md` path is gone**, with no pointer left behind; the links in this file are
+rewritten so they still resolve, and the released sections are otherwise untouched.
+
+The top level of `docs/` was nineteen files, eleven of which were snapshots of a tree on a given day
+sitting beside the documents that describe the system as it is now. A filename told a reader that a
+record was dated; the directory did not tell them whether it was current guidance or evidence. It is
+eight files now, and the distinction is a path.
+
+**Two documentation gates gain the snapshot directories as exemptions, and that is the part that is
+not cosmetic.** `ci/check-doc-dates.sh` requires a document's status date to move when the document
+changes — correct for a page claiming to be current, wrong for a record whose date says when somebody
+read a tree. `ci/check-doc-commands.sh` requires a documented command to exist — correct for a
+runbook, wrong for a field report quoting what was actually run against the version it names. Both
+already made these exceptions for `docs/adr/`, for the same reason. Before this change the snapshots
+escaped by accident rather than by decision: most of them happen to write `**Reviewed:**` instead of
+`**Status:**`, and `review-0.5.1-2026-08-21.md`, which does not, was in scope the whole time. An
+exemption that depends on which heading an author picked is a coincidence, so it is a path rule now.
+`docs/assurance/README.md` is deliberately *not* exempt from either: it is a maintained index.
+
+Nothing about the software changes. The references in `crates/` are comments recording which finding
+produced a line of code, and they are plain text rather than intra-doc links, so no documentation
+build was ever able to catch them drifting — they were updated by hand and verified with a
+link-resolution sweep over every Markdown file in the repository.
+
 ### Fixed — the release job that attaches the wrapper could not read the image it had just published
 
 `v0.11.0` published both images and both manifest lists, created the release, and attached both
@@ -32,7 +61,7 @@ symptom on one deployment's terms and leave the job broken for anyone who publis
 ## [0.11.0] — 2026-08-24
 
 **The release that answers a full-repository review — and the first one that refuses a configuration
-which used to start.** [`docs/review-2026-08-24-full-repository.md`](docs/review-2026-08-24-full-repository.md)
+which used to start.** [`docs/assurance/reviews/review-2026-08-24-full-repository.md`](docs/assurance/reviews/review-2026-08-24-full-repository.md)
 read every crate, the viewer, the images, the automation and the documentation, and produced fourteen
 findings. **All four it called high are fixed here**, together with two of the medium ones. The review
 is in the repository, including what it could not run and what it does not prove.
@@ -60,7 +89,7 @@ satisfy point 1, nothing else: `0.10.0` accepts that configuration too.
 
 ### Fixed — a secret name can no longer decide how a process starts
 
-**F4 of [`docs/review-2026-08-24-full-repository.md`](docs/review-2026-08-24-full-repository.md).**
+**F4 of [`docs/assurance/reviews/review-2026-08-24-full-repository.md`](docs/assurance/reviews/review-2026-08-24-full-repository.md).**
 The variable name of a secret is its last path segment (ADR-18), and where a consumer fetches a
 **prefix**, the set of names is whatever the store holds at that moment. So an identity holding
 `write` on that prefix did not only choose what a service reads — it chose environment variable
@@ -89,7 +118,7 @@ and says that `write` on a fetched prefix is a strong grant.
 
 ### Fixed — a tag name could become shell in a job that publishes
 
-**F1 of [`docs/review-2026-08-24-full-repository.md`](docs/review-2026-08-24-full-repository.md), and
+**F1 of [`docs/assurance/reviews/review-2026-08-24-full-repository.md`](docs/assurance/reviews/review-2026-08-24-full-repository.md), and
 the highest-severity finding in it.** The release workflows wrote `ref='${{ github.ref }}'` into a
 shell script. That is not a variable and not an argument: the expression is substituted **before** the
 shell parses the line, so the value becomes program text — and shell quotes do not escape it, because
@@ -112,7 +141,7 @@ The Forgejo workflows the review also named were deleted earlier the same day fo
 
 ### Fixed — two places where the software claimed more than it does
 
-Both from [`docs/review-2026-08-24-full-repository.md`](docs/review-2026-08-24-full-repository.md),
+Both from [`docs/assurance/reviews/review-2026-08-24-full-repository.md`](docs/assurance/reviews/review-2026-08-24-full-repository.md),
 and both the same shape: a sentence that was stronger than the code under it.
 
 **F11: a malformed `.env` line reached stderr.** `ciphr import` quoted the first 24 characters of a
@@ -136,7 +165,7 @@ write backups into a directory that is already private until it is fixed.
 
 ### Fixed — a file-only audit configuration started a second chain on every restart
 
-**F3 of [`docs/review-2026-08-24-full-repository.md`](docs/review-2026-08-24-full-repository.md), and
+**F3 of [`docs/assurance/reviews/review-2026-08-24-full-repository.md`](docs/assurance/reviews/review-2026-08-24-full-repository.md), and
 a breaking configuration change.** The server required *an* audit device and not the SQLite one, while
 startup resumed the chain from `store.audit_chain()` — the store, and nothing else. A deployment with
 only a file device therefore resumed from a table its records had never reached, and the file device
@@ -161,7 +190,7 @@ verifying.
 
 ### Fixed — a stale store lock could be taken over by two processes at once
 
-**F2 of [`docs/review-2026-08-24-full-repository.md`](docs/review-2026-08-24-full-repository.md).**
+**F2 of [`docs/assurance/reviews/review-2026-08-24-full-repository.md`](docs/assurance/reviews/review-2026-08-24-full-repository.md).**
 The lock was the lock *file* and nothing else, so every operation on it acted on a pathname rather
 than on a holder. Two processes could both read the same dead holder and both classify it as stale;
 the first removed it and created its own, and the second then carried out the removal it had already
@@ -518,13 +547,13 @@ needs it.
 service worker controls its page.
 
 All of it answers
-[`docs/field-report-2026-08-23-b.md`](docs/field-report-2026-08-23-b.md) — three findings, all of them
+[`docs/assurance/field-reports/field-report-2026-08-23-b.md`](docs/assurance/field-reports/field-report-2026-08-23-b.md) — three findings, all of them
 about a report that was read rather than acted on. **What to do rather than know is in
 [`docs/operations/upgrade.md`](docs/operations/upgrade.md), section `0.10.0`.**
 
 ### Fixed — the viewer refuses to mount while a service worker controls its page (`ui-v0.3.1`)
 
-**Finding F4 of [`docs/review-2026-08-21-current-tree.md`](docs/review-2026-08-21-current-tree.md),
+**Finding F4 of [`docs/assurance/reviews/review-2026-08-21-current-tree.md`](docs/assurance/reviews/review-2026-08-21-current-tree.md),
 and issue #10.** `main.ts` started unregistering existing service workers and mounted immediately —
 two mistakes. The cleanup is asynchronous, so the app could issue `/v1` requests while a worker was
 still installed; and unregistering does not end a worker's control of a page that is already loaded,
@@ -565,7 +594,7 @@ unreachable is the same class of quiet as a stanza that was forgotten.
 **Not a refusal, and the exit code is unchanged:** naming the entry before its identity exists is a
 legitimate order of work. `honeypots.md` step 3 and `upgrade.md`'s `token_revoke` note now say to issue
 that token before the incident that needs it. From
-[`docs/field-report-2026-08-23-b.md`](docs/field-report-2026-08-23-b.md), finding 3.
+[`docs/assurance/field-reports/field-report-2026-08-23-b.md`](docs/assurance/field-reports/field-report-2026-08-23-b.md), finding 3.
 
 ### Changed — `--check-config` has an exit code for "the files are usable, this host is not"
 
@@ -582,7 +611,7 @@ stays the usage error, `0` is unchanged. **The precedent is this project's own, 
 about something other than what the caller asked — and the two commands now agree on what `3` means.
 
 Anything branching on this command's status wants a look; the table is in `upgrade.md`, section
-`0.10.0`. From [`docs/field-report-2026-08-23-b.md`](docs/field-report-2026-08-23-b.md), finding 1.
+`0.10.0`. From [`docs/assurance/field-reports/field-report-2026-08-23-b.md`](docs/assurance/field-reports/field-report-2026-08-23-b.md), finding 1.
 
 ### Fixed — an audit device that cannot be opened names the requirement, not only the OS error
 
@@ -595,7 +624,7 @@ shape the rest of this project's messages have.
 The behaviour is unchanged and is the defensible half: the device is checked by opening it the way it
 will be opened. `ciphr`'s own file device carried the same sentence and got the same clause, naming
 the user running the command rather than the service user. From
-[`docs/field-report-2026-08-23-b.md`](docs/field-report-2026-08-23-b.md), finding 2.
+[`docs/assurance/field-reports/field-report-2026-08-23-b.md`](docs/assurance/field-reports/field-report-2026-08-23-b.md), finding 2.
 
 ## [0.9.0] — 2026-08-23
 
@@ -731,7 +760,7 @@ The surface list therefore has a fourth entry, so `--check-config`, `ciphr surfa
 ## [0.8.0] — 2026-08-23
 
 **The release that answers a field report, and two of its findings are the same shape.** The fourth
-report from a private deployment ([`docs/field-report-2026-08-23.md`](docs/field-report-2026-08-23.md))
+report from a private deployment ([`docs/assurance/field-reports/field-report-2026-08-23.md`](docs/assurance/field-reports/field-report-2026-08-23.md))
 names it better than a summary can: *"two of the four findings are about a check whose verdict is
 about something other than what the caller asked."* **Nothing migrates:** the schema stays at 6, so a
 rollback to `0.7.0` needs neither a restore nor a configuration edit.
@@ -763,7 +792,7 @@ that one descriptor (F10 of the source review, issue #13).
 was `Server::prepare` with the listener left off, so its *whole* report — including the surface
 report, which is a pure function of the configuration file — printed only after the store had been
 opened, locked and written to. The fourth field report from a private deployment
-([`docs/field-report-2026-08-23.md`](docs/field-report-2026-08-23.md), finding 1) shows what that costs
+([`docs/assurance/field-reports/field-report-2026-08-23.md`](docs/assurance/field-reports/field-report-2026-08-23.md), finding 1) shows what that costs
 in practice: the deploy script creates a scratch store on every run — `chown`, `ciphr init` with the
 production master key, check, delete — because the alternative was not running the check. *"The
 fabrication is what every validator has to build."*
@@ -802,7 +831,7 @@ them. A backup job in its own container, following
 therefore gets a complete and correct exclude list and a non-zero status about three files it must not
 see. The deployment that wired it up ignores the status by design and validates the output instead:
 *"Writing that guard felt like re-implementing a check the tool had just performed"*
-([`docs/field-report-2026-08-23.md`](docs/field-report-2026-08-23.md), finding 2).
+([`docs/assurance/field-reports/field-report-2026-08-23.md`](docs/assurance/field-reports/field-report-2026-08-23.md), finding 2).
 
 All three forms now exit **`3`** for "listing complete, pre-flight failed", and `1` still means the
 command failed. The report asked for `2`; `2` is what clap returns for a usage error, and a job
@@ -814,7 +843,7 @@ branching on a status must not have to tell a misspelled flag from a pre-flight 
 says, and the row above it in `backup.md` is that source failure. So the first guess is the store —
 while every other sentence at that moment is about the source too. The failure is also *created* by
 following the fix for the previous one: run as the service uid, into a directory owned by the
-operator's login ([`docs/field-report-2026-08-23.md`](docs/field-report-2026-08-23.md), finding 3).
+operator's login ([`docs/assurance/field-reports/field-report-2026-08-23.md`](docs/assurance/field-reports/field-report-2026-08-23.md), finding 3).
 
 The message now names the destination and its directory and says which end to check. The refusal to
 overwrite an existing backup keeps SQLite's own words, which `backup.md` documents. A row for this
@@ -825,7 +854,7 @@ failure is in *What breaks, and how it will look*, where the causal note belongs
 The master key file (`ciphr-crypto`) and the token file (`ciphr-run`) inspected the path with
 `metadata` and then read it again by name: two resolutions of one name, so whoever can create entries
 in the directory a credential lives in could exchange the approved file for another in between. F10 of
-[`docs/review-2026-08-21-current-tree.md`](docs/review-2026-08-21-current-tree.md), filed as issue #13,
+[`docs/assurance/reviews/review-2026-08-21-current-tree.md`](docs/assurance/reviews/review-2026-08-21-current-tree.md), filed as issue #13,
 low severity and cheap — and the mode check is what makes it reachable, because it is the reason a
 deployment leaves a credential in a directory a service account can write.
 
@@ -848,13 +877,13 @@ the pin moved.
 the list before handing it to anything — and an exclusion that matches nothing looks exactly like one
 that works: no error, a slightly larger archive, a surprise at restore. The tool cannot know the
 mapping; one sentence in `backup.md` and `cli.md` is what was missing
-([`docs/field-report-2026-08-23.md`](docs/field-report-2026-08-23.md), finding 4, which asked for
+([`docs/assurance/field-reports/field-report-2026-08-23.md`](docs/assurance/field-reports/field-report-2026-08-23.md), finding 4, which asked for
 nothing else).
 
 ### Changed — the mirror cannot publish half a version either
 
 `0.7.0` closed this on `release.yml` and left it open where it was first observed. Finding 5 of
-[`docs/field-report-2026-08-22.md`](docs/field-report-2026-08-22.md) named **the mirror** — *"the mirror
+[`docs/assurance/field-reports/field-report-2026-08-22.md`](docs/assurance/field-reports/field-report-2026-08-22.md) named **the mirror** — *"the mirror
 this deployment pulls from shows the same gap, because it builds the two images in two steps of one job
 the same way"* — and that is the registry a deployment actually pulls from. Fixing only the GitHub side
 answered the report's argument and not its subject.
@@ -876,10 +905,10 @@ Both `0.7.0` references are in the mirror, and were before this change: `nuts/ci
 ## [0.7.0] — 2026-08-22
 
 **The release that answers a review and a field report.** Six findings of the source review of
-2026-08-21 ([`docs/review-2026-08-21-current-tree.md`](docs/review-2026-08-21-current-tree.md)) — one
+2026-08-21 ([`docs/assurance/reviews/review-2026-08-21-current-tree.md`](docs/assurance/reviews/review-2026-08-21-current-tree.md)) — one
 high, three medium, two low — plus the two claim notes that turned out to say more than the code did,
 and the three asks of the deployment that rebuilt its nightly backup around `0.6.0`
-([`docs/field-report-2026-08-22.md`](docs/field-report-2026-08-22.md)). **Nothing migrates:** the schema
+([`docs/assurance/field-reports/field-report-2026-08-22.md`](docs/assurance/field-reports/field-report-2026-08-22.md)). **Nothing migrates:** the schema
 stays at 6, so a rollback to `0.6.1` needs neither a restore nor a configuration edit.
 
 **The two that reach a deployment rather than a reader.** `export --format actions-env` used a
@@ -904,7 +933,7 @@ free-text verdict per row: a report a person reads. The natural consumer of *wha
 is the job that keeps it, and a parser written against aligned prose breaks on the next rewording. A
 deployment wired its nightly backup around this command, could not parse the report, and ended up
 naming its paths itself — the hand-maintained list this command exists to replace, one layer further
-out ([`docs/field-report-2026-08-22.md`](docs/field-report-2026-08-22.md)).
+out ([`docs/assurance/field-reports/field-report-2026-08-22.md`](docs/assurance/field-reports/field-report-2026-08-22.md)).
 
 **`--json` is the same inventory with the verdict as a value.** One self-describing document:
 `format`, the configuration it read, and an object per piece carrying `role`, `path`, `state`
@@ -967,7 +996,7 @@ verify` on the copy inside the job: `backup`'s own checks prove the file is a re
 master key or the store lock.
 
 No code changed. Both halves were measured by the deployment that reported them
-([`docs/field-report-2026-08-22.md`](docs/field-report-2026-08-22.md), findings 2 and 4).
+([`docs/assurance/field-reports/field-report-2026-08-22.md`](docs/assurance/field-reports/field-report-2026-08-22.md), findings 2 and 4).
 
 ### Changed — a release can no longer publish half of itself
 
@@ -987,12 +1016,12 @@ job reads afterwards — so the second build of that image is a cache hit and no
 This is the cheaper of the two shapes the field report asked for, and it answers the failure that
 happened rather than the class it generalizes to: a wrapper that cannot be built now costs a failed
 release instead of a version that means two different things
-([`docs/field-report-2026-08-22.md`](docs/field-report-2026-08-22.md), finding 5). Building the file on
+([`docs/assurance/field-reports/field-report-2026-08-22.md`](docs/assurance/field-reports/field-report-2026-08-22.md), finding 5). Building the file on
 every push stays undone, with the reasoning `0.6.1` already recorded.
 
 ### Fixed — a honeypot token was recorded and paged nobody
 
-Findings F1, F5 and F8 of [`docs/review-2026-08-21-current-tree.md`](docs/review-2026-08-21-current-tree.md),
+Findings F1, F5 and F8 of [`docs/assurance/reviews/review-2026-08-21-current-tree.md`](docs/assurance/reviews/review-2026-08-21-current-tree.md),
 filed as [issue #7](https://github.com/nuetzliches/ciphr/issues/7). All three are in the
 `honeypot_alert` entry, which is off in a default build — so a deployment that plants no bait was
 never affected, and one that plants bait was affected in the way that is hardest to notice.
@@ -1040,7 +1069,7 @@ place to assert that the work is not queued is where the decision is made.
 
 ### Fixed — a stored value could close its own heredoc and write into a workflow's environment
 
-Finding F2 of [`docs/review-2026-08-21-current-tree.md`](docs/review-2026-08-21-current-tree.md) —
+Finding F2 of [`docs/assurance/reviews/review-2026-08-21-current-tree.md`](docs/assurance/reviews/review-2026-08-21-current-tree.md) —
 high, certain — filed as [issue #8](https://github.com/nuetzliches/ciphr/issues/8).
 
 `export --format actions-env` wrote a multi-line value with the delimiter `ciphr_<NAME>_EOF`.
@@ -1082,7 +1111,7 @@ is what fails if the randomness is not there.
 
 ### Fixed — two audit rotations in one millisecond aimed at one file name
 
-Finding F6 of [`docs/review-2026-08-21-current-tree.md`](docs/review-2026-08-21-current-tree.md) —
+Finding F6 of [`docs/assurance/reviews/review-2026-08-21-current-tree.md`](docs/assurance/reviews/review-2026-08-21-current-tree.md) —
 medium, high confidence — filed as [issue #11](https://github.com/nuetzliches/ciphr/issues/11).
 
 A rotated audit file was named after the timestamp of the record that triggered the rotation, and
@@ -1117,7 +1146,7 @@ compressed archive read as text would count garbage lines as records.
 
 ### Fixed — `ciphr-sdk` followed redirects it had validated nothing about
 
-Finding F7 of [`docs/review-2026-08-21-current-tree.md`](docs/review-2026-08-21-current-tree.md) —
+Finding F7 of [`docs/assurance/reviews/review-2026-08-21-current-tree.md`](docs/assurance/reviews/review-2026-08-21-current-tree.md) —
 medium, high confidence — filed as [issue #12](https://github.com/nuetzliches/ciphr/issues/12).
 
 The builder refuses a non-`https` base URL and installs only the deployment CA, and then handed the
@@ -1144,7 +1173,7 @@ say what was not done.
 
 ### Fixed — the server said nothing about caching, for plaintext reads as much as for anything else
 
-Finding F3 of [`docs/review-2026-08-21-current-tree.md`](docs/review-2026-08-21-current-tree.md) —
+Finding F3 of [`docs/assurance/reviews/review-2026-08-21-current-tree.md`](docs/assurance/reviews/review-2026-08-21-current-tree.md) —
 medium, certain — filed as [issue #9](https://github.com/nuetzliches/ciphr/issues/9).
 
 There was no response-header layer on the router at all. Secret reads and exports went out with no
@@ -1173,7 +1202,7 @@ two unauthenticated ones, three refusals, and a path no build serves.
 
 ### Fixed — the core-dump limit failed open, and the entrypoint carried on
 
-Finding F9 of [`docs/review-2026-08-21-current-tree.md`](docs/review-2026-08-21-current-tree.md) —
+Finding F9 of [`docs/assurance/reviews/review-2026-08-21-current-tree.md`](docs/assurance/reviews/review-2026-08-21-current-tree.md) —
 low, certain — filed as [issue #13](https://github.com/nuetzliches/ciphr/issues/13).
 
 `docker-entrypoint.sh` runs `ulimit -c 0` before it drops privileges, and when that failed it logged a
@@ -1201,7 +1230,7 @@ process lower its own core limit — and what to do about it.
 
 ### Documentation — the indistinguishability claim is narrowed to the response, in all four places that made it
 
-Claim notes C11 and C12 of [`docs/review-2026-08-21-current-tree.md`](docs/review-2026-08-21-current-tree.md),
+Claim notes C11 and C12 of [`docs/assurance/reviews/review-2026-08-21-current-tree.md`](docs/assurance/reviews/review-2026-08-21-current-tree.md),
 the part of [issue #7](https://github.com/nuetzliches/ciphr/issues/7) that was a decision rather than a
 defect. Written after the three fixes above rather than before them, so it describes the code that is
 now in the tree.
@@ -1246,7 +1275,7 @@ of the code.
 
 ### Documentation — a trip is recorded before retrieval, and that stays the behaviour
 
-Claim note D10 of [`docs/review-2026-08-21-current-tree.md`](docs/review-2026-08-21-current-tree.md),
+Claim note D10 of [`docs/assurance/reviews/review-2026-08-21-current-tree.md`](docs/assurance/reviews/review-2026-08-21-current-tree.md),
 the last part of [issue #7](https://github.com/nuetzliches/ciphr/issues/7) and a decision rather than a
 defect. The review found no authorization bypass; what it found is an ordering question: the trip is
 recorded and latched **before** the value is retrieved and decrypted, so an allowed read of bait that is
@@ -1344,7 +1373,7 @@ newer than the accepted review — C11, C12, D10 — are still newer than it. Tu
 still a decision to run unreviewed code on the authentication path.
 
 **A review of `v0.5.1` by the deployment that filed the report it answers**, recorded in
-[`docs/review-0.5.1-2026-08-21.md`](docs/review-0.5.1-2026-08-21.md). It confirms all four findings
+[`docs/assurance/reviews/review-0.5.1-2026-08-21.md`](docs/assurance/reviews/review-0.5.1-2026-08-21.md). It confirms all four findings
 answered and the corrected `bulk_export` sentence accurate against the code it describes — read end
 to end, not taken from the changelog. Three things it asked for, and four smaller ones.
 
@@ -1919,7 +1948,7 @@ handler does not support. That is the one artefact a deployment cannot correct l
 recommends the command, and only a new image can run it.
 
 **A field report on the `0.5.0` rollout, and four things it found.** Recorded in
-[`docs/field-report-2026-08-21-b.md`](docs/field-report-2026-08-21-b.md), written from the operating
+[`docs/assurance/field-reports/field-report-2026-08-21-b.md`](docs/assurance/field-reports/field-report-2026-08-21-b.md), written from the operating
 side of a private deployment after upgrading it. Two of the four are claims this project made about
 itself that the code does not support, and one of those shipped compiled into the binary.
 
@@ -2553,7 +2582,7 @@ in the file said something untrue.
 ## [0.4.0] — 2026-08-21
 
 **The release the external review is on the other side of.** It happened on 2026-08-21, against
-`v0.3.0`, and it is recorded in [`docs/review-2026-08-21.md`](docs/review-2026-08-21.md) with the
+`v0.3.0`, and it is recorded in [`docs/assurance/reviews/review-2026-08-21.md`](docs/assurance/reviews/review-2026-08-21.md) with the
 maintainer's decision to accept it in [`docs/security-review.md`](docs/security-review.md). Read who
 performed it before relying on it — an AI model commissioned by the maintainer, not the human
 practitioner the working paper asks for — and read what the acceptance does **not** cover, because
@@ -2708,7 +2737,7 @@ substituted credential fetches secrets under an identity the attacker controls.
 ### Documented — the external review happened, and the decision to accept it is written down
 
 The review that plan section 18 makes a precondition took place on 2026-08-21 against `v0.3.0` and is
-recorded in [`docs/review-2026-08-21.md`](docs/review-2026-08-21.md). The maintainer accepted it the
+recorded in [`docs/assurance/reviews/review-2026-08-21.md`](docs/assurance/reviews/review-2026-08-21.md). The maintainer accepted it the
 same day. Every document that carried the requirement as outstanding now says so — README,
 `AGENTS.md`, `SECURITY.md`, `docs/crypto.md`, `docs/why-build-this.md`, the risk table in
 `docs/README.md`, and plan section 18 — and each of them says who performed it in the same breath.
@@ -3015,7 +3044,7 @@ attributable to anything.
 Plan section 23 keys the leak-report rate limit on this address and its audit section records it, so
 this is a precondition for that endpoint rather than a detail of it — and it lives in `ciphr-server`
 rather than in the crates the external review must cover, which is why it could be built now. Found
-in the design review of ADR-15 and ADR-16 (`docs/review-adr-15-16-2026-08-20.md`, F2), against a
+in the design review of ADR-15 and ADR-16 (`docs/assurance/reviews/review-adr-15-16-2026-08-20.md`, F2), against a
 deployment whose trail showed two unauthenticated denials with no source.
 
 
@@ -3812,7 +3841,7 @@ release for production use: the review of `ciphr-crypto`, `ciphr-policy`, and th
 
 Phases 0 to 3 of the plan are complete — the cryptographic layer, the store, the policy evaluator,
 the audit trail, the HTTPS API with token authentication, and the CLI. 255 tests, three fuzz targets,
-and a pre-review pass whose ten findings are recorded in `docs/review-2026-08-18.md`.
+and a pre-review pass whose ten findings are recorded in `docs/assurance/reviews/review-2026-08-18.md`.
 
 ### Added — the master key may come from a file
 
@@ -4037,7 +4066,7 @@ first production use.
 
 ### Added — masking measured on a real runner, and its limit
 
-- Finding 9 in `docs/review-2026-08-18.md`, from a run on a real Forgejo runner in the same
+- Finding 9 in `docs/assurance/reviews/review-2026-08-18.md`, from a run on a real Forgejo runner in the same
   host-execution mode a deployment uses. The premise behind `export --format actions-env` is
   confirmed: a runtime-fetched value with no mask registered appears in the job log in full, so the
   masking really is the product's job and not the forge's.
@@ -4079,7 +4108,7 @@ first production use.
 
 ### Added — a pre-review pass over every claim
 
-- `docs/review-2026-08-18.md`: findings, coverage, and a fitness statement in the form
+- `docs/assurance/reviews/review-2026-08-18.md`: findings, coverage, and a fitness statement in the form
   `docs/security-review.md` asks for. It is **not** the external review and says so in its first
   section: it was produced by the same model that co-authored the code, so it carries the same blind
   spots and does not discharge plan section 18.

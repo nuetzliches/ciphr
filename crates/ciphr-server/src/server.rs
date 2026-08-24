@@ -110,7 +110,7 @@ impl Server {
     /// configuration file — arrived after the store had been opened, locked and written
     /// to. A configuration edit is exactly the change that wants review before it
     /// reaches a host, and there is no store there. The deployment in
-    /// `docs/field-report-2026-08-23.md` therefore fabricated one on every deploy —
+    /// `docs/assurance/field-reports/field-report-2026-08-23.md` therefore fabricated one on every deploy —
     /// scratch directory, a real key, `ciphr init`, delete — which is the shape of a
     /// gate that protects nothing and costs everyone who passes it.
     ///
@@ -296,7 +296,7 @@ const REACHABILITY: &[(&str, &str, Capability)] = &[
 ///
 /// **An entry that is on and unreachable is the same class of quiet as a stanza that was
 /// forgotten**, which is the mistake the surface report exists to catch
-/// (`docs/field-report-2026-08-23-b.md`, finding 3). The case that prompted it is
+/// (`docs/assurance/field-reports/field-report-2026-08-23-b.md`, finding 3). The case that prompted it is
 /// `token_revoke`: a deployment turns the entry on to take the outage out of revoking a
 /// leaked credential, and the token that calls it can only be issued on the host, under
 /// the lock, in a planned stop. An entry on with nobody able to reach it is that job left
@@ -442,7 +442,7 @@ fn open_devices(config: &Config) -> Result<Vec<Box<dyn AuditDevice>>, StartupErr
                 // safe instinct for a command whose name says *check*, so the person who
                 // sees this is pre-flighting a host they have deliberately given as
                 // little access as possible -- and the sentence they need is what the
-                // device requires (`docs/field-report-2026-08-23-b.md`, finding 2). The
+                // device requires (`docs/assurance/field-reports/field-report-2026-08-23-b.md`, finding 2). The
                 // behaviour is unchanged and is the defensible half: the device is
                 // checked by opening it the way it will be opened, and that is an append.
                 let device = FileDevice::open(path, rotate_at).map_err(|error| {

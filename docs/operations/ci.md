@@ -126,7 +126,7 @@ curl --fail --silent --show-error \
   per line for a multi-line value, and — if the value goes into `$GITHUB_ENV` — a heredoc delimiter
   the value cannot reproduce. That last one is not a style question: a delimiter somebody can guess
   lets a value close its own assignment and define variables for later steps, which is finding F2 of
-  [`../review-2026-08-21-current-tree.md`](../review-2026-08-21-current-tree.md). `ciphr-ci` exists
+  [`../review-2026-08-21-current-tree.md`](../assurance/reviews/review-2026-08-21-current-tree.md). `ciphr-ci` exists
   because that belongs in tested code rather than in every workflow that copies this block.
 - **The status codes.** `--fail` turns them into a non-zero exit and loses which one it was. `401`
   is the token, `403` is the policy, `404` is the path, and **`503` means the audit trail could not
@@ -203,7 +203,7 @@ that belong to the prefix form alone:
 
 ## A name can decide how the next steps run, and those names are refused
 
-Since 2026-08-24, F4 of [the full-repository review](../review-2026-08-24-full-repository.md). The
+Since 2026-08-24, F4 of [the full-repository review](../assurance/reviews/review-2026-08-24-full-repository.md). The
 same rule as the wrapper's, and it bites harder here: `$GITHUB_ENV` sets variables for **every step
 that follows**, not for one program. That is the shape of CVE-2020-15228 — the reason GitHub Actions
 stopped letting a workflow set variables through a log directive.

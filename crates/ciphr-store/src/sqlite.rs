@@ -754,7 +754,7 @@ fn subtree_bounds(prefix: &SecretPath) -> (String, String) {
 /// reports an unwritable destination as `unable to open database: <destination>`, which is
 /// one word away from what an unreadable *source* says — and at that moment every other
 /// sentence on the screen is about the source: the store, the service uid, the read-only
-/// mount. The deployment in `docs/field-report-2026-08-23.md` hit this immediately after
+/// mount. The deployment in `docs/assurance/field-reports/field-report-2026-08-23.md` hit this immediately after
 /// following the advice that causes it — take the pre-upgrade copy *as the service uid*,
 /// into a directory owned by the operator's own login — and its first guess was that the
 /// store could not be read.

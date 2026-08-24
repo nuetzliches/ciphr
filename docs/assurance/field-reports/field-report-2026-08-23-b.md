@@ -44,7 +44,7 @@ six secrets.
 ## 1. `--check-config` cannot gate a review, and `0.9.0` is the release that needs it to
 
 **Observed**, `v0.9.0`, three runs. Only the two `.toml` files are mounted in the first two — the
-"findable in review" case that [upgrade.md](operations/upgrade.md) now advertises:
+"findable in review" case that [upgrade.md](../../operations/upgrade.md) now advertises:
 
 ```
 A) old policy (sys/** with read), no store   -> exit 1   + the refusal quoted above
@@ -127,7 +127,7 @@ So enabling the feature that removes the outage from revocation requires taking 
 issue the credential that will use it. That is not wrong — it is the ADR-3 boundary and we would not
 argue for a write path that mints credentials — but it belongs in the runbook next to the entry,
 because the operator who reaches for this is mid-incident with a leaked token and does not want to
-discover it there. **Ask:** one line in [honeypots.md](operations/honeypots.md) step 3 and in the
+discover it there. **Ask:** one line in [honeypots.md](../../operations/honeypots.md) step 3 and in the
 `token_revoke` section of `upgrade.md` — *issue the revoking identity's token before you need it; it
 needs the same stop that revocation used to need.* And, if it is cheap, have `--check-config` (or
 `ciphr surface show`) note when `token_revoke` is on while no identity holds `revoke`: an entry that

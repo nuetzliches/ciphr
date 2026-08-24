@@ -614,7 +614,7 @@ fn agent_config(tls: ureq::tls::TlsConfig, timeout: Duration) -> ureq::config::C
         // it is, and this client reads it rather than throwing it away.
         .http_status_as_error(false)
         // **No redirects**, and that is a transport decision rather than a preference.
-        // Finding F7 of `docs/review-2026-08-21-current-tree.md`: the builder refused a
+        // Finding F7 of `docs/assurance/reviews/review-2026-08-21-current-tree.md`: the builder refused a
         // non-`https` base URL and installed only the deployment CA, and then followed
         // whatever redirect it was handed. `ureq` strips the authorization header across
         // those boundaries, so the token was never at risk — but a redirected plaintext

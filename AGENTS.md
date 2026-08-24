@@ -63,7 +63,7 @@ Phase 4 is the first production integration: one low-risk service drawing its se
 with the way back tested and `::add-mask::` demonstrated on a real runner. **Before phase 4 an
 external review of `ciphr-crypto`, `ciphr-policy`, and the path and pattern code in `ciphr-core` is
 a precondition** — those are the crates that decide every access, and self-review is not sufficient.
-**The review happened on 2026-08-21** — recorded in `docs/review-2026-08-21.md`, accepted by the
+**The review happened on 2026-08-21** — recorded in `docs/assurance/reviews/review-2026-08-21.md`, accepted by the
 maintainer the same day, with both of its blocking findings fixed. Two rules survive it. First, the
 reviewer was an AI model rather than the human practitioner the working paper asks for: every
 document that mentions the review says so, because a repository that reports a check as cleared

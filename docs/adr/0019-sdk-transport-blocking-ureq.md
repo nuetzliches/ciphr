@@ -45,7 +45,7 @@ ADR-17 becomes a property of the build instead of a rule someone has to remember
 
 **No redirects, added 2026-08-22.** The transport story above was about which certificates
 the client will accept, and it left the client following whatever redirect it was handed —
-finding F7 of [../review-2026-08-21-current-tree.md](../review-2026-08-21-current-tree.md).
+finding F7 of [../review-2026-08-21-current-tree.md](../assurance/reviews/review-2026-08-21-current-tree.md).
 `ureq` strips the authorization header across those boundaries, so the bearer token was never
 at risk; a redirected plaintext response substituted for a secret is the failure, and a
 consumer that fetches its own secrets at startup is the code path least likely to notice one.

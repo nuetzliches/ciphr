@@ -222,7 +222,7 @@ pub fn render_dotenv(secrets: &[Exported]) -> Result<String, ExportError> {
 ///
 /// The size is not about colliding with the word `EOF` — including the variable name
 /// already handled that. It is about a writer who knows this format. Finding F2 of
-/// `docs/review-2026-08-21-current-tree.md`: the delimiter was derived from the name, so a
+/// `docs/assurance/reviews/review-2026-08-21-current-tree.md`: the delimiter was derived from the name, so a
 /// value containing that exact line closed its own assignment, and every line after it was
 /// read by the runner as further environment-file commands. An identity allowed to write
 /// one exported secret could therefore define environment variables for later steps of

@@ -100,7 +100,7 @@ pub(crate) enum CliError {
     /// is not on this host.
     ///
     /// **Its own variant because it carries its own exit code**, and the exit code is
-    /// the finding ([`docs/field-report-2026-08-23.md`], finding 2). The output above
+    /// the finding ([`docs/assurance/field-reports/field-report-2026-08-23.md`], finding 2). The output above
     /// this error is complete and correct — the `never` rows a backup job consumes are
     /// derived from `[storage] path` alone, so nothing a missing TLS leaf or key file
     /// does can change them. A deployment that follows `backup.md` most strictly does

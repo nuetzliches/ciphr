@@ -1003,7 +1003,7 @@ fn taking_the_bait_is_recorded_as_a_trip() {
 /// Presenting bait opens the latch, so the thing that pages a human can see it.
 ///
 /// The test above stops at the trail, and so did the implementation: finding F1 of
-/// `docs/review-2026-08-21-current-tree.md` is that the entry was written and nothing
+/// `docs/assurance/reviews/review-2026-08-21-current-tree.md` is that the entry was written and nothing
 /// latched. `/v1/health` kept answering `tripped: false`, `/v1/honeypots` kept calling the
 /// credential untripped, and a deployment that polled health — the third of the three
 /// things `honeypots.md` requires — missed the event while doing everything right.

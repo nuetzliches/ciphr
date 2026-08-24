@@ -38,6 +38,14 @@
 # its own code block and then says twelve lines later that the built thing is a
 # binary named `ciphr-run`. Rewriting the proposal would falsify the record.
 #
+# **The snapshots under `docs/assurance/` are exempt for the same reason**, and
+# it is the sharper case. A field report quotes the command line its author
+# actually ran, against the version named in its own status line. If a later
+# release renames that subcommand, the honest record is the one that still shows
+# what was run -- and a gate forcing the report to be rewritten would destroy the
+# evidence that the rename happened. `docs/assurance/README.md` stays in scope:
+# it is a current index, and a command it hands somebody has to exist today.
+#
 # ── The allowlist ────────────────────────────────────────────────────────────
 #
 # A document may name a command that does not exist when it says so. The
@@ -81,7 +89,8 @@ fi
 # token starting with `-` skips itself and the token after it.
 status=0
 
-for doc in $(find docs README.md -name '*.md' | grep -v '^docs/adr/' | sort); do
+for doc in $(find docs README.md -name '*.md' |
+                 grep -vE '^docs/(adr|assurance/reviews|assurance/field-reports)/' | sort); do
     claims=$(awk '
         /^```/ { fence = !fence; next }
         !fence { next }

@@ -1090,14 +1090,14 @@ fn presence(piece: &Piece) -> Presence {
 /// this command exists to replace, one layer further out. `--exclude` is the subset that
 /// must not be copied, one path per line, because that is the form a file-level backup
 /// tool can be handed rather than told. All three were asked for by a deployment that
-/// wired this into a nightly job (`docs/field-report-2026-08-22.md`).
+/// wired this into a nightly job (`docs/assurance/field-reports/field-report-2026-08-22.md`).
 ///
 /// All three exit non-zero when a file the configuration requires is absent, and all
 /// three print their whole output first: the pre-flight half of this command does not
 /// depend on who is reading it. **The status says which of the two happened** —
 /// [`CliError::StatePreflight`] exits `3`, so an unattended job can tell "the listing is
 /// complete and this host is missing a file it does not need to see" from a command that
-/// failed. Asked for by the deployment in `docs/field-report-2026-08-23.md`, whose backup
+/// failed. Asked for by the deployment in `docs/assurance/field-reports/field-report-2026-08-23.md`, whose backup
 /// container deliberately cannot see the TLS material or the key and therefore could
 /// never get a zero.
 fn state(config: &str, json: bool, exclude: bool) -> Result<(), CliError> {

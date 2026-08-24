@@ -1,8 +1,8 @@
 # Review of `v0.5.1`, from the deployment that filed the report it answers
 
 **Status:** written 2026-08-21 against `v0.5.0..v0.5.1`, by the operator of the private deployment
-whose [field report](field-report-2026-08-21-b.md) this release addresses. **Not a security review
-and not related to [`security-review.md`](security-review.md):** nothing here reads crypto, policy
+whose [field report](../field-reports/field-report-2026-08-21-b.md) this release addresses. **Not a security review
+and not related to [`security-review.md`](../../security-review.md):** nothing here reads crypto, policy
 evaluation, the store, or the honeypot code, and nothing here extends any acceptance. It reviews the
 diff that answers a report, and the artefact that answers it in production.
 
@@ -16,7 +16,7 @@ the new CI gates. Where a claim below rests on reading rather than running, it s
 
 All four findings are answered, and two of them more thoroughly than they were asked. The corrected
 `bulk_export` sentence is **accurate against the code it describes** — verified, see below — and the
-release does the harder half of correcting a shipped claim: [`upgrade.md`](operations/upgrade.md)
+release does the harder half of correcting a shipped claim: [`upgrade.md`](../../operations/upgrade.md)
 tells a deployment that turned the entry off *for the wrong reason* that it paid a real cost for a
 property it never got, which is the part a changelog entry alone would have left undone.
 

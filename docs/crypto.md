@@ -152,7 +152,7 @@ Error types carry paths, identities, versions, and lengths. They never carry a v
 - **It does not defend against side channels beyond timing in credential comparison.** No protection
   against cache-timing or speculative-execution attacks.
 - **It has been reviewed once, and by an AI model rather than a person.** The review of 2026-08-21
-  ([`review-2026-08-21.md`](review-2026-08-21.md)) read `ciphr-crypto`, `ciphr-policy`, and the path,
+  ([`review-2026-08-21.md`](assurance/reviews/review-2026-08-21.md)) read `ciphr-crypto`, `ciphr-policy`, and the path,
   pattern, and secret code in `ciphr-core` end to end, reproduced the known-answer vectors with an
   independent AES-256-GCM implementation, and returned a qualified yes; its two blocking findings are
   fixed. It is not the review by an independent human practitioner that

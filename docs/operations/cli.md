@@ -238,7 +238,7 @@ who knew the format: a value carrying that exact line on its own closed its assi
 every line after it was read by the runner as further environment-file commands. **An identity
 allowed to write one exported secret could therefore define environment variables for later
 steps of every workflow that reads it** — finding F2 of
-[../review-2026-08-21-current-tree.md](../review-2026-08-21-current-tree.md). A random
+[../review-2026-08-21-current-tree.md](../assurance/reviews/review-2026-08-21-current-tree.md). A random
 delimiter cannot be reproduced by whoever wrote the value; the check is what keeps that
 guarantee from resting on the entropy source alone. Masking never covered this: masking and
 injection are different problems, and `::add-mask::` does not make a structured file safe.
@@ -263,7 +263,7 @@ render inside single quotes with the content untouched, and multi-line values su
 mask is emitted per line. Hex and base64 values can never contain either character; a generated
 password from a full punctuation alphabet contains a single quote roughly every third time at usual
 lengths. So the rule for a job that holds fetched values is `set -x` off, not "the mask will catch
-it" (`docs/review-2026-08-18.md`, finding 9).
+it" (`docs/assurance/reviews/review-2026-08-18.md`, finding 9).
 
 **act_runner is not claimed.** "Both are act derivatives" is precisely the assumption this project
 refused to make about the Forgejo runner before measuring it, and it stays refused: measuring needs
@@ -427,7 +427,7 @@ than how it is kept out of this archive.
 
 Both forms exit non-zero on a missing required file, exactly as the table does: the pre-flight half of
 this command does not depend on who is reading its output. Both were asked for by the deployment in
-[field-report-2026-08-22.md](../field-report-2026-08-22.md), which had to write the backup job before
+[field-report-2026-08-22.md](../assurance/field-reports/field-report-2026-08-22.md), which had to write the backup job before
 it could say what the command was missing.
 
 **The status distinguishes the two things that can happen: `3` is a complete listing plus a missing
@@ -438,7 +438,7 @@ rows are derived from `[storage] path` alone, so a backup container that follows
 [backup.md](backup.md) and cannot see the TLS material or the key gets a correct, complete exclude
 list and a non-zero status about files it must not have. `2` is left to clap for a usage error, so a
 job branching on the status cannot confuse a misspelled flag with a pre-flight result
-([field-report-2026-08-23.md](../field-report-2026-08-23.md), finding 2).
+([field-report-2026-08-23.md](../assurance/field-reports/field-report-2026-08-23.md), finding 2).
 
 **The paths are the service's, not the job's.** `--exclude` prints what the configuration names, so a
 consumer in another mount namespace has to translate them before handing them to anything — an

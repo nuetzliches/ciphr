@@ -58,7 +58,7 @@ announces itself only to whoever measures carefully is worse, because it looks l
 **Narrowed 2026-08-22, and the wording above is left as it was written.** Property 1 said "on every
 axis a caller can observe" and "no timing difference". The response half holds and is tested; the work
 half does not, and a second review of this surface
-([../review-2026-08-21-current-tree.md](../review-2026-08-21-current-tree.md), claim note C11) is what
+([../review-2026-08-21-current-tree.md](../assurance/reviews/review-2026-08-21-current-tree.md), claim note C11) is what
 established that. Three differences remain, all after the constant-time comparison: a malformed token
 returns before any database work, a known identifier costs one verifier query an unknown one skips, and
 recognized bait writes a larger audit payload before the `401`. The third is the one that matters,
@@ -95,7 +95,7 @@ reasoning about that path stops being worth anything.
 **What "taking bait" means, decided 2026-08-22.** The trip is recorded and latched *before* the value
 is retrieved and decrypted, so an allowed read of bait that is deleted, missing, corrupt or
 undecryptable latches although nothing was served (claim note D10 of
-[../review-2026-08-21-current-tree.md](../review-2026-08-21-current-tree.md)). **The behaviour is
+[../review-2026-08-21-current-tree.md](../assurance/reviews/review-2026-08-21-current-tree.md)). **The behaviour is
 kept, and this is where that is written down.** Two reasons, and the second is the one that decides it.
 
 Taking bait means *being allowed to read it*, not *receiving its value*. An identity that no legitimate
@@ -286,7 +286,7 @@ exactly one of them has moved — the first, which was also the only one nobody 
 
 - ~~**The external review … has taken place.**~~ **Met 2026-08-21.** The review of `ciphr-crypto`,
   `ciphr-policy`, and the path and pattern code in `ciphr-core` took place against `v0.3.0` and was
-  accepted; `docs/security-review.md` carries the decision and `docs/review-2026-08-21.md` the record.
+  accepted; `docs/security-review.md` carries the decision and `docs/assurance/reviews/review-2026-08-21.md` the record.
   The reasoning that put it here is unchanged and still worth reading: building a tripwire into code
   that nobody outside this project has read inverts the order that matters, and it is the inversion
   that feels like progress.
@@ -362,7 +362,7 @@ exactly one of them has moved — the first, which was also the only one nobody 
 ## Review
 
 A design review of this record, dated 2026-08-20, is in
-[`../review-adr-15-16-2026-08-20.md`](../review-adr-15-16-2026-08-20.md). Findings F1, F3, F4, F5 and
+[`../review-adr-15-16-2026-08-20.md`](../assurance/reviews/review-adr-15-16-2026-08-20.md). Findings F1, F3, F4, F5 and
 F6 concern this ADR and are addressed above. F2 concerned a precondition in plan section 23 and has
 since been built. That review is by the same author as the code and does not discharge the external
 review named above.

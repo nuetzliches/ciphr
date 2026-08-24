@@ -36,7 +36,7 @@ deploy pipeline, not a human.
 > digest to pin (#4). And **there is a site**, at <https://nuetzliches.github.io/ciphr/>, carrying the
 > four consumer routes with their code.
 >
-> **Two things break on purpose, both from [a full-repository review](docs/review-2026-08-24-full-repository.md).**
+> **Two things break on purpose, both from [a full-repository review](docs/assurance/reviews/review-2026-08-24-full-repository.md).**
 > The server **refuses to start without a `sqlite` audit device**: the chain head a restart resumes from
 > is read from the store, so a file-only configuration was starting a fresh chain in the same file on
 > every restart — which is what a rewritten trail looks like, produced by starting the service. And
@@ -149,7 +149,7 @@ deploy pipeline, not a human.
 >
 > **`v0.3.0` is the artifact the external review was performed against.** That review happened on
 > 2026-08-21, against that tag, and is recorded in
-> [`docs/review-2026-08-21.md`](docs/review-2026-08-21.md): six findings, an explicit statement of
+> [`docs/assurance/reviews/review-2026-08-21.md`](docs/assurance/reviews/review-2026-08-21.md): six findings, an explicit statement of
 > what was and was not read, and a qualified yes on fitness. Its two conditions — unwiped heap
 > copies of a token secret, and a reserved-path refusal that only the HTTP layer enforced — are
 > fixed. **Read who performed it before relying on it:** an AI model commissioned by the maintainer,

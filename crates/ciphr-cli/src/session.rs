@@ -88,7 +88,7 @@ impl Session {
             vec![Box::new(SqliteAuditDevice::open(&self.database)?)];
         if let Some(path) = file {
             // The requirement rather than only the OS error, for the reason the server
-            // side of this carries in full (`docs/field-report-2026-08-23-b.md`,
+            // side of this carries in full (`docs/assurance/field-reports/field-report-2026-08-23-b.md`,
             // finding 2): a read-only mount reads as a broken device, and the reader is
             // whoever gave this host as little access as they could.
             devices.push(Box::new(FileDevice::open(path, None).map_err(|error| {

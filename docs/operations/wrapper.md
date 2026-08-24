@@ -187,7 +187,7 @@ one per path, at container start, which is when a service is waiting.
 
 ## A name can decide how the service starts, and those names are refused
 
-Since 2026-08-24, F4 of [the full-repository review](../review-2026-08-24-full-repository.md).
+Since 2026-08-24, F4 of [the full-repository review](../assurance/reviews/review-2026-08-24-full-repository.md).
 
 The variable name is the last path segment, and with `--prefix` the set of names is whatever the store
 holds when the fetch runs. So an identity holding `write` on that prefix does not only choose what the
