@@ -3,8 +3,11 @@
 **Status:** implemented and tested as of 2026-08-24, and **not in a release yet** — it is under
 `Unreleased` in the changelog ([ADR-25](../adr/0025-the-ci-side-fetch-is-its-own-binary.md)). Both
 `ciphr-ci` and `action.yml` are built and covered by tests that run the real binary against the real
-service; what does not exist until the next tag is the *release asset*, so the `version` and `sha256`
-below have no number to carry yet. What is *measured* about the masking is narrower than what runs,
+service; what does not exist until the next tag is the *release asset*, so the `version` and the
+checksums below have no number to carry yet. The gates cover **both architectures** since 2026-08-24
+(issue #4): every commit builds and runs `ciphr-ci` and `ciphr-run` as static binaries on a native
+amd64 and a native arm64 runner. Publishing the arm64 asset is the other half of that issue and is
+not done. What is *measured* about the masking is narrower than what runs,
 and the section on that says exactly where the line is.
 
 This is route A: a build or deploy job that needs values at runtime. Route B is a container that only
@@ -33,8 +36,9 @@ from the OS CSPRNG and checked against the value. Those rules are shared with `c
     ca: ${{ vars.CIPHR_CA }}                # not a secret: the internal CA, as PEM
     token: ${{ secrets.CIPHR_TOKEN }}       # the one forge secret that stays
     paths: ci/widget/DB_PASSWORD ci/widget/API_KEY
-    version: <the first tag that carries the asset>
-    sha256: <the number from that release's job summary>
+    version: <the first tag that carries the assets>
+    sha256-amd64: <the number from that release's job summary>
+    sha256-arm64: <the other number from the same summary>
 
 - name: Deploy
   run: ./deploy.sh                          # DB_PASSWORD and API_KEY are in the environment
@@ -49,7 +53,13 @@ The variable name is the **last path segment**: `ci/widget/DB_PASSWORD` becomes 
 ([ADR-18](../adr/0018-one-rule-for-the-variable-name.md)). A set in which two paths want the same name
 is refused whole rather than delivered with one of them missing.
 
-`version` and `sha256` are how the binary is fetched and checked, and the download step uses `gh`.
+`version` and the two checksums are how the binary is fetched and checked, and the download step uses
+`gh`. **The architecture is the runner's, not a choice:** the step reads `uname -m`, downloads the
+matching asset and verifies it against the checksum for that architecture — which is why there are two
+inputs rather than one that can only be right about one of them. A runner of any other architecture is
+refused rather than handed a binary that would produce `exec format error` inside the step that was
+supposed to deliver secrets.
+
 Two situations need `binary:` instead, which points at a `ciphr-ci` already on the runner and
 downloads nothing: a self-hosted image that bakes the file in, and any runner without the GitHub CLI
 — which is most non-GitHub runners. **Whether `gh` is present on a Forgejo or Gitea runner is not
@@ -130,9 +140,11 @@ curl --fail --silent --show-error \
 
 ## Where the binary comes from
 
-**As a release asset**, named `ciphr-ci-x86_64-unknown-linux-musl` and attached to the tag beside
-`ciphr-ci-x86_64-unknown-linux-musl.sha256`. The checksum is also printed into the release run's job
-summary, which is where to read it *before* downloading anything.
+**As a release asset**, named after its target triple — `ciphr-ci-x86_64-unknown-linux-musl` and
+`ciphr-ci-aarch64-unknown-linux-musl` — each beside its own `.sha256`. The checksums are also printed
+into the release run's job summary, which is where to read them *before* downloading anything. The
+name carries the triple so that a second architecture arrives beside the first rather than renaming
+it; that qualification was made while amd64 was the only one, which is what makes today additive.
 
 Statically linked, so the job's image does not matter: a glibc runner, an Alpine container job and a
 self-hosted machine somebody set up years ago all run the same file.

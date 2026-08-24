@@ -8,6 +8,37 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — the gates cover arm64, and the action picks the architecture it is on
+
+Half of [issue #4](https://github.com/nuetzliches/ciphr/issues/4), and the half it calls the one with
+an *external* trigger. `ciphr-run` is mounted into images this project does not own and `ciphr-ci` is
+downloaded onto whatever runner a job got, so their architecture is decided by somebody else's
+machine. The first arm64 runner to mount an amd64 wrapper gets `exec format error` from inside a
+foreign container, at the moment a service is starting without its secrets.
+
+- **Every commit now builds and runs both binaries on a native amd64 and a native arm64 runner.**
+  Native rather than emulated, because the tests run the binaries *as* static musl executables —
+  static musl is where name resolution breaks — and under qemu that assertion would be partly about
+  the emulator. The strip and linkage checks are the host's tools too, and those do not read a foreign
+  ELF.
+- **The size budgets are per target, and the second measurement is the argument for that.** The
+  aarch64 wrapper is **2,888,088 bytes** against amd64's 3,347,368 — *smaller*. A single budget picked
+  to clear the larger one would have let the smaller binary grow by half again before the gate said
+  anything. An unknown target is now refused rather than defaulted: a target with no budget is a gate
+  that checks nothing while reporting that it ran.
+- **`action.yml` reads `uname -m`** and takes the matching asset, verified against a checksum for that
+  architecture — hence `sha256-amd64` and `sha256-arm64` instead of one input that can only be right
+  about one of them. An architecture the releases do not carry is refused rather than handed a binary
+  that cannot execute.
+- **The required check keeps its name.** The matrix legs report as `Static binaries (amd64)` and
+  `(arm64)`; a job carrying the name the branch ruleset requires asserts them. Requiring the legs
+  directly would mean editing the ruleset whenever the matrix changes, and a required check that no
+  longer exists blocks every merge without saying why.
+
+**What this does not do yet:** publish the arm64 assets or multi-architecture images. The release
+side is the other half of that issue, and the asset name carrying the target triple — done on
+2026-08-21, while amd64 was the only one — is what makes it an addition rather than a rename.
+
 ### Changed — every change lands through a pull request
 
 Since 2026-08-24, and enforced by a repository ruleset on `main` rather than by habit: a pull request

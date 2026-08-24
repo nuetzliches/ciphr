@@ -62,18 +62,27 @@ inputs:
   binary:
     description: >
       Path to a `ciphr-ci` already on the runner. Given this, nothing is downloaded
-      and `version`/`sha256` are ignored -- which is the shape for a self-hosted
-      runner that bakes the binary into its image.
+      and `version` and the checksums are ignored -- which is the shape for a
+      self-hosted runner that bakes the binary into its image, and the answer for any
+      architecture the releases do not carry.
     required: false
     default: ""
   version:
     description: The release to download the binary from, as a tag (for example `v0.10.0`).
     required: false
     default: ""
-  sha256:
+  sha256-amd64:
     description: >
-      The expected checksum of the downloaded binary. **Required when downloading.**
-      A fetch that verifies nothing is a fetch that trusts whoever answered.
+      The expected checksum of the `x86_64` binary. **Required when downloading on an
+      amd64 runner.** A fetch that verifies nothing is a fetch that trusts whoever
+      answered — so the checksum is per architecture rather than one input that can
+      only be right about one of them.
+    required: false
+    default: ""
+  sha256-arm64:
+    description: >
+      The expected checksum of the `aarch64` binary. **Required when downloading on an
+      arm64 runner.** Each release publishes both numbers in its job summary.
     required: false
     default: ""
   repository:
@@ -82,8 +91,9 @@ inputs:
     default: nuetzliches/ciphr
   github-token:
     description: >
-      A token that may read that repository's releases. While the repository is
-      private this is required to download the asset at all.
+      A token for the API call `gh` makes to find the release asset. On a public
+      repository `${{ github.token }}` is enough; against a private one it has to be a
+      token that may read that repository's releases.
     required: false
     default: ""
 
@@ -96,7 +106,8 @@ runs:
       env:
         INPUT_BINARY: ${{ inputs.binary }}
         INPUT_VERSION: ${{ inputs.version }}
-        INPUT_SHA256: ${{ inputs.sha256 }}
+        INPUT_SHA256_AMD64: ${{ inputs.sha256-amd64 }}
+        INPUT_SHA256_ARM64: ${{ inputs.sha256-arm64 }}
         INPUT_REPOSITORY: ${{ inputs.repository }}
         GH_TOKEN: ${{ inputs.github-token }}
       run: |
@@ -107,13 +118,34 @@ runs:
           exit 0
         fi
 
-        if [ -z "$INPUT_VERSION" ] || [ -z "$INPUT_SHA256" ]; then
-          echo "ciphr: pass 'binary', or both 'version' and 'sha256'." >&2
+        # The architecture is the runner's, not a choice: this binary is downloaded
+        # onto whatever machine the job got. An unknown one is refused rather than
+        # guessed -- `exec format error` from a wrong binary is a failure that
+        # surfaces inside the step that was supposed to hand over secrets.
+        case "$(uname -m)" in
+          x86_64)
+            target_triple=x86_64-unknown-linux-musl
+            expected="$INPUT_SHA256_AMD64"
+            ;;
+          aarch64 | arm64)
+            target_triple=aarch64-unknown-linux-musl
+            expected="$INPUT_SHA256_ARM64"
+            ;;
+          *)
+            echo "ciphr: no ciphr-ci build for $(uname -m)." >&2
+            echo "ciphr: the releases carry x86_64 and aarch64; pass 'binary' for anything else." >&2
+            exit 1
+            ;;
+        esac
+
+        if [ -z "$INPUT_VERSION" ] || [ -z "$expected" ]; then
+          echo "ciphr: pass 'binary', or both 'version' and the sha256 for this runner." >&2
+          echo "ciphr: this runner is $(uname -m), so that is 'sha256-${target_triple%%-*}'." >&2
           echo "ciphr: a download without an expected checksum is not offered." >&2
           exit 1
         fi
 
-        asset=ciphr-ci-x86_64-unknown-linux-musl
+        asset="ciphr-ci-$target_triple"
         target="$RUNNER_TEMP/$asset"
 
         # `gh` is preinstalled on GitHub-hosted runners and authenticates with the
@@ -129,7 +161,7 @@ runs:
 
         # Verified before it is made executable, so a mismatch is a file that was
         # never runnable rather than one that was run first.
-        echo "$INPUT_SHA256  $target" | sha256sum --check --status || {
+        echo "$expected  $target" | sha256sum --check --status || {
           echo "ciphr: $asset does not match the expected checksum." >&2
           echo "ciphr: the published number is in the release's job summary." >&2
           rm -f "$target"

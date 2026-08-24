@@ -96,17 +96,21 @@
     ca: ${{ vars.CIPHR_CA }}                # not a secret: the internal CA, as PEM
     token: ${{ secrets.CIPHR_TOKEN }}       # the one forge secret that stays
     paths: ci/widget/DB_PASSWORD ci/widget/API_KEY
-    version: &lt;the first tag that carries the asset&gt;
-    sha256: &lt;the number from that release's job summary&gt;
+    version: &lt;the first tag that carries the assets&gt;
+    sha256-amd64: &lt;the number from that release's job summary&gt;
+    sha256-arm64: &lt;the other number from the same summary&gt;
 
 - name: Deploy
   run: ./deploy.sh                          # DB_PASSWORD and API_KEY are in the environment</code></pre>
 
   <p>The action is a wrapper and carries no masking logic of its own: it downloads the asset, verifies
   the published checksum before making the file executable, writes the token to a mode-0600 file in
-  <code>$RUNNER_TEMP</code>, and calls the binary. On a runner without the GitHub CLI — which is most
-  non-GitHub runners — pass <code>binary:</code> pointing at a <code>ciphr-ci</code> that is already
-  there, and nothing is downloaded.</p>
+  <code>$RUNNER_TEMP</code>, and calls the binary. <strong>The architecture is the runner's, not a
+  choice</strong> — it reads <code>uname -m</code>, takes the matching asset and checks it against the
+  checksum for that architecture, which is why there are two inputs rather than one that can only be
+  right about one of them. On a runner without the GitHub CLI — which is most non-GitHub runners — pass
+  <code>binary:</code> pointing at a <code>ciphr-ci</code> that is already there, and nothing is
+  downloaded.</p>
 
   <p>Without the action, on anything that can run a shell:</p>
 
