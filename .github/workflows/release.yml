@@ -375,8 +375,14 @@ jobs:
     needs: [version, wrapper-manifest, release-shell]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    # `packages: read` because a job-level block replaces the workflow-level one
+    # rather than adding to it: without it this job holds no package scope, the
+    # login two steps down authenticates with a token that may not pull, and
+    # `docker create` on the image this workflow just published answers
+    # `denied`. That is what happened on `v0.11.0`.
     permissions:
       contents: write
+      packages: read
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 

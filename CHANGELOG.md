@@ -8,6 +8,27 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — the release job that attaches the wrapper could not read the image it had just published
+
+`v0.11.0` published both images and both manifest lists, created the release, and attached both
+`ciphr-ci` binaries — and then failed on `Attach the wrapper binaries` with `denied` from the
+registry, so `ciphr-run-x86_64-unknown-linux-musl` and `ciphr-run-aarch64-unknown-linux-musl` are
+missing from that release.
+
+The job holds a `permissions:` block of its own, for `contents: write`, because it uploads to the
+release. **A job-level block replaces the workflow-level one rather than adding to it**, so
+`packages: write` from the top of the file did not reach this job and its package scope was `none`.
+The `docker/login-action` step two lines above the failure ran and succeeded — it authenticates with
+a token that simply may not pull — and `docker create` on `ghcr.io/…/ciphr/run:0.11.0` was refused.
+Nothing about this is visible in the job's own text, which is why it survived review: the login step
+is there, and it is the permissions block that quietly removes what it needs.
+
+`packages: read` is added to that block. It is the narrowest scope that works, and it works whether
+or not the package is public — which matters, because "the package is public now" would fix the
+symptom on one deployment's terms and leave the job broken for anyone who publishes privately.
+
+**The two `v0.11.0` wrapper assets are attached separately**; the release itself is not re-cut.
+
 ## [0.11.0] — 2026-08-24
 
 **The release that answers a full-repository review — and the first one that refuses a configuration
