@@ -1,6 +1,6 @@
 # Threat model
 
-**Status:** current as of 2026-08-22, `v0.6.1` released, phases 0-3, 7 and 8 in it. The adversaries and boundaries are settled. **A3 gains an optional detection** rather than
+**Status:** current as of 2026-08-24, `v0.10.0` released, phases 0-3, 7 and 8 in it. The adversaries and boundaries are settled. **A3 gains an optional detection** rather than
 a new defence: the `honeypot_alert` entry (ADR-15, ADR-20) is absent from a default build, and where a
 deployment turns it on, taking bait is a signal that needs no interpretation. The boundary itself does
 not move — a compromised runner still holds a valid token and still reads what its policy allows. The cryptographic, storage, authorization, audit and transport defences
@@ -57,15 +57,26 @@ exactly one record.
 supply-chain hygiene — pinned dependencies, `cargo-deny` and `cargo audit` as blocking gates, action
 hashes rather than action tags, base images by digest rather than by tag — not application code.
 
-**Reproducible builds are named in plan section 19 and are not implemented.** That is a sequencing
-decision rather than an oversight, and it is stated here because the entry above would otherwise
-read as a list of things that are all in place. While the repository is private, every build is
-internal: nobody outside can obtain the source, rebuild the image and compare it, so reproducibility
-would be a property that no one is in a position to check. It buys something the moment the
-repository is public and a third party can verify that a published image corresponds to the source
-it claims to come from — **that is the point at which this paragraph has to change**, and the
-`apt-get install` in the runtime stage of the `Dockerfile` is the first thing that will have to give
-way for it.
+**Reproducible builds are named in plan section 19 and are still not implemented — but the first
+thing this paragraph said would have to give way, has.** Until 2026-08-24 the runtime stage ran a
+bare `apt-get install ca-certificates curl gosu`, which resolved to whatever the archive offered on
+the day of the build: the base layer was pinned by digest and this was not, so two builds of one
+commit produced two images and nothing recorded which one a deployment ran. It now installs three
+exact versions from a Debian snapshot, and those versions were read out of that snapshot on amd64 and
+on arm64 before they were written down — identical on both, which is the detail that decides whether
+one set of pins can serve a multi-architecture build at all.
+
+**What that is worth, stated narrowly:** an image built from that commit a year from now installs the
+same three packages as one built today. It is not a claim that two builds produce the same digest.
+The toolchain image's own contents are not pinned beyond its digest, the `musl-tools` in the
+wrapper's builder stage is not pinned, timestamps and build paths are not normalized, and **nobody
+has rebuilt a published image and compared it** — which is the only evidence that would make the
+word *reproducible* honest here.
+
+The reason to close the rest is now in place, and it is the reason this paragraph was written
+conditionally: the repository is public since 2026-08-24, so a third party can obtain the source,
+rebuild, and say whether the result matches. Until somebody does that, this entry is a list of things
+that are *more* pinned than they were and not a property anybody has checked.
 
 **Side channels beyond timing in credential comparison.** Token, HMAC, and tag comparisons are
 constant-time. There is no protection against cache-timing or Spectre-class attacks.
