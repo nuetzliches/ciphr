@@ -188,7 +188,9 @@ impl Config {
     /// # Errors
     ///
     /// Returns [`ConfigError`] if the file cannot be read, is not valid TOML, has an
-    /// unknown key, or configures no audit device.
+    /// unknown key, configures no audit device, or configures no `sqlite` audit
+    /// device — the chain head is read from that one, so a configuration without it
+    /// resumes from a place its records never reached.
     pub fn load(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
         let path = path.as_ref();
         let text = std::fs::read_to_string(path).map_err(|source| ConfigError::Read {
