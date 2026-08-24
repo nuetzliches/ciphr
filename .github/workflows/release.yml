@@ -205,8 +205,7 @@ jobs:
             echo 'Architectures:'
             echo ''
             echo '```'
-            docker buildx imagetools inspect "${IMAGE}:${VERSION}" --format '{{range .Manifest.Manifests}}{{.Platform.OS}}/{{.Platform.Architecture}} {{.Digest}}
-          {{end}}'
+            docker buildx imagetools inspect "${IMAGE}:${VERSION}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
