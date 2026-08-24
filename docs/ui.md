@@ -1,6 +1,6 @@
 # The viewer
 
-**Status:** current as of 2026-08-23, phase 5, released as `ui-v0.3.1`; the capability its token needs changed on 2026-08-23 (ADR-23), and `ui-v0.3.1` closes finding F4 — the viewer now refuses to mount while a service worker controls its document. Built and running: the five
+**Status:** current as of 2026-08-24, phase 5, released as `ui-v0.3.2`, which is `ui-v0.3.1`'s code published for arm64 as well; the capability its token needs changed on 2026-08-23 (ADR-23), and `ui-v0.3.1` closes finding F4 — the viewer now refuses to mount while a service worker controls its document. Built and running: the five
 views below, the strict Content-Security-Policy, and the container that serves them. Sign-in is a
 pasted token; SSO is post-v1 (ADR-12). **This viewer requires a service at `0.3.0` or newer** — it
 reads the rotation class from `GET /v1/versions/{path}`, which returned a bare array before that.
@@ -12,9 +12,16 @@ whose subject is missing — the column falls back to the path, which is every r
 That is why this release has **no deploy ordering constraint**, unlike `ui-v0.2.0`, which needed the
 service first because it read a response shape `0.2.0` did not produce.
 
-**Its own version, on its own cadence** (ADR-11). `ui-v0.3.1` is the fourth viewer release; the
+**Its own version, on its own cadence** (ADR-11). `ui-v0.3.2` is the fifth viewer release; the
 numbers are not meant to line up with the service's, and they have not since `ui-v0.1.1`. It changes
-one thing, the service-worker refusal below, and needs no particular service version to do it.
+**nothing in `ui/`** — it is `ui-v0.3.1`'s code, published as a manifest list over an amd64 and an
+arm64 build. `ui-v0.3.1` was tagged before `release-ui.yml` grew the second architecture, so the
+image a deployment could actually pull was amd64-only while the rest of `0.11.0` was not, and an
+arm64 host got a service and a wrapper and then a viewer it could not start. That is the sentence
+issue #4 was written around, so the honest fix is a tag rather than a narrower claim.
+
+`ui-v0.3.1` remains what it was: the service-worker refusal, and no particular service version needed
+to do it. Both statements below still describe `ui-v0.3.2`, because the code is the same code.
 
 A read-only browser view of a ciphr deployment: the audit trail, secret metadata with a per-value
 reveal, identities, policies, and health. It is what makes the audit trail usable without the CLI,

@@ -8,6 +8,23 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Changed — the viewer image is a manifest list too (`ui-v0.3.2`)
+
+**`0.11.0` claimed three images over two architectures and shipped two.** The service and the wrapper
+are manifest lists; the viewer was not, because `ui-v0.3.1` was tagged *before* `release-ui.yml` grew
+its second architecture and nothing has been tagged since. An arm64 deployment taking `0.11.0` got a
+service and a wrapper and then `no matching manifest for linux/arm64` from the viewer — which is the
+exact sentence [issue #4](https://github.com/nuetzliches/ciphr/issues/4) was written around.
+
+`ui-v0.3.2` is `ui-v0.3.1`'s code and nothing else: no source change, no dependency change, no
+behaviour change. The service-worker refusal is what it was. What is new is that the published image
+is an index over an amd64 and an arm64 build, so the claim in `0.11.0`'s changelog is true of the
+registry and not only of the workflow.
+
+**Nothing forces this upgrade.** An amd64 deployment on `ui-v0.3.1` has the same viewer; the digest
+moves because an index is not one of the images it points at, so a deployment that pins by digest
+re-pins or stays. The correction was cheaper as a tag than as a footnote, and a footnote would have
+left the arm64 host without a viewer.
 ### Fixed — nine links that pointed at nothing, and a gate that would have caught them
 
 **Fallout from the move in `8c7848c`**, found by re-reading it rather than by any gate:

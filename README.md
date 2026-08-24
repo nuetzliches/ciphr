@@ -12,7 +12,8 @@ deploy pipeline, not a human.
 > which is the thing an SDK inside the build could not do. Images and binaries are multi-architecture,
 > one tag, one digest to pin.
 >
-> **Pin `0.11.0`.** The viewer moves separately, as `ui-v0.3.1`.
+> **Pin `0.11.0`.** The viewer moves separately, as `ui-v0.3.2` — `ui-v0.3.1`'s code, published
+> for arm64 as well.
 >
 > **Two things break on purpose in this release**, both from
 > [a full-repository review](docs/assurance/reviews/review-2026-08-24-full-repository.md): the server
