@@ -16,21 +16,58 @@
 #     doubles has acquired a dependency, and this is where that gets noticed
 #     instead of during a deploy.
 #
-# Measured on 2026-08-20 with the pinned toolchain: 3,347,368 bytes stripped.
-# The budget below is set at roughly 1.5x that, so ordinary growth passes and a
-# new dependency of any size does not.
+# Each budget is set at roughly 1.5x a measurement, so ordinary growth passes and
+# a new dependency of any size does not. The measurements are in the `case`
+# below, beside the number they produced.
 set -eu
 
 cd "$(dirname "$0")/.."
 
-TARGET=x86_64-unknown-linux-musl
-# The budget is per target, not per project. An aarch64 static binary is a
-# different size for reasons that have nothing to do with dependencies, so a
-# second target gets its own number here rather than raising this one to fit
-# both -- raising it to whichever is larger quietly weakens the check for the
-# smaller one, which is the check this exists to be.
-BUDGET=5242880 # 5 MiB
+# The target this run builds. One per invocation, and named from outside, because
+# the two things that follow from it -- the budget and the asset name -- have to
+# follow from the same word.
+TARGET=${TARGET:-x86_64-unknown-linux-musl}
 OUT=${1:-target/wrapper}
+
+# The budget is per target, not per project. An aarch64 static binary is a
+# different size for reasons that have nothing to do with dependencies, so each
+# target gets its own number rather than one raised to fit both -- raising it to
+# whichever is larger quietly weakens the check for the smaller one, which is the
+# check this exists to be.
+#
+# An unknown target is refused rather than given a default. A target with no
+# budget is a gate that checks nothing while reporting that it ran.
+case "$TARGET" in
+x86_64-unknown-linux-musl)
+    # Measured 2026-08-24 on the CI runner: 3,367,856 bytes stripped. It was
+    # 3,347,368 on 2026-08-20, which is what ordinary growth looks like.
+    BUDGET=5242880 # 5 MiB
+    ;;
+aarch64-unknown-linux-musl)
+    # Measured 2026-08-24 with the pinned toolchain: 2,888,088 bytes stripped --
+    # *smaller* than x86_64, which is the reason this is a `case` and not one
+    # number raised to fit both. A budget of 6 MiB, picked to be safely above the
+    # amd64 measurement, would have let this binary grow by more than half again
+    # before anything noticed.
+    #
+    # First measured in an emulated arm64 container, then again on the native
+    # arm64 runner: **the same 2,888,088 bytes**. Worth recording, because the
+    # first measurement rested on an argument -- emulation changes how long a
+    # build takes and not what comes out -- and the second one made it a fact.
+    BUDGET=4718592 # 4.5 MiB
+    ;;
+*)
+    echo "build-wrapper: no size budget for $TARGET" >&2
+    echo "build-wrapper: add one to the case above rather than passing this target through" >&2
+    exit 1
+    ;;
+esac
+
+# **Run this on a machine of the target architecture.** `strip` and `ldd` below
+# are the host's, and neither reads a foreign ELF: a cross-build would fail at
+# the strip or, worse, report a linkage it did not look at. `ci.yml` runs one
+# matrix leg per architecture on a native runner for this reason, which is also
+# what lets the tests run *as* static binaries rather than merely be built.
 
 if ! rustup target list --installed | grep -qx "$TARGET"; then
     echo "build-wrapper: adding the $TARGET target" >&2
@@ -42,12 +79,13 @@ cargo build --release --locked -p ciphr-run --target "$TARGET"
 built="target/$TARGET/release/ciphr-run"
 mkdir -p "$OUT"
 
-# The name carries the target triple, and does so while there is only one
-# target. This file is published as a release asset, so a second architecture
-# would otherwise force a choice between renaming the asset -- breaking every
-# fetch script written against the documented name -- and shipping a qualified
-# binary beside an unqualified checksum. Derived from $TARGET rather than
-# written out, so a second target cannot inherit the first one's name.
+# The name carries the target triple, which is what makes a second architecture
+# an addition rather than a rename. It was qualified on 2026-08-21 while amd64
+# was still the only one, precisely so that today's arm64 asset could arrive
+# beside it instead of forcing a choice between breaking every fetch script
+# written against the documented name and shipping a qualified binary next to an
+# unqualified checksum (issue #4). Derived from $TARGET rather than written out,
+# so one target cannot inherit the other one's name.
 binary="$OUT/ciphr-run-$TARGET"
 
 # Stripped, because this is the file a deployment mounts and the symbols buy a

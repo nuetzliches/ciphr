@@ -329,36 +329,60 @@ jobs:
       - name: cargo audit
         run: cargo audit --deny warnings
 
-  wrapper:
-    name: The static binaries build, run, and fit their budgets
-    runs-on: ubuntu-latest
+  # ── The two static binaries, once per architecture ───────────────────────────
+  #
+  # `ciphr-run` is bind-mounted into images this project does not own (ADR-14) and
+  # `ciphr-ci` is downloaded onto whatever a runner happens to be (ADR-25). For
+  # both, the architecture is decided by somebody else's machine, which is why
+  # issue #4 called this half the one with an *external* trigger: the first arm64
+  # runner that mounts an amd64 wrapper gets `exec format error` from inside a
+  # foreign container, at the moment a service is starting without its secrets.
+  #
+  # **Native runners, not emulation.** The tests below run the binaries *as*
+  # static musl executables rather than only building them, because static musl is
+  # exactly where name resolution breaks -- NSS modules cannot be loaded into a
+  # static binary -- and a build-only gate would not notice. Under qemu that
+  # assertion would be about the emulator as much as about the binary, and the
+  # scripts also strip and `ldd` the result with the host's tools, which do not
+  # read a foreign ELF.
+  binaries:
+    name: Static binaries (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      # Both legs run to completion. One architecture failing is a fact about that
+      # architecture, and cancelling the other one hides whether it was too.
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
 
-      # Two artefacts, one toolchain. `ciphr-run` is bind-mounted into images this
-      # project does not own (ADR-14) and `ciphr-ci` is downloaded onto whatever a
-      # runner happens to be (ADR-25), so linkage is part of the contract for both:
-      # each must need nothing from the machine it lands on.
       - name: Add the musl target
         run: |
-          rustup target add x86_64-unknown-linux-musl
+          rustup target add ${{ matrix.target }}
           sudo apt-get update
           sudo apt-get install -y musl-tools
 
-      # Run the tests *as* static musl binaries, not only build them. Static musl
-      # is exactly where name resolution breaks -- NSS modules cannot be loaded
-      # into a static binary -- and a binary that builds but cannot resolve a
-      # hostname would pass a build-only gate and fail on the first deploy.
       # `tests/wrapper.rs` covers the real exec path and one resolution by name.
       - name: Test the wrapper as a static binary
-        run: cargo test --locked -p ciphr-run --target x86_64-unknown-linux-musl
+        run: cargo test --locked -p ciphr-run --target ${{ matrix.target }}
 
       # Verifies static linkage and holds the binary to a size budget. The budget
       # is a review trigger rather than a performance one: a jump means a new
       # dependency arrived in the thing mounted into other people's containers.
-      - name: Build, verify linkage, and check the budget
+      # It is per target, because an aarch64 binary is a different size for
+      # reasons that have nothing to do with dependencies.
+      - name: Build the wrapper, verify linkage, and check the budget
+        env:
+          TARGET: ${{ matrix.target }}
         run: sh ci/build-wrapper.sh target/wrapper
 
       # Kept so that a deployment can take the exact file these gates passed on,
@@ -367,26 +391,50 @@ jobs:
       - name: Keep the wrapper
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ciphr-run-x86_64-unknown-linux-musl
+          name: ciphr-run-${{ matrix.target }}
           path: target/wrapper/
           if-no-files-found: error
 
-      # The same two properties for the CI-side binary, for its own reasons: a
-      # runner is whatever the job's image is, and a static binary is what makes
-      # "download it and run it" a statement about every runner rather than about
-      # the one it was tried on.
       - name: Test the CI binary as a static binary
-        run: cargo test --locked -p ciphr-ci --target x86_64-unknown-linux-musl
+        run: cargo test --locked -p ciphr-ci --target ${{ matrix.target }}
 
       - name: Build the CI binary, verify linkage, and check the budget
+        env:
+          TARGET: ${{ matrix.target }}
         run: sh ci/build-ci-binary.sh target/ci
 
       - name: Keep the CI binary
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ciphr-ci-x86_64-unknown-linux-musl
+          name: ciphr-ci-${{ matrix.target }}
           path: target/ci/
           if-no-files-found: error
+
+  # The name the branch ruleset requires, kept stable across a matrix that will
+  # grow again. A matrix leg reports as `Static binaries (arm64)`, so requiring
+  # the legs by name would mean editing the ruleset every time the matrix changes
+  # -- and a required check that no longer exists blocks every merge silently.
+  # This job carries the required name and asserts the legs.
+  #
+  # `if: always()` with an explicit test, rather than a bare `needs:`: a job that
+  # is *skipped* because its dependency failed never reports a conclusion, and a
+  # required check that never reports is indistinguishable from one still running.
+  wrapper:
+    name: The static binaries build, run, and fit their budgets
+    needs: binaries
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every architecture built, ran and fitted
+        env:
+          RESULT: ${{ needs.binaries.result }}
+        run: |
+          set -eu
+          if [ "$RESULT" != "success" ]; then
+            echo "one or more architectures failed: $RESULT" >&2
+            exit 1
+          fi
+          echo "amd64 and arm64 both built, ran their tests as static binaries, and fit their budgets"
 
   fuzz:
     name: Fuzz smoke run

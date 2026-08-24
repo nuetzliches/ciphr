@@ -27,24 +27,48 @@
 # second binary. The duplication is nineteen lines of `case` and `if`; the
 # alternative is a gate that stops meaning what it says.
 #
-# **This budget is derived rather than measured, and that is a difference worth
-# stating.** The wrapper measured 3,347,368 bytes stripped on 2026-08-20, and
-# this binary is that dependency set plus `ciphr-export` -- a renderer, a hex
-# encoder and `serde_json`, which is already in the graph through `ciphr-sdk`.
-# The number below is the wrapper's budget plus half a mebibyte. The first CI run
-# prints what it actually is; replace this paragraph with that measurement and
-# its date, and set the budget from it, rather than leaving a number nobody has
-# seen a binary next to.
+# Each budget is roughly 1.5x a measurement, and the measurements are in the
+# `case` below beside the number they produced. They were derived until
+# 2026-08-24 and are now measured on the runners that build the artefacts.
+#
+# What the two architectures say about guessing: the aarch64 binary is *smaller*
+# than the amd64 one. A single number chosen to clear the larger would have been
+# the weaker check for the smaller, which is the whole reason this is a `case`.
 set -eu
 
 cd "$(dirname "$0")/.."
 
-TARGET=x86_64-unknown-linux-musl
-# Per target, not per project: an aarch64 static binary is a different size for
-# reasons that have nothing to do with dependencies, so a second target gets its
-# own number here rather than raising this one to fit both.
-BUDGET=5767168 # 5.5 MiB
+# The target this run builds, named from outside, because the budget and the
+# asset name both follow from it and have to follow from the same word.
+TARGET=${TARGET:-x86_64-unknown-linux-musl}
 OUT=${1:-target/ci}
+
+# Per target, not per project: an aarch64 static binary is a different size for
+# reasons that have nothing to do with dependencies, so each target gets its own
+# number rather than one raised to fit both. An unknown target is refused rather
+# than defaulted -- a target with no budget is a gate that checks nothing while
+# reporting that it ran.
+case "$TARGET" in
+x86_64-unknown-linux-musl)
+    # Measured 2026-08-24 on the CI runner: 3,392,432 bytes stripped.
+    BUDGET=5242880 # 5 MiB
+    ;;
+aarch64-unknown-linux-musl)
+    # Measured 2026-08-24 on the native arm64 runner: 2,888,096 bytes stripped --
+    # eight bytes off the wrapper, which is what "the same dependency graph plus a
+    # renderer" looks like once the linker has finished.
+    BUDGET=4718592 # 4.5 MiB
+    ;;
+*)
+    echo "build-ci-binary: no size budget for $TARGET" >&2
+    echo "build-ci-binary: add one to the case above rather than passing this target through" >&2
+    exit 1
+    ;;
+esac
+
+# **Run this on a machine of the target architecture**, for the reason
+# `build-wrapper.sh` gives at the same place: `strip` and `ldd` below are the
+# host's and neither reads a foreign ELF.
 
 if ! rustup target list --installed | grep -qx "$TARGET"; then
     echo "build-ci-binary: adding the $TARGET target" >&2
@@ -57,10 +81,10 @@ built="target/$TARGET/release/ciphr-ci"
 mkdir -p "$OUT"
 
 # The name carries the target triple, for the reason `build-wrapper.sh` gives:
-# an asset name is what a fetch script is written against, so qualifying it
-# later would mean breaking every such script or publishing a qualified binary
-# beside an unqualified checksum. Derived from $TARGET rather than written out,
-# so a second target cannot inherit the first one's name.
+# an asset name is what a fetch script is written against, and a second
+# architecture has to be able to arrive beside the first rather than renaming it.
+# Derived from $TARGET rather than written out, so one target cannot inherit the
+# other one's name -- and `action.yml` picks between them by what the runner is.
 binary="$OUT/ciphr-ci-$TARGET"
 
 # Stripped. This one runs on a machine whose logs and cores are readable by
