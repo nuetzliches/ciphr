@@ -13,12 +13,14 @@
 # reason ci.yml gives: a tag can be moved. Single architecture for the reason
 # release.yml gives: one amd64 host pulls this.
 #
-# **The Forgejo counterpart is `.forgejo/workflows/build-ui-image.yml`**, added
-# when the viewer became deployable. It exists for the same reason the service's
-# does: a private repository means a private GHCR package that the deployment host
-# cannot pull, so the image is built a second time into the internal registry.
-# Both are deleted once the repository is public and this workflow is the single
-# publisher again.
+# **This is the single publisher of the viewer image since 2026-08-24.** There
+# was a Forgejo counterpart, `.forgejo/workflows/build-ui-image.yml`, which built
+# the image a second time into an internal registry because a private repository
+# means a private GHCR package that the deployment host cannot pull. It was
+# removed with the decision to build the images here and pull them from GHCR.
+# **While this repository is private that package is private too**, so the host
+# needs a credential that may read it -- which is a deployment-side arrangement,
+# and the alternative to it is the repository going public.
 name: Release the viewer
 
 on:

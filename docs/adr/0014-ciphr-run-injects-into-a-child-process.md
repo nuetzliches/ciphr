@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Accepted 2026-08-20** and built as `ciphr-run`. Proposed 2026-08-18 |
+| **Status** | **Accepted 2026-08-20** and built as `ciphr-run`. Proposed 2026-08-18; amended 2026-08-24 — the second build into an internal registry is gone, so the two published channels now carry the same bytes |
 | **Date** | 2026-08-18, accepted 2026-08-20 |
 | **Affects** | `ciphr-run`, `ciphr-sdk`, section 13 route B, phase 7, CI and release |
 
@@ -281,9 +281,14 @@ Three properties are worth stating, because each was a choice:
   mounted into other people's containers is a way to change those bytes with nothing recording
   that it happened.
 
-**What this does not buy: one checksum.** The internal registry builds from source on its own
-runner, so its image comes from a second build of the same commit. Both pin the same base image
-digest and the same locked dependency graph, and neither is claimed to be reproducible — the
-base layer is pinned, the `apt-get` inside it is not. Each channel publishes the checksum of the
-bytes it produced, and a deployment verifies against the one it pulled from. Making those two
-numbers provably equal is a reproducible-build problem, and it is not solved here.
+**What this did not buy: one checksum — until 2026-08-24, when it did.** An internal registry built
+from source on its own runner, so its image came from a second build of the same commit. Both pinned
+the same base image digest and the same locked dependency graph, and neither build was claimed to be
+reproducible — the base layer is pinned, the `apt-get` inside it is not. Each channel published the
+checksum of the bytes it produced, a deployment verified against the one it pulled from, and making
+those two numbers provably equal was a reproducible-build problem this record did not solve.
+
+**That second build was removed on 2026-08-24**, with the decision to build the images in one place.
+The release asset is extracted from the image that was pushed, so the asset and the image now carry
+the same bytes and one number describes both. The reproducible-build problem is unchanged and
+unsolved; what changed is that there is no longer a second build to be irreproducible against.

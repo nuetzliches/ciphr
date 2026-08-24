@@ -6,10 +6,10 @@
 # attaches it to the tag, and for a public repository that is the whole answer.
 # While the repository is private it is not: a release asset is readable only by
 # something that can authenticate to GitHub, and the host that has to mount the
-# file authenticates to one registry and nothing else. That is the same argument
-# `.forgejo/workflows/build-images.yml` records for the server image, and it
-# applies here unchanged — it was simply never drawn for the wrapper, which left
-# route B correct in this repository and unreachable outside it.
+# file authenticates to a registry and not to the forge. The registry is GHCR
+# since 2026-08-24, when the second build into an internal one was removed --
+# which makes this image the only channel that carries the wrapper to a host, and
+# the release asset the channel for anything that can authenticate to GitHub.
 #
 # ── Why `scratch` ────────────────────────────────────────────────────────────
 # There is nothing else this image should be able to do. It is a transport, not

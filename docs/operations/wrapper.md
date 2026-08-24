@@ -97,10 +97,16 @@ the release asset -- a file pulled from a tag arrives carrying nothing but its n
 not the tag: this file is mounted into containers built by other people,
 and there is deliberately no `:latest` to follow.
 
-**Verify the checksum against the channel you pulled from.** The two images are built independently
-— GitHub's from its own runner, the registry copy from another — and neither build is claimed to be
-reproducible. The checksums are published in each build's job summary. A mismatch between the two
-channels is expected; a mismatch against the channel's own published number is not.
+**Verify the checksum, and expect the two channels to agree.** They carry the same bytes: the release
+asset is extracted from the image that was just pushed, with `docker create` and `docker cp` against
+its digest, and the published number is computed from what came out. So a mismatch between the asset
+and the file inside the image is not an expected difference between two builds — it is something to
+stop for.
+
+That was not true until 2026-08-24. A second build ran on another runner and pushed to an internal
+registry, so each channel published the checksum of the bytes *it* produced and a mismatch between
+them meant nothing. That build was removed when the images became something this repository publishes
+once; the checksums it published belong to tags from before that date.
 
 ## What breaks, what it looks like, and what to do
 

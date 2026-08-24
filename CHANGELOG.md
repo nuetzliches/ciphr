@@ -8,6 +8,32 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Removed — the second image build, and with it the one place that named a deployment
+
+`.forgejo/workflows/build-images.yml` and `build-ui-image.yml` are gone. They existed for one
+reason: a private repository means a private GHCR package, and the deployment host authenticates to
+one registry rather than to the forge — so both images were built a second time, on another runner,
+into an internal registry. The images are built here now and pulled from GHCR.
+
+**What a deployment has to do about it:** while this repository is private that package is private
+too, so the host needs a credential that may read it. That is a deployment-side arrangement and the
+alternative to it is the repository going public. Nothing in this repository can check that it was
+made, which is why it is the first line of this entry rather than a footnote.
+
+Three things follow, and each is written where it was claimed:
+
+- **One checksum instead of two.** The release asset is extracted from the image that was pushed, so
+  the asset and the image carry the same bytes. `docs/operations/wrapper.md` said to expect a
+  mismatch between the channels and to verify against the one you pulled from; it now says a
+  mismatch is something to stop for, and that the old advice belongs to tags from before this date.
+  ADR-14 carries the same amendment, dated, rather than a rewritten paragraph.
+- **`release-ui.yml` is the single publisher of the viewer image**, and its header says so instead of
+  naming a counterpart that no longer exists.
+- **The publication checklist in plan section 20 loses an item and keeps a decision.** Deleting those
+  files was a step it named; deleting them does not remove the forge hostname, the image namespace
+  and the runner label from a history that is published with the repository. That decision is still
+  open, and the plan still says so.
+
 ### Added — `ciphr-ci`, so the masking this project ships is reachable from a CI job
 
 **The name contains *CI*, and the one thing this project does about the masking trap could not be
