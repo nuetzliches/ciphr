@@ -8,6 +8,23 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — `docs/operations/` has an index
+
+Eleven documents and no entry point: a reader had to infer the right runbook from filenames, and the
+index one level up is ordered by risk rather than by task, which is the right shape for "what could
+this cost me" and the wrong one for "what do I run".
+
+[`docs/operations/README.md`](docs/operations/README.md) orders them by intent — setting up and
+looking things up, running a deployment, keeping the data, integrating a consumer, changing a secret,
+responding to an incident — and says which three procedures depend on something prepared *before* the
+incident, since in all three cases doing it during one is either impossible or itself an outage.
+
+`freeze.md` is listed under **designed, and not built**, with its own heading rather than a footnote:
+it describes the tier ADR-15 deliberately left out, `ciphr lockdown` does not exist, and a document
+that reads like a runbook while naming a command nobody can run is the exact failure
+`ci/check-doc-commands.sh` was written for. That gate's allowlist entry for it is named in the index,
+so a reader who wonders why the gate is quiet about it finds the answer next to the claim.
+
 ### Changed — review records and field reports moved to `docs/assurance/`
 
 The eleven dated snapshots — six reviews, five field reports — now live under

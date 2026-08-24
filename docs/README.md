@@ -87,7 +87,7 @@ The parts where a mistake is expensive, and where to read before making one.
 | [operations/wrapper.md](operations/wrapper.md) | `ciphr-run`: where the file comes from, what its exit codes mean, and what route B does not solve |
 | [operations/ci.md](operations/ci.md) | `ciphr-ci` and the composite action: the workflow step, where the binary comes from, what is measured about masking and what is only claimed |
 | [operations/honeypots.md](operations/honeypots.md) | Planting bait, where it must not go, and what to do when it fires |
-| [operations/](operations/) | Procedures for the things that are hard to undo: the master key, rotating secrets, the audit trail, and the freeze a tripwire can engage |
+| [operations/](operations/README.md) | The operational index, ordered by task: setting up, running, keeping the data, integrating a consumer, rotating a secret, and responding to an incident |
 | [`../openapi.yaml`](../openapi.yaml) | The HTTP API, maintained in the same commit as the code |
 | [`../AGENTS.md`](../AGENTS.md) | Working rules for contributors and the gates that enforce them |
 | [`../SECURITY.md`](../SECURITY.md) | Disclosure process and scope |
