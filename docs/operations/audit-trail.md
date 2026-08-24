@@ -1,6 +1,6 @@
 # The audit trail
 
-**Status:** implemented and tested as of 2026-08-21. The chain, the fail-closed sink, the file
+**Status:** implemented and tested as of 2026-08-24. The chain, the fail-closed sink, the file
 device, and the SQLite device work and are tested, and so do `ciphr audit tail`, `verify`, `anchor`,
 and `cut` — the last of these is what bounds the queryable trail, and it arrived after the rest.
 
@@ -75,6 +75,13 @@ Two operational consequences, both intended:
   not just whether the service answers. This is the failure mode the design chooses on purpose.
 - **The server refuses to start with no audit device configured.** A secret store without an audit
   trail is a configuration error in this project, not an operating mode.
+- **And it refuses to start without the SQLite device specifically** (since 2026-08-24, F3 of
+  [the full-repository review](../review-2026-08-24-full-repository.md)). The chain head a restart
+  resumes from is read from the store and from nowhere else. A file-only configuration was accepted
+  before that date and did something worse than fail: every restart began a *second* chain in the same
+  file, with a `prev_hash` naming a record that is not the line above it. A trail that looks rewritten,
+  produced by starting the service. The file device is a second copy on separate storage — which is a
+  reason to run both, not a reason to run it alone.
 
 ### Who can fill the volume: anyone who can reach the listener
 
