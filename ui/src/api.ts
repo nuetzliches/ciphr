@@ -120,6 +120,16 @@ export interface Health {
    * distinction, and rendering it takes three branches rather than a boolean.
    */
   audit_devices: { name: string; accepting: boolean | null }[];
+  /**
+   * What the service could not establish about itself, by name — and the reason `status`
+   * reads `degraded`. Absent from a service that reports nothing unverifiable, and from
+   * one older than the field, so it is optional here and an empty list means the same as
+   * a missing one.
+   *
+   * `tripwires` is the one it can currently carry: the service is serving, and it cannot
+   * tell whether bait has been taken. That must not render as a healthy service.
+   */
+  degraded?: string[];
 }
 
 export interface VersionSummary {

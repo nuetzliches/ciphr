@@ -990,7 +990,15 @@ components:
       type: object
       required: [status, sealed, seal, key_source, audit_devices, surface, api_version]
       properties:
-        status: { type: string, examples: ["ok"] }
+        status:
+          type: string
+          enum: [ok, degraded]
+          description: |
+            `ok`, or `degraded` when the process could not establish something it
+            reports on -- see `degraded` for which part. `degraded` is not a liveness
+            signal: the service is serving, and a load balancer must not pull it out of
+            rotation for it. It is what a *monitor* branches on.
+          examples: ["ok"]
         sealed:
           type: boolean
           description: |
@@ -1030,8 +1038,17 @@ components:
             properties:
               name:
                 type: string
-                description: The device name, as configured.
-                examples: ["file:/var/lib/ciphr/audit.jsonl"]
+                description: |
+                  A stable label -- the device kind, numbered within that kind in
+                  configuration order. **Deliberately not the configured path.** This
+                  route is unauthenticated, and the location of the database or the
+                  audit file is free reconnaissance for anyone who can reach the port;
+                  withholding a device's failure *reason* for that exact argument while
+                  publishing its path two fields away was a contradiction.
+
+                  Numbered even when there is one device of that kind, so a rule keyed
+                  on `file-1` does not break the day a second file device is configured.
+                examples: ["sqlite-1", "file-1", "file-2"]
               accepting:
                 type: boolean
                 nullable: true
@@ -1066,17 +1083,44 @@ components:
             detect bait" and "nothing has been taken" are different facts, and a monitor
             that conflates them reports a working tripwire on a service that has none.
 
+            **Also absent when the store could not be asked**, with `tripwires` in
+            `degraded` saying so. It used to answer `false` in that case, under
+            `status: "ok"` -- an affirmative "nothing has been taken" from a process
+            that could establish nothing of the kind, during the one event where the
+            answer matters.
+
             A boolean and never a name. Plan section 10 lets an unauthenticated endpoint
             say what the process is doing, which is *that* something fired; *which* bait
             was taken is stored, and stays behind the administrative read and the trail.
 
             It does not clear itself. A trip is cleared on the host, deliberately -- a
             tripwire that resets on a timer has, in effect, not fired.
+        degraded:
+          type: array
+          description: |
+            What this process could not establish about itself, by name. **Absent when
+            there is nothing to report**, which is the ordinary case, and the reason
+            `status` reads `degraded` when it is present.
+
+            It exists because `tripped` is already meaningfully absent: absent means
+            "this build has no tripwire mechanism". A store failure borrowing that same
+            absence would have made the two indistinguishable, so instead the absence
+            keeps its meaning and this names the missing part.
+
+            A name and never a reason -- a store error message names a database file,
+            and this route is unauthenticated.
+          items:
+            type: string
+            enum: [tripwires]
+          examples: [["tripwires"]]
         open_tripwires:
           type: integer
           minimum: 0
           description: |
-            How many trips are open. Absent under the same condition as `tripped`.
+            How many trips are open. Absent under the same condition as `tripped`, and
+            also absent when the store could not be asked -- in which case `degraded`
+            carries `tripwires`. Absent rather than `0`: a count nobody could take is
+            not a count of zero.
 
             More than one means more than one piece of bait, not more than one read of
             the same one: a trip latches per piece of bait until it is cleared.

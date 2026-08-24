@@ -202,6 +202,20 @@ struct Health {
     tripped: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     open_tripwires: Option<usize>,
+    /// What this process could not establish, by name. Empty and omitted in the ordinary
+    /// case.
+    ///
+    /// Finding F9 of the review of 2026-08-24, and it exists because `tripped` is an
+    /// `Option` that already means something: absent is "this build has no tripwire
+    /// mechanism". A store failure would have had to borrow that absence and would have
+    /// made the two indistinguishable — a monitor cannot tell "no such feature" from
+    /// "the feature could not be read" if both are a missing field.
+    ///
+    /// So the absence keeps its meaning, `status` turns `degraded`, and this says which
+    /// part is missing. A name and never a reason: a store error message names a
+    /// database file, and this endpoint is unauthenticated.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    degraded: Vec<&'static str>,
     api_version: &'static str,
 }
 
@@ -471,13 +485,31 @@ async fn health(State(state): State<AppState>) -> Json<Health> {
     // Asked once. Two calls would be two store queries on a route something polls every
     // few seconds, which is the kind of cost that is invisible until it is the only
     // thing holding the store's mutex.
+    //
+    // Three states and not two. `Some(_)` is an answer; `None` in a build with the entry
+    // means the store could not be asked; `None` in a build without it means there is
+    // nothing to ask. The first two used to be the same value -- `(false, 0)` -- which is
+    // finding F9: a store failure reported "nothing has been taken" rather than "I
+    // cannot tell you", and it did it under `status: "ok"`.
     #[cfg(feature = "honeypot_alert")]
-    let tripwire = Some(state.tripwire_state());
+    let (tripwire, watching) = (state.tripwire_state(), true);
     #[cfg(not(feature = "honeypot_alert"))]
-    let tripwire: Option<(bool, usize)> = None;
+    let (tripwire, watching): (Option<(bool, usize)>, bool) = (None, false);
+
+    let mut degraded = Vec::new();
+    if watching && tripwire.is_none() {
+        degraded.push("tripwires");
+    }
 
     Json(Health {
-        status: "ok",
+        // `degraded` rather than a failing status code: the process is serving, and a
+        // load balancer must not pull it out of rotation because one query failed. What
+        // changes is what a *monitor* is told, which is the thing that was wrong.
+        status: if degraded.is_empty() {
+            "ok"
+        } else {
+            "degraded"
+        },
         // v1 unseals at startup or refuses to start, so a reachable server is an
         // unsealed one. The field exists because a Shamir or HSM seal (ADR-5) makes it
         // meaningful, and a client should not have to change shape when it does.
@@ -488,6 +520,7 @@ async fn health(State(state): State<AppState>) -> Json<Health> {
         surface: state.surface().names(),
         tripped: tripwire.map(|(any, _)| any),
         open_tripwires: tripwire.map(|(_, count)| count),
+        degraded,
         api_version: "v1",
     })
 }

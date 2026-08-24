@@ -878,6 +878,66 @@ fn health_reports_that_something_fired_and_not_what() {
     );
 }
 
+/// A store that cannot be asked produces `degraded`, and never an affirmative "clear".
+///
+/// Finding F9 of the review of 2026-08-24. `tripwire_state` swallowed every store and
+/// lock error into `(false, 0)`, so `/v1/health` answered `status: "ok"`,
+/// `tripped: false`, `open_tripwires: 0` while being unable to establish any of it. The
+/// moment that matters is an incident, and the answer it gave then was the reassuring
+/// one.
+///
+/// The failure here is real rather than injected: the `tripwire` table is dropped
+/// through a second connection, so the server's own query fails the way a corrupted or
+/// truncated database makes it fail.
+#[cfg(feature = "honeypot_alert")]
+#[test]
+fn health_says_degraded_when_it_cannot_read_the_tripwire_state() {
+    let harness = Harness::new();
+
+    let (_, before) = harness.get("/v1/health", None);
+    assert_eq!(before["status"], "ok");
+    assert_eq!(before["tripped"], false);
+    assert!(
+        before.get("degraded").is_none(),
+        "nothing is unverifiable in the ordinary case, so the field is absent"
+    );
+
+    {
+        // `rusqlite` directly, as `tests/check_config.rs` does and for the same reason:
+        // nothing in `ciphr-store`'s interface can express "a database that has become
+        // unreadable", and that is the state under test.
+        let connection = rusqlite::Connection::open(&harness.database).expect("open");
+        connection
+            .execute_batch("DROP TABLE tripwire")
+            .expect("drop the table the health query reads");
+    }
+
+    let (status, after) = harness.get("/v1/health", None);
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the process is serving; a load balancer must not pull it out of rotation"
+    );
+    assert_eq!(after["status"], "degraded");
+    assert_eq!(
+        after["degraded"],
+        serde_json::json!(["tripwires"]),
+        "which part could not be established, by name"
+    );
+    assert!(
+        after.get("tripped").is_none() && after.get("open_tripwires").is_none(),
+        "absent rather than false: inventing `false` here is the finding, got {after}"
+    );
+
+    // The name and nothing else. A store error message names a database file, and this
+    // endpoint is unauthenticated.
+    let rendered = after.to_string();
+    assert!(
+        !rendered.contains("tripwire\"") || !rendered.contains("no such table"),
+        "the reason must stay out of the response, got {rendered}"
+    );
+}
+
 /// A build without the entry says nothing about tripwires at all.
 ///
 /// Absent rather than `false`: "this build cannot detect bait" and "nothing has been
@@ -1962,6 +2022,11 @@ fn health_reports_a_device_that_stopped_accepting_records() {
         .map(|d| d["name"].as_str().expect("name").to_owned())
         .collect();
     assert_eq!(names.len(), 2, "the harness configures two devices");
+    assert_eq!(
+        names,
+        vec!["sqlite-1".to_owned(), "device-1".to_owned()],
+        "labels, numbered within their kind in configuration order"
+    );
     for device in before["audit_devices"].as_array().expect("array") {
         assert_eq!(
             device["accepting"],
@@ -1983,19 +2048,62 @@ fn health_reports_a_device_that_stopped_accepting_records() {
 
     let after = harness.get("/v1/health", None).1;
     let devices = after["audit_devices"].as_array().expect("array");
+    // Selected by published label, in configuration order: the harness's `Partial`
+    // sink is [sqlite, always-fails], and `always-fails` names itself without a `kind:`
+    // prefix, so it is labelled `device-1`. Before F14 this test could look up the
+    // device by the name it calls itself, which is exactly what the endpoint stopped
+    // handing out.
     let working = devices
         .iter()
-        .find(|d| d["name"] != "always-fails")
+        .find(|d| d["name"] == "sqlite-1")
         .expect("the working device");
     let broken = devices
         .iter()
-        .find(|d| d["name"] == "always-fails")
+        .find(|d| d["name"] == "device-1")
         .expect("the failing device");
 
     assert_eq!(working["accepting"], true);
     assert_eq!(
         broken["accepting"], false,
         "a device that refused the last record must not look healthy"
+    );
+}
+
+/// Finding F14 of the review of 2026-08-24: the audit devices are labelled, and the
+/// label is not the path.
+///
+/// A device names itself `sqlite:/var/lib/ciphr/ciphr.db`. Publishing that on an
+/// unauthenticated endpoint tells anyone who can reach the port where the database
+/// lives — free reconnaissance, and a direct contradiction of the rule one field away,
+/// which withholds a device's *failure reason* precisely because it names a path.
+#[test]
+fn health_labels_its_audit_devices_and_never_names_their_paths() {
+    let harness = Harness::new();
+    let body = harness.get("/v1/health", None).1;
+
+    let devices = body["audit_devices"].as_array().expect("array");
+    assert_eq!(devices.len(), 1);
+    assert_eq!(
+        devices[0]["name"], "sqlite-1",
+        "a label, numbered within its kind"
+    );
+
+    // The whole response, not just the field: the path must not arrive by any route.
+    let text = body.to_string();
+    let database = harness.database.to_string_lossy().replace('\\', "/");
+    let file_name = harness
+        .database
+        .file_name()
+        .expect("a file name")
+        .to_string_lossy()
+        .into_owned();
+    assert!(
+        !text.contains(&*database) && !text.contains(&file_name),
+        "the database path must not appear in an unauthenticated response, got {text}"
+    );
+    assert!(
+        !text.contains("sqlite:"),
+        "nor the device's own `kind:path` name, got {text}"
     );
 }
 

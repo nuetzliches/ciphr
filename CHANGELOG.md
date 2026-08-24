@@ -8,6 +8,49 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — health said "nothing has been taken" when it could not tell, and named the audit paths
+
+**F9 and F14 of [the full-repository review](docs/assurance/reviews/review-2026-08-24-full-repository.md)**, both on `GET /v1/health` — the one unauthenticated route.
+
+**F9: a store failure was reported as an all-clear.** `tripwire_state` swallowed every store and lock
+error into `(false, 0)`, so the endpoint answered `status: "ok"`, `tripped: false`,
+`open_tripwires: 0` while being unable to establish any of it. The moment that costs something is an
+incident, and the answer it gave then was the reassuring one.
+
+It cannot invent that answer now. `tripped` and `open_tripwires` are **absent** when the store could
+not be asked, `status` reads `degraded`, and a new **`degraded`** array names the part — `tripwires` —
+that could not be established. A name and never a reason: a store error message names a database file,
+and this route is unauthenticated.
+
+`degraded` exists rather than reusing the existing absence, because that absence already means
+something: `tripped` is absent in a build without `honeypot_alert`, and "this build cannot detect
+bait" is a different fact from "the bait detector could not be read". Collapsing them would have
+traded one wrong answer for another.
+
+**`degraded` is not a liveness signal.** The process is serving, and a load balancer must not pull it
+out of rotation for it. It is what a *monitor* branches on, and
+[monitoring.md](docs/operations/monitoring.md) says to alert on `degraded` carrying `tripwires`: the
+tripwire is unwatched, not clear.
+
+**The same query stopped materializing every open trip.** Computing a boolean and a count built the
+full `Trip` for every open row — seven columns and several allocations each — on a route something
+polls every few seconds, under the process-wide store mutex. `open_trip_count` is an aggregate.
+
+**F14: the endpoint published the audit devices' filesystem paths.** A device names itself
+`sqlite:/var/lib/ciphr/ciphr.db` or `file:/var/log/ciphr/audit.jsonl`, and that name was
+`audit_devices[].name` on an unauthenticated route — free reconnaissance for anyone who can reach the
+port, and a contradiction of the rule one field away, which withholds a device's *failure reason*
+precisely because it names a path.
+
+The names are labels now: `sqlite-1`, `file-1`, `file-2`, the kind numbered within its kind in
+configuration order. **Numbered even when there is one device of that kind**, so a rule keyed on
+`file-1` does not break the day a second file device is configured. The device's own name stays
+internal, as the key that matches a failure report to a device.
+
+**Nothing changes shape on the wire.** `audit_devices[].name` is the same field carrying a different
+string, so a consumer needs no edit — but **an alert rule matching a device by its path has to be
+re-keyed to the label**. The viewer renders the label, shows `degraded` when it is present, and stops
+colouring a degraded service green.
 ### Fixed — revoking a token no longer scans the inventory, and says what it actually did
 
 **F7 and F8 of [the full-repository review](docs/assurance/reviews/review-2026-08-24-full-repository.md)**, both in `POST /v1/tokens/{token_id}/revoke`.

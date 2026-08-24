@@ -113,6 +113,16 @@ pub struct Health {
     pub key_source: String,
     /// The configured audit devices, in order.
     pub audit_devices: Vec<DeviceHealth>,
+    /// What the service could not establish about itself, by name. Empty in the ordinary
+    /// case, and the reason `status` reads `degraded` when it is not.
+    ///
+    /// A name and never a reason — the endpoint is unauthenticated, and an error message
+    /// names a file. `tripwires` is the one this can currently carry: the service is
+    /// serving, and it cannot tell you whether bait has been taken.
+    ///
+    /// A service older than this field simply reports none, which reads correctly as
+    /// "nothing was reported as unverifiable".
+    pub degraded: Vec<String>,
     /// The API version, `v1`.
     pub api_version: String,
 }
@@ -120,7 +130,11 @@ pub struct Health {
 /// One audit device, and whether it is still accepting.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeviceHealth {
-    /// The device name, as configured.
+    /// A stable label: `sqlite-1`, `file-1`, `file-2`, in configuration order.
+    ///
+    /// Deliberately not the configured path. `/v1/health` is unauthenticated, and the
+    /// path of the database or the audit file is free reconnaissance for anyone who can
+    /// reach the port. The label is stable across restarts and is what to key a rule on.
     pub name: String,
     /// Whether it accepted the last record. `None` until the first record is written —
     /// "nothing recorded yet" is a different state from "the last record was accepted",
@@ -196,6 +210,8 @@ pub(crate) struct HealthWire {
     pub(crate) seal: String,
     pub(crate) key_source: String,
     pub(crate) audit_devices: Vec<DeviceHealthWire>,
+    #[serde(default)]
+    pub(crate) degraded: Vec<String>,
     pub(crate) api_version: String,
 }
 

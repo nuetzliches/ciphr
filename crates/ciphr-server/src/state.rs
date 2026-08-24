@@ -130,16 +130,61 @@ impl LatchClaims {
 /// else. The reason a device gave for refusing belongs in the operator's logs, not on
 /// an unauthenticated endpoint: a device failure message names a path or a database.
 ///
+/// **The name is a label and not the configured path**, which is finding F14 of the
+/// review of 2026-08-24. A device names itself `sqlite:/var/lib/ciphr/ciphr.db` or
+/// `file:/var/log/ciphr/audit.log`, and publishing that on an unauthenticated endpoint
+/// hands anyone who can reach the port the location of the database and the audit file.
+/// Those are not secrets, but they are free reconnaissance, and the sentence directly
+/// above — that a *failure reason* is withheld because it names a path — was being
+/// contradicted two fields away.
+///
 /// `accepting` is `None` until the first record is written. "Nothing has been recorded
 /// yet" and "the last record was accepted" are different states, and a monitor that
 /// cannot tell them apart reports a healthy second device on a service that has never
 /// written to it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DeviceHealth {
-    /// The device name, as configured.
+    /// The published label: `sqlite-1`, `file-1`, `file-2`, in configuration order.
+    ///
+    /// Numbered within its kind **even when there is one of that kind**. A monitor keys
+    /// on this string, and a label that gained a suffix the day a second file device was
+    /// configured would break the rule that was watching the first one.
     pub name: String,
+    /// What the device calls itself, carrying the configured path.
+    ///
+    /// The key `note_device_outcome` matches a [`ciphr_audit::DeviceFailure`] against,
+    /// and the reason this is a separate field rather than the one above. Never
+    /// serialized.
+    #[serde(skip)]
+    pub source: String,
     /// Whether it accepted the last record. `None` before the first one.
     pub accepting: Option<bool>,
+}
+
+/// Turn the devices' own names into stable published labels.
+///
+/// The kind is the part before the first `:` — how both device constructors build their
+/// names — and anything unexpected becomes `device`, so a device kind added later is
+/// labelled rather than leaking whatever it called itself.
+fn device_labels(names: &[&str]) -> Vec<String> {
+    let mut seen: Vec<(String, usize)> = Vec::new();
+    names
+        .iter()
+        .map(|name| {
+            let kind = match name.split_once(':') {
+                Some((kind, _)) if !kind.is_empty() => kind,
+                _ => "device",
+            };
+            let count = if let Some((_, count)) = seen.iter_mut().find(|(known, _)| known == kind) {
+                *count += 1;
+                *count
+            } else {
+                seen.push((kind.to_owned(), 1));
+                1
+            };
+            format!("{kind}-{count}")
+        })
+        .collect()
 }
 
 /// A honeypot token that was presented (ADR-15).
@@ -209,11 +254,13 @@ impl AppState {
         surface: crate::surface::Active,
     ) -> Self {
         let pepper = TokenPepper::derive(&root);
-        let devices = audit
-            .device_names()
+        let sources = audit.device_names();
+        let devices = device_labels(&sources)
             .into_iter()
-            .map(|name| DeviceHealth {
-                name: name.to_owned(),
+            .zip(sources.iter())
+            .map(|(name, source)| DeviceHealth {
+                name,
+                source: (*source).to_owned(),
                 accepting: None,
             })
             .collect();
@@ -295,7 +342,9 @@ impl AppState {
             return;
         };
         for device in guard.iter_mut() {
-            device.accepting = Some(!failures.iter().any(|f| f.device == device.name));
+            // Matched on `source`, the name the sink reports, and not on the published
+            // label -- the label is for whoever reads health, this is the join key.
+            device.accepting = Some(!failures.iter().any(|f| f.device == device.source));
         }
     }
 
@@ -624,15 +673,22 @@ impl AppState {
     /// fired is the first; *which* bait was taken is the second, and it stays behind the
     /// administrative read and the audit trail.
     ///
-    /// Answers `false` if the store cannot be asked, because health is the endpoint an
-    /// operator reaches for when something is wrong and it answers as much as it can. The
-    /// trail is where a trip is authoritative; this field is a convenience over it.
+    /// **`None` when the store cannot be asked**, which is finding F9 of the review of
+    /// 2026-08-24. This used to answer `(false, 0)` on any store or lock error, so a
+    /// database failure *during an incident* produced an affirmative "nothing has been
+    /// taken" from an endpoint that could establish no such thing — the one moment the
+    /// answer matters, answered wrongly and confidently. Health is still the endpoint an
+    /// operator reaches for when something is wrong and it still answers as much as it
+    /// can; what it may not do is invent the part it cannot reach.
+    ///
+    /// The trail is where a trip is authoritative; this is a convenience over it.
     #[cfg(feature = "honeypot_alert")]
-    pub fn tripwire_state(&self) -> (bool, usize) {
+    pub fn tripwire_state(&self) -> Option<(bool, usize)> {
+        // A count, not the trips themselves: see `open_trip_count`.
         let open = self
-            .with_store(|store| store.open_trips().map_err(ApiError::from))
-            .unwrap_or_default();
-        (!open.is_empty(), open.len())
+            .with_store(|store| store.open_trip_count().map_err(ApiError::from))
+            .ok()?;
+        Some((open > 0, open))
     }
 
     /// Record that an authenticated caller's completed read had a different outcome
@@ -965,5 +1021,51 @@ mod tests {
         // by the reference alone would silently drop one of them.
         assert!(claims.claim(BaitKind::Secret, "same-text"));
         assert!(claims.claim(BaitKind::Token, "same-text"));
+    }
+}
+
+/// The labels `/v1/health` publishes for the audit devices.
+///
+/// Tested here rather than through the router because the interesting cases are shapes a
+/// harness cannot easily configure: two devices of one kind, and a device whose name has
+/// no `kind:` prefix at all.
+#[cfg(test)]
+mod label_tests {
+    use super::device_labels;
+
+    #[test]
+    fn a_label_names_the_kind_and_never_the_path() {
+        let labels = device_labels(&[
+            "sqlite:/var/lib/ciphr/ciphr.db",
+            "file:/var/log/ciphr/audit.jsonl",
+            "file:/mnt/audit/audit.jsonl",
+        ]);
+        assert_eq!(labels, vec!["sqlite-1", "file-1", "file-2"]);
+        assert!(
+            !labels.iter().any(|label| label.contains('/')),
+            "finding F14: no path reaches an unauthenticated endpoint"
+        );
+    }
+
+    #[test]
+    fn one_device_of_a_kind_is_still_numbered() {
+        // The point of the suffix. A rule written against `file-1` today must not break
+        // the day a second file device is configured and the label would otherwise have
+        // to grow one.
+        assert_eq!(
+            device_labels(&["file:/var/log/audit.jsonl"]),
+            vec!["file-1"]
+        );
+    }
+
+    #[test]
+    fn a_name_without_a_kind_still_gets_a_label() {
+        // A device kind added later, or a test double. It is labelled rather than having
+        // whatever it calls itself published -- which is the failure mode the whole
+        // change exists to close.
+        assert_eq!(
+            device_labels(&["always-fails", "sqlite:/db", "also-odd"]),
+            vec!["device-1", "sqlite-1", "device-2"]
+        );
     }
 }

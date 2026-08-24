@@ -1,6 +1,6 @@
 # Monitoring: what to poll, and what each answer means
 
-**Status:** current as of 2026-08-21. Every field below was read out of `crates/ciphr-server/src/api.rs`
+**Status:** current as of 2026-08-24. Every field below was read out of `crates/ciphr-server/src/api.rs`
 and `state.rs` rather than out of `openapi.yaml`, because the point of this page is what the process
 actually reports. Where the two disagree, it says so.
 
@@ -28,18 +28,24 @@ is the deferred `POST /v1/report` (ADR-16). Two consequences worth holding onto 
 
 | Field | What it is | Changes at runtime? |
 |---|---|---|
-| `status` | The literal string `"ok"`. It is not computed | **No.** A `200` means the process answers |
+| `status` | `"ok"`, or `"degraded"` when the process could not establish something it reports on | **Yes, since `0.11.0`.** It was the literal `"ok"` before that |
 | `sealed` | The literal `false` | **No.** v1 unseals at startup or refuses to start |
 | `seal` | The seal mechanism recorded in the store (`static`, or `static_env` in older stores) | No — a configuration fact |
 | `key_source` | Where *this process* read its key: `env`, `file`, or `supplied` | No — but it is the field that shows which source is live during a migration from one to the other |
-| `audit_devices[]` | One entry per configured device: `name`, and `accepting` | **Yes.** This is the only dynamic health state on the endpoint |
+| `audit_devices[]` | One entry per configured device: `name`, and `accepting`. The name is a label — `sqlite-1`, `file-1` — and not the configured path | **Yes**, `accepting` does |
 | `surface` | Names of the optional entries this process is running (ADR-20) | No. The date and reason a deployment recorded stay behind `inspect` on `sys/surface` |
-| `tripped`, `open_tripwires` | Whether any tripwire is open (ADR-15) | Yes — **and absent entirely in a build without `honeypot_alert`** |
+| `tripped`, `open_tripwires` | Whether any tripwire is open (ADR-15) | Yes — **and absent in a build without `honeypot_alert`, or when the store could not be asked** |
+| `degraded[]` | What this process could not establish, by name. Absent when there is nothing to report | **Yes, since `0.11.0`.** The reason `status` reads `degraded` |
 | `api_version` | `"v1"` | No |
 
-**So one field carries live state and the rest are facts about how the process was started.** That is
-not a criticism of the endpoint; it is the thing to know before writing an alert rule against it,
-because a rule on `status` is a rule on a constant.
+**Three fields carry live state now and the rest are facts about how the process was started.** Until
+`0.11.0` there was exactly one, and this page said so — a rule on `status` was a rule on a constant.
+Finding F9 of the [review of 2026-08-24](../assurance/reviews/review-2026-08-24-full-repository.md)
+changed that: `status` and `degraded` say when the process could not establish part of what it
+reports, which is a thing worth alerting on and previously was not expressible.
+
+**`degraded` is not a liveness signal.** The service is serving; a load balancer must not pull it out
+of rotation for it. It is for the monitor, not the proxy.
 
 ## The checks, corrected against what exists
 
@@ -87,6 +93,13 @@ is supposed to survive a full volume must not live on the volume that fills.
 has been taken" are different facts. Check `surface` for the entry name before trusting the field, and
 see [honeypots.md](honeypots.md) for what to do when it fires. A tripwire nobody polls is decoration.
 
+**It is absent for a second reason since `0.11.0`, and that one is worth an alert.** If the store
+cannot be asked, `tripped` and `open_tripwires` are absent, `degraded` carries `tripwires`, and
+`status` reads `degraded`. Before that release the same situation produced `tripped: false`,
+`open_tripwires: 0` and `status: "ok"` — an affirmative *nothing has been taken* from a process that
+could establish nothing of the sort, at the one moment the answer matters. **Alert on `degraded`
+containing `tripwires`**: it means the tripwire is unwatched, not that it is clear.
+
 ## Three ways to read this endpoint wrong
 
 **`accepting: null` is not healthy.** It means no record has been written since this process started.
@@ -100,9 +113,10 @@ disagree, and the code returns `[]`.** Reaching the state needs a panic while th
 the code holding it has no path to, so this is a documentation defect rather than a live hazard. Treat
 an empty array as an error either way; it costs one comparison.
 
-**A `200` is not a working service.** `status` is a constant and the body is produced without touching
-the store beyond the tripwire query. A service that cannot store an audit record answers `200` here
-and `503` to every request that matters.
+**A `200` is not a working service.** `status` distinguishes `ok` from `degraded` and nothing else,
+and the body is produced without touching the store beyond the tripwire count. A service that cannot
+store an audit record answers `200` here — and `ok` — while answering `503` to every request that
+matters. That is what `audit_devices[].accepting` is for.
 
 ## Backups are deliberately not on this endpoint
 
