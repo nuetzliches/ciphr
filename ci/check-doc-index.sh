@@ -192,8 +192,16 @@ else
         # Lower-cased before comparison: `docs/adr/README.md` opens a sentence
         # with "Twenty-four records", and a gate that missed a claim because it
         # began a sentence would be checking punctuation rather than the number.
-        for claim in $(grep -oiE '[a-z0-9-]+ (architecture )?(decision )?records?' "$doc" |
-                           awk '{ print tolower($1) }' | sort -u); do
+        #
+        # Collected into a variable before the loop rather than iterated straight
+        # out of the pipeline: a `while read` loop would put `status` in a
+        # subshell and lose every failure it found, and iterating `$(grep ...)`
+        # directly is SC2013. Word splitting is what is wanted here -- each claim
+        # is a single token by construction.
+        claims=$(grep -oiE '[a-z0-9-]+ (architecture )?(decision )?records?' "$doc" |
+                     awk '{ print tolower($1) }' | sort -u)
+
+        for claim in $claims; do
             case "$claim" in
                 # Not a count: "the records", "these records", "ADR records".
                 [0-9]*|twenty*|thirty*) ;;
