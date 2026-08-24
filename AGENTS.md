@@ -181,6 +181,7 @@ sh ci/check-sdk-reexports.sh     # a ciphr-sdk consumer needs no dependency on c
 sh ci/check-docs.sh              # every doc under docs/ carries a date
 sh ci/check-doc-commands.sh      # a command a document tells you to run exists
 sh ci/check-doc-index.sh         # every doc is in an index, and the ADR count matches
+sh ci/check-doc-links.sh         # a relative link lands, and so does a link text written as a path
 sh ci/check-changelog.sh         # a commit touching crates/ also touches CHANGELOG.md
 sh ci/check-changelog-releases.sh # the released version has a section, and every section a link
 sh ci/build-wrapper.sh           # ciphr-run: static musl, verified linkage, size budget
@@ -325,6 +326,13 @@ Documentation is part of the change, not a follow-up. The rules and the reasonin
   `docs/operations/README.md`, `docs/assurance/README.md` — and `ci/check-doc-index.sh` fails the
   build on a document none of them links to. A deliberately unindexed file goes in that script's
   allowlist with a reason.
+
+- **Linked to something that is there.** `ci/check-doc-links.sh` resolves every relative Markdown
+  target against the tree, and resolves a link *text* too where the text is written as a path —
+  `[../review-x.md](../assurance/reviews/review-x.md)` is a dead path in front of a live one, and it
+  reads as correct from either half alone. **Moving a file means moving the links to it, both halves.**
+  External URLs and `#fragments` are not checked: a build that fails because somebody else
+  reorganised their site is a build people learn to skip.
 
 For anything hard to undo — master key handling, rotating a secret that cannot be rotated — the
 document belongs in `docs/operations/` and says what breaks, what it looks like when it breaks, and

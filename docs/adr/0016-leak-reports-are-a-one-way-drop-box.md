@@ -212,7 +212,7 @@ needed — which is a better thing to have written down than an absence nobody c
 ## Review
 
 A design review of this record, dated 2026-08-20, is in
-[`../review-adr-15-16-2026-08-20.md`](../assurance/reviews/review-adr-15-16-2026-08-20.md). Findings F2, F3, F5, F7 and
+[`review-adr-15-16-2026-08-20.md`](../assurance/reviews/review-adr-15-16-2026-08-20.md). Findings F2, F3, F5, F7 and
 F8 concern this ADR. F3, F7 and F8 are addressed above; F5 — that composing this endpoint with
 ADR-15 yields a page an anonymous party can produce repeatedly — is answered in ADR-15, where the
 latch belongs. F2 was the finding that the per-IP bucket and the recorded client address both depended

@@ -152,6 +152,14 @@ jobs:
       - name: Every document is in an index
         run: sh ci/check-doc-index.sh
 
+      # And one level down: that the links themselves land. The move that came
+      # with the index gate left one target pointing at nothing and eight link
+      # texts naming a path that no longer existed -- neither catchable by
+      # reading the diff, since the first is one unchanged line among ten changed
+      # ones and the second looks correct from either half of the link alone.
+      - name: Relative links land where they say
+        run: sh ci/check-doc-links.sh
+
       # The changelog's release bookkeeping, which nothing noticed was missing:
       # the commit that tagged `0.5.1` never added its compare link, and a later
       # commit deleted the heading itself while inserting entries at that
