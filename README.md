@@ -130,6 +130,14 @@ deploy pipeline, not a human.
 > maintainer accepted it as discharging the precondition; what that covers and what would reverse it
 > is in [`docs/security-review.md`](docs/security-review.md). The full design lives in
 > [`.claude/plans/PLAN.md`](.claude/plans/PLAN.md).
+>
+> **This repository was made public on 2026-08-24 without that human review.** The working paper names
+> publication as one of the two things that raise the bar back to it, so this is a decision against a
+> recorded condition rather than a condition that was met.
+> [`docs/security-review.md`](docs/security-review.md) states it in a section of its own: what was
+> read, what is unreviewed by anyone, and what would close it. **Nothing here is an independent
+> security assessment**, and if that is what a deployment needs, the project's own answer for that
+> case is in [`docs/why-build-this.md`](docs/why-build-this.md) and it names OpenBao.
 
 ## Why this exists
 

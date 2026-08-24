@@ -1446,14 +1446,20 @@ The project starts private. These points cost nothing now and would be expensive
   deployment: while this repository is private its GHCR package is private too, so the host
   needs a credential that may read it.
 - **Deleting them did not remove them from the history**, and the history is published with
-  the repository. So the decision to take before publication is not whether to delete the
+  the repository. So the decision to take before publication was not whether to delete the
   files — that is done — but whether those three names — a forge hostname, a namespace, a
-  runner label — matter once they are searchable. If the answer is that they do not, that sentence belongs
-  here with a date on it; if it is that they do, the options are rewriting the history or
-  moving the values into forge variables long enough before publication that the tail of the
-  history is clean. **Either way it is a decision, and today it is an omission.** Note the
-  consistency check ADR-17 invites: that record declines public certificates partly because
-  Certificate Transparency makes internal names and, over time, a host inventory searchable.
+  runner label — may be searchable. **Decided 2026-08-24: they may.** The history keeps them,
+  and no rewrite happens. The reasoning is the consistency check ADR-17 invites: that record
+  declines public certificates partly because Certificate Transparency makes internal names and,
+  over time, a host inventory searchable — a forge that serves a certificate under its own name
+  has published that name already, and a namespace and a runner label are not credentials. What
+  this decision is *not* is a claim that the deployment is uninteresting: it is a claim that
+  these three strings tell an attacker nothing the reachability of the host does not, and the
+  threat model does not lean on obscurity anywhere else either.
+- **What that decision does not cover** is a value that would be a credential. Nothing of that
+  kind was in those files — they read `REGISTRY_USER` and `REGISTRY_PASSWORD` from Forgejo
+  secrets — and if one is ever found in the history, the answer is rotation, not a rewrite:
+  a published history cannot be un-published from a mirror somebody has already cloned.
 - **`SECURITY.md` and a disclosure process must exist before publication**, not after. A
   public secret manager without a reporting channel is irresponsible.
 - **Write `docs/threat-model.md` publication-ready from the start.** For a security product

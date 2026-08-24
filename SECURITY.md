@@ -11,12 +11,25 @@ The external review of the cryptographic and authorization crates — the condit
 who performed it, which decides what it is worth. It was not a human practitioner. Anyone weighing a
 deployment that holds real secrets should read that section before the findings.
 
+**This repository was made public on 2026-08-24 without the human review its own working paper asks
+for at that point.** That is a decision against a recorded condition rather than a condition that was
+met, and [`docs/security-review.md`](docs/security-review.md) states it under *Published without a
+human review* — what was actually reviewed, what was not reviewed by anyone, and what would close
+it. Read that before treating anything here as assessed.
+
 ## Reporting a vulnerability
 
 Please report privately, not as a public issue.
 
 - Use GitHub's private vulnerability reporting on this repository (**Security → Report a
   vulnerability**), which creates a private advisory visible only to the maintainers.
+- **Or write to `security@nuetzliche.it`.** Added 2026-08-24, before this repository was made
+  public, because a security product whose only reporting route is a platform feature has a gap: the
+  platform can change the feature, and somebody who does not have an account there cannot use it at
+  all. Plain mail is enough — there is no PGP key to fetch, and asking for one would be a barrier
+  in front of the thing this address exists to receive.
+
+Either channel is fine, and neither is better received than the other.
 
 Please include what you need to make the report actionable: affected component, the behaviour you
 observed, and a reproduction if you have one. A rough report of something real is more useful than a
@@ -26,9 +39,6 @@ What to expect: an acknowledgement within a few working days, an assessment with
 justification for treating it as out of scope, and credit in the changelog unless you prefer
 otherwise. This is a small project with no bug bounty and no guaranteed response times beyond a good
 faith effort.
-
-> **Before this repository is made public**, add a direct contact address here as a second channel.
-> A public security product whose only reporting route depends on a platform feature is a gap.
 
 ## Scope
 

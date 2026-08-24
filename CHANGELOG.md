@@ -8,6 +8,30 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Changed — three decisions taken on the way to a public repository
+
+Each of these was recorded in the repository as a condition, and each is now answered with a date
+rather than left as an intention.
+
+- **`SECURITY.md` names an address.** `security@nuetzliche.it`, beside GitHub's private vulnerability
+  reporting. The file itself had asked for this before publication, on the grounds that a security
+  product whose only reporting route is a platform feature has a gap — the platform can change the
+  feature, and somebody without an account there cannot use it at all.
+- **The history keeps three names.** `git.nuetzliche.it`, the `nuts` namespace and the
+  `baumeister-runner` label were in the Forgejo workflows and stay in the history those workflows
+  leave behind. Plan section 20 asked whether they may be searchable; the answer, dated, is that they
+  may — a forge that serves a certificate under its own name has published it already (the
+  consistency check ADR-17 invites), and a namespace and a runner label are not credentials. What
+  that decision does not cover is a value that *would* be one, and the plan says the answer there is
+  rotation rather than a rewrite.
+- **The repository goes public without a human review, and the record says so.**
+  `docs/security-review.md` names publication as one of the two things that raise the bar back to a
+  human practitioner, and no such review has taken place. It now carries a section of its own —
+  *Published without a human review* — saying that this is a decision against a recorded condition
+  rather than a condition that was met, what was actually read and by what, what is unreviewed by
+  anyone, and what would close it. `README.md`, `SECURITY.md` and the site's security notes carry the
+  same sentence, because the front door is where somebody decides whether to run this.
+
 ### Removed — the second image build, and with it the one place that named a deployment
 
 `.forgejo/workflows/build-images.yml` and `build-ui-image.yml` are gone. They existed for one

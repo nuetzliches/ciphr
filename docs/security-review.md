@@ -1,6 +1,9 @@
 # External review: scope, claims, and what would falsify them
 
-**Status:** prepared 2026-08-18, last revised 2026-08-24. **A commissioned review took place on
+**Status:** prepared 2026-08-18, last revised 2026-08-24. **This repository was made public on
+2026-08-24 without the human review this document asks for**, which is a decision against one of the
+conditions recorded below rather than a condition that was met — see *Published without a human
+review* immediately after the acceptance. **A commissioned review took place on
 2026-08-21 against `v0.3.0`** and is recorded in [`review-2026-08-21.md`](review-2026-08-21.md) —
 findings, coverage, and the fitness statement this document asks for. The reviewer is an AI model
 (Claude Fable 5), commissioned by the maintainer: a different model from the one that co-authored
@@ -125,6 +128,47 @@ backfilled.
 - **A finding that contradicts the record's coverage claims** — something wrong in a file it says it
   read end to end. That is evidence about the review rather than about the code, and it reopens this
   decision instead of joining the finding list.
+
+## Published without a human review — decided 2026-08-24
+
+**What the condition said.** The acceptance above lists what it does not stretch to cover, and the
+second item is this one: *"A deployment whose blast radius reaches past the maintainer's own estate,
+or making this repository public as something others are invited to run. Either raises the bar back
+to a human review, because the question stops being what one operator is willing to carry."*
+
+**What was decided.** The maintainer made this repository public on 2026-08-24 with no human review
+having taken place. The bar this document sets was therefore not met, and publication happened
+anyway. That is the whole of it: there is no reading of the condition under which it was satisfied,
+and this section exists so that nobody has to reconstruct that from dates.
+
+**What a reader is actually getting.** The mandatory scope — `ciphr-crypto`, `ciphr-policy`, and the
+path, pattern and secret code in `ciphr-core` — was read at `v0.3.0` by an AI model commissioned by
+the maintainer, which produced six findings and a fitness statement whose two conditions were then
+met. That is more than nothing and it is not an independent security assessment. Beyond it:
+
+- **Unreviewed by anyone**: `ciphr-audit`, most of `ciphr-store`, the server's configuration and TLS
+  code, and `ui/`.
+- **Newer than the acceptance**: the `honeypot_alert` surface (claims C11, C12, D10), and
+  `ciphr-export` and `ciphr-ci` (ADR-25).
+- **Never claimed**: that any of this was checked by somebody whose living depends on being right
+  about it.
+
+**What this is not an argument for.** It is not "the code is probably fine because an AI read it",
+and it is not "publication is low risk because the repository is documentation-heavy". Both are
+available and both would be reasoning backwards from a decision that was made for other reasons —
+principally that a public repository is where a human reviewer is easier to find, and that the
+project is more useful readable than unreadable. Those are honest reasons and they are not evidence
+about the code.
+
+**What would close it.** A review by the practitioner *Who fits* describes, against a named tag, with
+the deliverable this document specifies. The package is ready and the ask is unchanged; what changed
+on 2026-08-24 is only that the repository stopped waiting for it. Until then this section stays where
+it is — retiring it is the reviewer's job, not the calendar's.
+
+**And if you are weighing a deployment that holds real secrets:** read *The claims, and what would
+falsify each* below and [`threat-model.md`](threat-model.md), and price the paragraph above. The
+project's own recommendation for anyone who cannot carry that is in
+[`why-build-this.md`](why-build-this.md), and it names OpenBao.
 
 ## Scope
 

@@ -213,10 +213,24 @@
 
   <h2>Reporting something</h2>
 
-  <p>The disclosure process and what is in scope are in
-  <a href="https://github.com/nuetzliches/ciphr/blob/main/SECURITY.md">SECURITY.md</a>. The external
-  review of 2026-08-21 is recorded with its coverage and its findings, including who performed it — an
-  AI model commissioned by the maintainer, not a human practitioner — and what that is worth.</p>
+  <p>Two channels, and neither is preferred: GitHub's private vulnerability reporting on the
+  repository, or plain mail to <code>security@nuetzliche.it</code>. The process and what is in scope
+  are in <a href="https://github.com/nuetzliches/ciphr/blob/main/SECURITY.md">SECURITY.md</a>.</p>
+
+  <div class="note is-bad">
+    <h3>What has and has not been reviewed</h3>
+    <p>The cryptographic and authorization crates were read at <code>v0.3.0</code> by an <strong>AI
+    model commissioned by the maintainer</strong> — not a human practitioner — which produced six
+    findings and a fitness statement whose conditions were then met. <strong>The repository was made
+    public on 2026-08-24 without a human review</strong>, and the project's own working paper names
+    publication as one of the two things that raise the bar back to one. That is a decision against a
+    recorded condition, not a condition that was met.</p>
+    <p>Unreviewed by anyone: the audit crate, most of the store, the server's configuration and TLS
+    code, and the viewer. Newer than the acceptance: the honeypot surface, and the CI-side binary
+    described under <a href="integrate.html">Integrate</a>. <strong>Nothing here is an independent
+    security assessment.</strong> What was read, what was not, and what would close it is in
+    <a href="https://github.com/nuetzliches/ciphr/blob/main/docs/security-review.md">docs/security-review.md</a>.</p>
+  </div>
 
 </main>
 
