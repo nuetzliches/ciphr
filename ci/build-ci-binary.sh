@@ -27,16 +27,13 @@
 # second binary. The duplication is nineteen lines of `case` and `if`; the
 # alternative is a gate that stops meaning what it says.
 #
-# **Both budgets are derived rather than measured, and that is a difference worth
-# stating.** The wrapper was measured -- 3,347,368 bytes on x86_64 (2026-08-20) and
-# 2,888,088 on aarch64 (2026-08-24) -- and this binary is that dependency set plus
-# `ciphr-export`: a renderer, a hex encoder and `serde_json`, which is already in
-# the graph through `ciphr-sdk`. Each number below is the wrapper's budget for that
-# target plus half a mebibyte. Note what the wrapper's two measurements say about
-# guessing: the aarch64 binary is *smaller* than the amd64 one, so a single number
-# for both would have been the weaker check for one of them. The first CI run per
-# target prints what these actually are; replace this paragraph with those
-# measurements and set the budgets from them.
+# Each budget is roughly 1.5x a measurement, and the measurements are in the
+# `case` below beside the number they produced. They were derived until
+# 2026-08-24 and are now measured on the runners that build the artefacts.
+#
+# What the two architectures say about guessing: the aarch64 binary is *smaller*
+# than the amd64 one. A single number chosen to clear the larger would have been
+# the weaker check for the smaller, which is the whole reason this is a `case`.
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -53,10 +50,14 @@ OUT=${1:-target/ci}
 # reporting that it ran.
 case "$TARGET" in
 x86_64-unknown-linux-musl)
-    BUDGET=5767168 # 5.5 MiB
+    # Measured 2026-08-24 on the CI runner: 3,392,432 bytes stripped.
+    BUDGET=5242880 # 5 MiB
     ;;
 aarch64-unknown-linux-musl)
-    BUDGET=5242880 # 5 MiB
+    # Measured 2026-08-24 on the native arm64 runner: 2,888,096 bytes stripped --
+    # eight bytes off the wrapper, which is what "the same dependency graph plus a
+    # renderer" looks like once the linker has finished.
+    BUDGET=4718592 # 4.5 MiB
     ;;
 *)
     echo "build-ci-binary: no size budget for $TARGET" >&2

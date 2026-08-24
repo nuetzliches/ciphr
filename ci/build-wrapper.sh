@@ -39,7 +39,8 @@ OUT=${1:-target/wrapper}
 # budget is a gate that checks nothing while reporting that it ran.
 case "$TARGET" in
 x86_64-unknown-linux-musl)
-    # Measured 2026-08-20 with the pinned toolchain: 3,347,368 bytes stripped.
+    # Measured 2026-08-24 on the CI runner: 3,367,856 bytes stripped. It was
+    # 3,347,368 on 2026-08-20, which is what ordinary growth looks like.
     BUDGET=5242880 # 5 MiB
     ;;
 aarch64-unknown-linux-musl)
@@ -49,10 +50,10 @@ aarch64-unknown-linux-musl)
     # amd64 measurement, would have let this binary grow by more than half again
     # before anything noticed.
     #
-    # Built in an emulated arm64 container rather than on an arm64 machine. That
-    # affects how long it took and not what came out: same toolchain version, same
-    # target, same locked dependency graph. The first CI run on a native runner
-    # prints the number this budget should be checked against.
+    # First measured in an emulated arm64 container, then again on the native
+    # arm64 runner: **the same 2,888,088 bytes**. Worth recording, because the
+    # first measurement rested on an argument -- emulation changes how long a
+    # build takes and not what comes out -- and the second one made it a fact.
     BUDGET=4718592 # 4.5 MiB
     ;;
 *)

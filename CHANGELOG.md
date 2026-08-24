@@ -22,10 +22,16 @@ foreign container, at the moment a service is starting without its secrets.
   the emulator. The strip and linkage checks are the host's tools too, and those do not read a foreign
   ELF.
 - **The size budgets are per target, and the second measurement is the argument for that.** The
-  aarch64 wrapper is **2,888,088 bytes** against amd64's 3,347,368 — *smaller*. A single budget picked
+  aarch64 wrapper is **2,888,088 bytes** against amd64's 3,367,856 — *smaller*. A single budget picked
   to clear the larger one would have let the smaller binary grow by half again before the gate said
-  anything. An unknown target is now refused rather than defaulted: a target with no budget is a gate
-  that checks nothing while reporting that it ran.
+  anything. All four numbers are now measured on the runners that build the artefacts rather than
+  derived, which is what the scripts had been asking the next person to do. An unknown target is
+  refused rather than defaulted: a target with no budget is a gate that checks nothing while reporting
+  that it ran.
+- **One claim became a fact on the way.** The aarch64 size was first measured in an emulated
+  container, on the argument that emulation changes how long a build takes and not what comes out. The
+  native runner produced the same 2,888,088 bytes, and the script records that rather than the
+  argument.
 - **`action.yml` reads `uname -m`** and takes the matching asset, verified against a checksum for that
   architecture — hence `sha256-amd64` and `sha256-arm64` instead of one input that can only be right
   about one of them. An architecture the releases do not carry is refused rather than handed a binary
