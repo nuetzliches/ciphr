@@ -68,7 +68,7 @@ inputs:
     required: false
     default: ""
   version:
-    description: The release to download the binary from, as a tag (for example `v0.10.0`).
+    description: The release to download the binary from, as a tag (for example `v0.11.0`).
     required: false
     default: ""
   sha256-amd64:

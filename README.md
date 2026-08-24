@@ -4,7 +4,7 @@ A small secret manager for machine identities: key/value secrets, gap-free acces
 and path-based authorization. The name contains *CI* — the primary consumer is a build and
 deploy pipeline, not a human.
 
-> **Status: v0.10.0 released.** Usable end to end: envelope encryption with master key rotation,
+> **Status: v0.11.0 released.** Usable end to end: envelope encryption with master key rotation,
 > SQLite with migrations, the policy evaluator, the fail-closed hash-chained audit trail, the HTTPS
 > API with token authentication, and the `ciphr` CLI. Since v0.1.0: the audit anchor and the
 > retention cut that bounds the trail (`ciphr audit anchor`, `ciphr audit cut`), one rule for
@@ -21,9 +21,39 @@ deploy pipeline, not a human.
 > findings of a source review answered. Since v0.7.0: a configuration check that answers without a
 > store, an exit code a backup job can branch on, and credential files opened once. Since v0.8.0: the
 > control plane has capabilities of its own, revocation has a route, and the listener speaks HTTP/1.1
-> only. Since v0.9.0: the configuration check has a status a pipeline can fail on.
+> only. Since v0.9.0: the configuration check has a status a pipeline can fail on. Since v0.10.0:
+> a host that is not ready is exit `3` rather than `1`, so the pipeline protecting a mandatory
+> policy edit can tell that finding from the host it runs on.
 >
-> **v0.10.0 turns a recommended check into a usable gate.** `v0.9.0` made a policy edit mandatory and
+> **v0.11.0 is the release that made the consumer side reachable, and it is public.** Everything up to
+> here could be integrated by reading the source; this one ships what a pipeline actually calls.
+> **`ciphr-ci`** (ADR-25) is a static binary that fetches a set of secrets on the CI side and writes
+> them where the runner expects them — a `.env` file, `$GITHUB_ENV`, or JSON — and registers a mask for
+> every value before it writes any of them, which is the thing an SDK inside the build could not do.
+> **`Client::read_all`** fetches a set in one request and falls back to one request per path, so a
+> deployment that has not turned on `bulk_export` is no longer excluded from the bulk route's callers.
+> **The images and the wrapper are multi-architecture**: `linux/amd64` and `linux/arm64`, one tag, one
+> digest to pin (#4). And **there is a site**, at <https://nuetzliches.github.io/ciphr/>, carrying the
+> four consumer routes with their code.
+>
+> **Two things break on purpose, both from [a full-repository review](docs/review-2026-08-24-full-repository.md).**
+> The server **refuses to start without a `sqlite` audit device**: the chain head a restart resumes from
+> is read from the store, so a file-only configuration was starting a fresh chain in the same file on
+> every restart — which is what a rewritten trail looks like, produced by starting the service. And
+> `ciphr-run` and `ciphr-ci` **refuse a secret whose name is a process-control variable** — `PATH`,
+> `LD_*`, `NODE_OPTIONS`, `BASH_ENV` and eighteen more — because those are read before the consuming
+> program's own code runs, so `write` on a fetched prefix was choosing how a service starts rather than
+> what it reads. [upgrade.md](docs/operations/upgrade.md#0110) says what to check before taking it;
+> both checks are one command each.
+>
+> Smaller, from the same review: a store lock records the identity that holds it and releases only its
+> own, a parse error names the line number without quoting the line back, and a CI gate refuses
+> `${{ }}` inside a workflow's `run:`.
+>
+> **Pin `0.11.0`.** The viewer moves separately as `ui-v0.3.1`: it refuses to mount while a service
+> worker controls its page.
+>
+> **v0.10.0 turned a recommended check into a usable gate.** `v0.9.0` made a policy edit mandatory and
 > named `ciphr-server --check-config` in review as the way to catch a file that still has the old form.
 > Review is the one host that deliberately has no store — and a host with no store and a policy file
 > the binary refuses both exited `1`, so the pipeline that was supposed to protect the mandatory edit
@@ -36,9 +66,6 @@ deploy pipeline, not a human.
 > no identity can call it, an audit device that cannot be opened names the requirement rather than only
 > the OS error, and the runbooks say to issue the revoking identity's token before the incident that
 > needs it — turning on outage-free revocation costs that outage once, and that belonged written down.
->
-> **Pin `0.10.0`.** The viewer moves separately as `ui-v0.3.1`: it refuses to mount while a service
-> worker controls its page.
 >
 > **v0.9.0 broke one thing on purpose, and it is the reason to take it.** `read` authorized a
 > secret's value *and* the control plane — `sys/audit`, `sys/identities`, `sys/policies` — with only

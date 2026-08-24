@@ -8,6 +8,35 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-08-24
+
+**The release that answers a full-repository review — and the first one that refuses a configuration
+which used to start.** [`docs/review-2026-08-24-full-repository.md`](docs/review-2026-08-24-full-repository.md)
+read every crate, the viewer, the images, the automation and the documentation, and produced fourteen
+findings. **All four it called high are fixed here**, together with two of the medium ones. The review
+is in the repository, including what it could not run and what it does not prove.
+
+**Two things a deployment has to do**, both in [`docs/operations/upgrade.md`](docs/operations/upgrade.md),
+section `0.11.0`:
+
+1. **Configure the `sqlite` audit device if it is not configured.** The server refuses to start
+   without it now. The chain head a restart resumes from is read from the store and nowhere else, so
+   a file-only deployment was appending a *second* chain to the same file on every start — a trail
+   that looks rewritten, produced by starting the service.
+2. **Check for a secret named after a process-control variable** if anything fetches by prefix.
+   `LD_*`, `DYLD_*`, `NODE_OPTIONS`, `PATH` and their kind are refused by `ciphr-run` and `ciphr-ci`,
+   because the variable name of a secret is its last path segment and `write` on a fetched prefix was
+   therefore close to `exec`.
+
+**And this is the release where the CI half of the product exists.** `ciphr-ci` fetches secrets into a
+job with the masking a forge does not do — the thing this project shipped in a CLI command that no
+runner can execute. Everything is built for **arm64** as well, the images are manifest lists, and the
+repository is public with a site at <https://nuetzliches.github.io/ciphr/>.
+
+**Nothing migrates.** The schema stays at 6, no route changed, no capability changed, no default
+moved. A rollback to `0.10.0` needs the image tag — and, if the audit configuration was edited to
+satisfy point 1, nothing else: `0.10.0` accepts that configuration too.
+
 ### Fixed — a secret name can no longer decide how a process starts
 
 **F4 of [`docs/review-2026-08-24-full-repository.md`](docs/review-2026-08-24-full-repository.md).**
@@ -4233,7 +4262,8 @@ first production use.
   decision.
 - `AGENTS.md` with the working rules, and `SECURITY.md` with the disclosure process and scope.
 
-[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.10.0...main
+[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.11.0...main
+[0.11.0]: https://github.com/nuetzliches/ciphr/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/nuetzliches/ciphr/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/nuetzliches/ciphr/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/nuetzliches/ciphr/compare/v0.7.0...v0.8.0
