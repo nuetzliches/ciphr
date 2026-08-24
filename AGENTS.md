@@ -133,12 +133,15 @@ service names, inventory counts, or infrastructure assumptions — not in `crate
 examples. Public product names in comparisons (OpenBao, Vault, Infisical, SOPS) are fine. Integration
 with a specific environment belongs in that environment's own repository, not here.
 
-**While the repository is private, a security improvement lands immediately and the consumer side
-pays for it.** Compatibility is not a reason to keep a weaker shape, and a breaking change to a route,
-a flag, or a default is an ordinary commit as long as the changelog and the upgrade document say what
-it costs. **That stops being unconditional when the repository is public**, because the consumers are
-then people who did not agree to it — from that point the same change needs a deprecation, a version,
-or an argument for why it cannot wait.
+**A security improvement still lands, and compatibility is still not a reason to keep a weaker
+shape** — but since 2026-08-24 it is no longer unconditional. While this repository was private, a
+breaking change to a route, a flag or a default was an ordinary commit as long as the changelog and
+the upgrade document said what it cost, because the consumer side was the same people making the
+change. **It is public now, and the consumers are people who did not agree to that arrangement.**
+From here, the same change needs a deprecation, a version, or a written argument for why it cannot
+wait — and the release that carries it says which of the three it chose. The upgrade document is
+where that is owed, and `0.9.0` is the shape to imitate: one mandatory edit, named, with the command
+that finds it.
 
 **Technical decisions are argued from security and technical criteria.** "We already do it this way
 elsewhere" is not a reason. Where an alternative is genuinely better on some axis, the ADR says so —
@@ -267,19 +270,38 @@ one per call.
 
 ## Branches
 
-**While the repository is private, work lands directly on `main`.** With a single author and no
-reviewer, a pull request would be a diff nobody reads and a step everybody learns to skip. Branches
-are for work that benefits from one — a change large enough to want a written summary, or anything
-touching `ciphr-crypto` or `ciphr-policy`, where the external review requirement applies anyway.
+**Every change lands through a pull request, since 2026-08-24.** Nothing is pushed to `main`
+directly, including by the maintainer, and this is enforced by a repository ruleset rather than by
+habit: the `main` ruleset requires a pull request, requires five checks to pass, refuses a
+force-push and refuses a deletion. **It has no bypass actors** — that is the difference between a
+ruleset and the old branch protection, and it is the whole reason the rule is worth writing down.
+An emergency push means deactivating the ruleset, pushing, and reactivating it, which is deliberately
+awkward and leaves a trace in the organization audit log.
 
-**When the repository is made public, this changes and pull requests become the rule.** That is also
-the point at which GitHub's server-side branch protection becomes available for it — on the current
-plan, protected branches and rulesets are both unavailable for private repositories, so a
-"no direct pushes" rule would have nothing enforcing it but good intentions. A client-side hook was
-considered and rejected: a guard that any push can walk past invites treating the rule as satisfied.
+**Until that date work landed directly on `main`**, and the reason is recorded rather than deleted:
+with a single author and no reviewer, a pull request is a diff nobody reads and a step everybody
+learns to skip. Server-side branch protection was also unavailable — on the current plan, protected
+branches and rulesets are both unavailable for private repositories, so a "no direct pushes" rule
+would have had nothing enforcing it but good intentions. A client-side hook was considered and
+rejected then, and the argument still holds: a guard that any push can walk past invites treating
+the rule as satisfied.
 
-Either way, the CI gates are the same and they are blocking. They are what actually stands between a
-mistake and `main`.
+**A pull request needs no approval.** That is not a claim that review is unnecessary; it is the
+honest state of a project whose contributors are the same few people. Requiring an approval that one
+of four org owners rubber-stamps buys a checkbox, and the temptation to bypass it is what erodes the
+rule that matters — that everything goes through the checks. Raising it to one approval is one field
+in the ruleset the day there is somebody to review.
+
+**The five required checks** are `Format, lint, test`, `Shipped code and documentation carry their
+record`, `The static binaries build, run, and fit their budgets`, `Viewer build and dependency
+budget`, and `Licenses, advisories, dependency budget`. The fuzz smoke run is deliberately not
+required: it needs a nightly toolchain, and a toolchain that moves under a gate turns an unrelated
+merge into somebody's afternoon. `Licenses, advisories, dependency budget` **is** required although
+it can go red without anything in the pull request changing — for a secret manager that is the
+point of having it.
+
+The CI gates are the same ones that ran before, and they are what actually stands between a mistake
+and `main`. What changed is that they now run before the merge rather than after it.
 
 ## Documentation
 

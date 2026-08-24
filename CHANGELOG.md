@@ -8,6 +8,28 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Changed — every change lands through a pull request
+
+Since 2026-08-24, and enforced by a repository ruleset on `main` rather than by habit: a pull request
+is required, five checks have to pass, force-pushes and deletions are refused. **The ruleset has no
+bypass actors**, so it applies to the four organization owners too — which is the difference between
+a ruleset and the branch protection this project could not have while it was private, and the reason
+the rule is worth writing down at all. An emergency push means deactivating the ruleset, pushing and
+reactivating it: deliberately awkward, and visible in the audit log.
+
+No approval is required. That is the honest state of a project whose contributors are the same few
+people, and `AGENTS.md` says why an approval that gets rubber-stamped would buy a checkbox and cost
+the rule that matters. The required checks are the four that judge only the pull request, plus
+`Licenses, advisories, dependency budget` — which can go red without anything in the pull request
+changing, and is required anyway, because for a secret manager that is the point of having it. The
+fuzz smoke run is deliberately not required: a nightly toolchain that moves under a gate turns an
+unrelated merge into somebody's afternoon.
+
+`AGENTS.md` also loses its "while the repository is private" framing in two places. Work no longer
+lands directly on `main`, and a breaking change is no longer an ordinary commit: from here it needs a
+deprecation, a version, or a written argument for why it cannot wait, because the consumers are now
+people who did not agree to the old arrangement.
+
 ### Changed — this repository is public, and the site is live
 
 Since 2026-08-24. <https://nuetzliches.github.io/ciphr/> is published from `site/` by
