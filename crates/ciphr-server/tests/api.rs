@@ -2251,7 +2251,45 @@ fn a_second_revoke_succeeds_and_reports_that_it_changed_nothing() {
     );
     assert_eq!(
         second["revoked_now"], false,
-        "the store's COALESCE keeps the original timestamp, and the response says so"
+        "the second write established nothing, and the response says so"
+    );
+}
+
+/// `revoked_now` is the write's own answer, not a read taken before it.
+///
+/// Finding F8 of the review of 2026-08-24. The field used to be
+/// `found.revoked_at.is_none()`, evaluated on a row read *before* the mutation and
+/// before the audit entry, so two responders revoking the same leaked credential at the
+/// same moment were both told they were the one who stopped it. One of them was wrong,
+/// during precisely the conversation where that matters.
+///
+/// A genuine interleaving cannot be forced deterministically from here, so this asserts
+/// the property that makes the interleaving harmless: the token is revoked out of band,
+/// through the store the handler shares, and the response still says `false` even though
+/// nothing about the request changed. There is no longer a read whose staleness could be
+/// observed -- `WHERE revoked_at IS NULL` makes the database decide, and it decides once.
+#[test]
+fn revoked_now_reflects_the_write_and_not_a_stale_read() {
+    let harness = revoking_harness();
+    let target = token_id_of(&harness.deploy_token);
+
+    let mut store = SqliteStore::open(&harness.database).expect("reopen");
+    assert!(
+        store.revoke_token(&target).expect("out-of-band revoke"),
+        "the out-of-band call is the one that revoked it"
+    );
+    drop(store);
+
+    let (status, body) = harness.send(Harness::build(
+        "POST",
+        &format!("/v1/tokens/{target}/revoke"),
+        Some(&harness.auditor_token.clone()),
+        None,
+    ));
+    assert_eq!(status, StatusCode::OK, "got {body}");
+    assert_eq!(
+        body["revoked_now"], false,
+        "somebody else established the timestamp, and this call says so"
     );
 }
 

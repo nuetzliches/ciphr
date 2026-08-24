@@ -600,7 +600,9 @@ paths:
 
         The audit entry names the authenticated caller as the principal and the revoked
         token as the subject, which is the same shape the CLI records for the same
-        operation.
+        operation. **If the store write then fails**, a second entry records that outcome
+        and the response is `503` -- the trail never claims a revocation that did not
+        happen.
       responses:
         "200":
           description: The token is revoked. It authenticates nothing from its next request.
@@ -619,6 +621,11 @@ paths:
                     description: |
                       True when this call revoked it, false when it already was. The
                       request succeeds either way.
+
+                      Derived from the write itself, not from a read taken before it,
+                      so two concurrent revocations of the same token cannot both
+                      report true. Exactly one call established the timestamp and
+                      exactly one is told so.
         "401": { $ref: "#/components/responses/Unauthenticated" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404":

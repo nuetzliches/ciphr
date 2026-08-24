@@ -373,20 +373,41 @@ impl SqliteStore {
 
     /// Revoke a token. Idempotent: revoking a revoked token keeps the first time.
     ///
+    /// **Returns whether *this call* established the timestamp** — `true` the first
+    /// time, `false` for a token that was already revoked. That is the whole reason
+    /// this returns anything, and it is finding F8 of the review of 2026-08-24: the
+    /// answer used to be derived from a read taken *before* the update, so two
+    /// concurrent revocations both saw `revoked_at = NULL` and both claimed to be the
+    /// one that stopped the credential. Only one of them was. A responder comparing
+    /// notes with another responder needs that to be true.
+    ///
+    /// The write is the only thing consulted. `WHERE revoked_at IS NULL` makes the
+    /// database decide, so the answer cannot be stale by construction; the second
+    /// statement runs only when nothing was updated, and distinguishes "already
+    /// revoked" from "no such token" — a distinction that cannot go stale either,
+    /// because nothing in this system un-revokes.
+    ///
     /// # Errors
     ///
     /// Returns [`StoreError::TokenNotFound`] if there is no such identifier.
-    pub fn revoke_token(&mut self, token_id: &str) -> Result<(), StoreError> {
+    pub fn revoke_token(&mut self, token_id: &str) -> Result<bool, StoreError> {
         let changed = self.connection().execute(
-            "UPDATE tokens SET revoked_at = COALESCE(revoked_at, ?2) WHERE token_id = ?1",
+            "UPDATE tokens SET revoked_at = ?2 WHERE token_id = ?1 AND revoked_at IS NULL",
             params![token_id, now_millis()],
         )?;
-        if changed == 0 {
-            return Err(StoreError::TokenNotFound {
-                token_id: token_id.to_owned(),
-            });
+        if changed > 0 {
+            return Ok(true);
         }
-        Ok(())
+
+        // Nothing was updated, which is two different situations. One indexed read
+        // tells them apart.
+        if self.token(token_id)?.is_some() {
+            Ok(false)
+        } else {
+            Err(StoreError::TokenNotFound {
+                token_id: token_id.to_owned(),
+            })
+        }
     }
 
     /// Revoke every token of an identity, returning how many were affected.
@@ -695,19 +716,29 @@ mod tests {
             Authentication::Valid(_)
         ));
 
-        store.revoke_token(&token.id().as_text()).expect("revoke");
+        assert!(
+            store.revoke_token(&token.id().as_text()).expect("revoke"),
+            "the first call is the one that revoked it"
+        );
         assert_eq!(
             store.authenticate(&token.expose_text(), &pepper).unwrap(),
             Authentication::Invalid
         );
 
-        // Revoking twice keeps the original time rather than moving it.
+        // Revoking twice keeps the original time rather than moving it, and the second
+        // call says it was not the one that did it. Finding F8 of the review of
+        // 2026-08-24: two responders revoking the same leaked credential were both told
+        // they had stopped it, which is false for one of them and is exactly the
+        // question asked while comparing notes during an incident.
         let first = store
             .token(&token.id().as_text())
             .unwrap()
             .unwrap()
             .revoked_at;
-        store.revoke_token(&token.id().as_text()).expect("again");
+        assert!(
+            !store.revoke_token(&token.id().as_text()).expect("again"),
+            "a second revocation did not establish the timestamp"
+        );
         let second = store
             .token(&token.id().as_text())
             .unwrap()
@@ -792,6 +823,35 @@ mod tests {
     fn revoking_a_token_that_does_not_exist_is_an_error() {
         let (mut store, _pepper) = store_and_pepper();
         assert!(store.revoke_token("AAAAAAAA").is_err());
+    }
+
+    #[test]
+    fn a_revoked_token_is_not_confused_with_one_that_never_existed() {
+        // The two cases that both leave the `UPDATE` having changed nothing. They must
+        // not collapse into each other: `false` means the credential is dead and
+        // somebody else killed it, the error means the id names nothing at all.
+        let (mut store, pepper) = store_and_pepper();
+        let token = Token::generate().unwrap();
+        store
+            .issue_token(
+                "deploy-runner",
+                &token,
+                &pepper,
+                "operator",
+                None,
+                TokenPurpose::Credential,
+            )
+            .expect("issue");
+
+        assert!(store.revoke_token(&token.id().as_text()).expect("revoke"));
+        assert!(
+            !store.revoke_token(&token.id().as_text()).expect("again"),
+            "already revoked"
+        );
+        assert!(
+            store.revoke_token("AAAAAAAA").is_err(),
+            "never existed, and that is a different answer"
+        );
     }
 
     #[test]

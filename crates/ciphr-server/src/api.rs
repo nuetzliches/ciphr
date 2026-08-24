@@ -1404,12 +1404,14 @@ async fn revoke_token(
     // `authorize_and_record_subject` allowed the call, so whether a token id exists stays
     // unanswerable without `revoke` on `sys/tokens`. Reading first is what lets the entry
     // name the credential that stopped working.
-    let record = state.with_store(|store| {
-        Ok(store
-            .tokens(None)?
-            .into_iter()
-            .find(|record| record.token_id == token_id))
-    })?;
+    //
+    // **One indexed row, not the inventory.** This used to be `tokens(None)` followed
+    // by a linear search, so an identity without `revoke` still made the server
+    // materialize every token in the deployment -- while holding the store's mutex --
+    // before being told `403`. Finding F7 of the review of 2026-08-24. The ordering
+    // above is unchanged and still correct; what was wrong was doing O(inventory) work
+    // to answer a question the primary key answers.
+    let record = state.with_store(|store| store.token(&token_id).map_err(ApiError::from))?;
 
     state.authorize_and_record_subject(
         &caller,
@@ -1431,12 +1433,28 @@ async fn revoke_token(
         return Err(ApiError::NotFound);
     };
 
-    state.with_store(|store| store.revoke_token(&token_id).map_err(ApiError::from))?;
+    // **The trail says the revocation was authorized; this makes sure it never says it
+    // happened when it did not.** Finding F8 of the review of 2026-08-24: the store
+    // write used to be a bare `?`, so a disk or lock failure returned `503` to the
+    // caller and left an entry claiming an allowed revocation at `200` behind. An
+    // incident responder reading that trail would be told a live credential was dead.
+    //
+    // `revoked_now` comes from the write itself for the other half of the same finding:
+    // it used to be `found.revoked_at.is_none()`, read *before* the mutation, so two
+    // concurrent calls both claimed to be the one that stopped the credential.
+    let revoked_now = state.complete_or_record(
+        &caller,
+        Action::RevokeToken,
+        &virtual_path,
+        &request,
+        "revoke-failed",
+        || state.with_store(|store| store.revoke_token(&token_id).map_err(ApiError::from)),
+    )?;
 
     Ok(Json(RevokeResponse {
         token_id,
         identity: found.identity,
-        revoked_now: found.revoked_at.is_none(),
+        revoked_now,
     }))
 }
 
