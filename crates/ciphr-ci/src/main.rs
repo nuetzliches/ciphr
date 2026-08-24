@@ -178,7 +178,26 @@ fn run(cli: &Cli) -> Result<(), CiError> {
     // costs the deployment nothing — no reads, and so no audit entries for secrets that
     // were never delivered. The JSON format is keyed by path and has no names to assign.
     if format != ExportFormat::Json {
-        EnvVarName::assign(&paths)?;
+        let names = EnvVarName::assign(&paths)?;
+
+        // And a name that decides how a *later step* starts is refused with them
+        // (F4 of the review of 2026-08-24). This is sharper here than in the
+        // wrapper: `$GITHUB_ENV` sets variables for every step that follows, not
+        // for one program — which is the shape of CVE-2020-15228, the reason
+        // GitHub Actions stopped letting a workflow set variables through a log
+        // directive. JSON is exempt because it is keyed by path and becomes
+        // nobody's environment on its own.
+        //
+        // Before the fetch, so a set that will be refused costs no reads and no
+        // audit entries.
+        for name in &names {
+            if let Some(reason) = ciphr_core::process_control_reason(name.as_str()) {
+                return Err(CiError::ProcessControlName {
+                    name: name.as_str().to_owned(),
+                    reason,
+                });
+            }
+        }
     }
 
     let secrets = client.read_all(&paths)?;

@@ -67,6 +67,13 @@ pub(crate) enum RunError {
     Path(ciphr_core::PathError),
     /// The service refused, could not be reached, or answered something unusable.
     Service(SdkError),
+    /// A fetched secret is named after a variable that decides how a process starts.
+    ProcessControlName {
+        /// The variable name, which is a path segment and not a secret.
+        name: String,
+        /// Why that name is refused, in words.
+        reason: &'static str,
+    },
     /// The command to execute was given as an empty argument list.
     ///
     /// Reachable only through `--` with nothing after it.
@@ -131,6 +138,15 @@ impl fmt::Display for RunError {
             ),
             Self::Path(error) => write!(formatter, "{error}"),
             Self::Service(error) => write!(formatter, "{error}"),
+            Self::ProcessControlName { name, reason } => write!(
+                formatter,
+                "refusing to hand {name} to the command: {reason}, so a secret named after \
+                 it decides how that program starts rather than what it reads. Nothing was \
+                 executed. If this deployment genuinely needs that variable, set it in the \
+                 container definition, where it is a decision somebody reviewed -- and if \
+                 this arrived under --prefix, note that whoever may write there chose this \
+                 name"
+            ),
             Self::NoCommand => {
                 formatter.write_str("nothing to execute; put the command after `--`")
             }
@@ -200,11 +216,35 @@ mod tests {
                 reason: "not found".to_owned(),
             },
             RunError::Service(ciphr_sdk::SdkError::Unauthenticated),
+            RunError::ProcessControlName {
+                name: "LD_PRELOAD".to_owned(),
+                reason: "the dynamic loader reads it before the program starts",
+            },
         ];
 
         for failure in failures {
             assert_eq!(failure.code(), 125, "{failure}");
         }
+    }
+
+    /// F4: the refusal has to say why this name is different from a password.
+    ///
+    /// Somebody meeting it is looking at a secret path that works everywhere else,
+    /// so "refused" without "because a loader reads it before your program does"
+    /// reads as a bug in the wrapper.
+    #[test]
+    fn refusing_a_process_control_name_says_why_and_says_nothing_ran() {
+        let message = RunError::ProcessControlName {
+            name: "NODE_OPTIONS".to_owned(),
+            reason: "a language runtime or the shell reads it before the program starts",
+        }
+        .to_string();
+
+        assert!(message.contains("NODE_OPTIONS"), "{message}");
+        assert!(message.contains("before the program starts"), "{message}");
+        assert!(message.contains("Nothing was executed"), "{message}");
+        // And it names the way out that is not "turn the check off".
+        assert!(message.contains("container definition"), "{message}");
     }
 
     #[test]

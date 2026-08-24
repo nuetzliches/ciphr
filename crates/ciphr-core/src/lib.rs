@@ -23,6 +23,7 @@ pub mod file_mode;
 pub mod hex;
 pub mod path;
 pub mod pattern;
+pub mod process_env;
 pub mod rotation;
 pub mod secret;
 pub mod version;
@@ -34,6 +35,7 @@ pub use file_mode::{
 };
 pub use path::{PathError, SecretPath};
 pub use pattern::{PathPattern, PatternError};
+pub use process_env::process_control_reason;
 pub use rotation::{Rotation, RotationError};
 pub use secret::Plaintext;
 pub use version::SecretVersion;

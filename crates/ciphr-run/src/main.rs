@@ -145,7 +145,28 @@ fn run(cli: &Cli) -> Result<core::convert::Infallible, RunError> {
         .timeout(core::time::Duration::from_secs(cli.timeout))
         .build()?;
 
-    let plan = Plan::new(&cli.command, fetch(&client, cli)?.into_entries())?;
+    let environment = fetch(&client, cli)?;
+
+    // A name that decides how the child starts is refused before anything starts.
+    // With `--prefix` the set of names is whatever the store holds, so an identity
+    // with `write` there would otherwise choose `LD_PRELOAD` or `NODE_OPTIONS` for
+    // this service (F4 of the review of 2026-08-24).
+    //
+    // **After the fetch rather than before it**, and that is a real cost: the
+    // values have been read and the trail carries those reads. The names of a
+    // prefix are known only once it has been listed, and the listing happens
+    // inside the SDK call. Nothing is *executed*, which is the property that
+    // matters here -- the wrapper exits 125 and the service does not start.
+    for name in environment.names() {
+        if let Some(reason) = ciphr_core::process_control_reason(name.as_str()) {
+            return Err(RunError::ProcessControlName {
+                name: name.as_str().to_owned(),
+                reason,
+            });
+        }
+    }
+
+    let plan = Plan::new(&cli.command, environment.into_entries())?;
 
     if cli.report {
         let names: Vec<&str> = plan.names().map(ciphr_core::EnvVarName::as_str).collect();

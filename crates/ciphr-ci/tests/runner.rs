@@ -48,7 +48,7 @@ policies = ["nothing"]
 name = "ci-widget"
 
   [[policy.rule]]
-  path         = "ci/widget/**"
+  path         = "ci/**"
   capabilities = ["read", "list"]
 
 [[policy]]
@@ -115,6 +115,12 @@ impl Live {
                 "ci/widget/DEPLOY_KEY",
                 "-----BEGIN KEY-----\nmiddle-line\n-----END KEY-----",
             ),
+            // Under a prefix of its own, so the tests that fetch `ci/widget` are
+            // unaffected. This is what an identity holding `write` would add if it
+            // wanted the steps after the fetch to run its code: a name the runtime
+            // reads before anything else, and a value that needs no file in the
+            // image to be useful (F4).
+            ("ci/hostile/NODE_OPTIONS", "--inspect=0.0.0.0:9229"),
         ] {
             let path = SecretPath::parse(path).expect("a valid path");
             let plaintext = Plaintext::from(value.as_bytes());
@@ -367,6 +373,46 @@ fn a_default_deployment_serves_a_job_without_naming_an_entry() {
     let written = std::fs::read_to_string(&environment).expect("read back");
     assert!(written.contains("DB_PASSWORD=seeded-db\n"), "{written}");
     assert!(written.contains("DEPLOY_KEY<<"), "{written}");
+}
+
+/// F4: a secret named after a variable that decides how a process starts.
+///
+/// The set of names under a prefix is whatever the store holds, so an identity with
+/// `write` there chooses environment variable names for every step after this one.
+/// `NODE_OPTIONS` is the sharp case: `--inspect` opens a debugger port and needs no
+/// file in the image.
+///
+/// The refusal happens **before the fetch**, so this also asserts what the trail
+/// does not get: the values under that prefix are never read.
+#[test]
+fn a_secret_named_after_a_process_control_variable_is_refused() {
+    let live = Live::start_with(&["bulk_export"]);
+    let environment = live.environment_file("env-hostile");
+
+    let output = live.run(
+        &live.token,
+        &["--prefix", "ci/hostile", "--github-env"],
+        Some(&environment),
+    );
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty(), "nothing may be printed");
+    assert_eq!(
+        std::fs::read_to_string(&environment).expect("read back"),
+        "SET_BY_AN_EARLIER_STEP=1\n",
+        "and nothing may be written"
+    );
+
+    let message = String::from_utf8(output.stderr).expect("utf-8");
+    assert!(message.contains("NODE_OPTIONS"), "{message}");
+    assert!(
+        message.contains("before the program starts"),
+        "the message has to say why that name is different from a password: {message}"
+    );
+    assert!(
+        !message.contains("--inspect"),
+        "the value must not be in the message: {message}"
+    );
 }
 
 /// A refusal leaves the job's environment exactly as it was.
