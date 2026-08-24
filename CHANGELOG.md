@@ -8,6 +8,31 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — a file-only audit configuration started a second chain on every restart
+
+**F3 of [`docs/review-2026-08-24-full-repository.md`](docs/review-2026-08-24-full-repository.md), and
+a breaking configuration change.** The server required *an* audit device and not the SQLite one, while
+startup resumed the chain from `store.audit_chain()` — the store, and nothing else. A deployment with
+only a file device therefore resumed from a table its records had never reached, and the file device
+appends without reading what it is appending after.
+
+Every restart began a new chain in the same file: a run whose `prev_hash` names a record that is not
+the line above it. That is what a truncated or rewritten trail looks like, produced by starting the
+service — against the one asset this project calls protected in its own right.
+
+**The server now refuses to start without an `[[audit]]` stanza of type `sqlite`**, and the refusal
+says why the store device is the head and that a file device beside it is a second copy rather than a
+replacement. Refusing is the smaller of the two honest fixes; the other is to read each durable
+device's own head at startup and require them to agree, and that is worth building when a deployment
+has a reason to run without the store device. None does: the file exists to be a copy on separate
+storage.
+
+**What to do:** if a configuration has no `sqlite` audit device, add one before upgrading. A file
+written by such a deployment already contains more than one chain, and
+[`docs/operations/audit-trail.md`](docs/operations/audit-trail.md) explains what that looks like when
+verifying.
+
+
 ### Fixed — a stale store lock could be taken over by two processes at once
 
 **F2 of [`docs/review-2026-08-24-full-repository.md`](docs/review-2026-08-24-full-repository.md).**

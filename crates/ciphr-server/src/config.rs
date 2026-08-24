@@ -225,6 +225,29 @@ impl Config {
         if self.audit.is_empty() {
             return Err(ConfigError::NoAuditDevice);
         }
+
+        // **And the store device specifically**, because the chain head is read from
+        // it and from nowhere else. F3 of the review of 2026-08-24: a file-only
+        // configuration was accepted, `server.rs` still resumed from
+        // `store.audit_chain()`, and `FileDevice::open` neither reads nor validates
+        // the last record it is appending after. Every restart therefore began a new
+        // chain in the file — same file, two runs, `prev_hash` pointing at a record
+        // that is not the previous line. That is what a truncated or rewritten trail
+        // looks like, produced by ordinary operation.
+        //
+        // Refusing the configuration is the smaller of the two honest fixes. The
+        // other is to read the file's own head at startup and require every durable
+        // device to agree, which is worth building when a deployment has a reason to
+        // run without the store device. None does today: the file device exists as a
+        // second copy on separate storage, which is a reason to have both rather than
+        // a reason to drop one.
+        if !self
+            .audit
+            .iter()
+            .any(|device| matches!(device, AuditConfig::Sqlite))
+        {
+            return Err(ConfigError::NoStoreAuditDevice);
+        }
         for device in &self.audit {
             if let AuditConfig::File {
                 rotate_size: Some(size),
@@ -419,6 +442,38 @@ path = \"/run/secrets/ciphr-master-key\"",
             Config::parse(text),
             Err(ConfigError::NoAuditDevice)
         ));
+    }
+
+    /// F3 of the review of 2026-08-24: a file-only configuration was accepted, and
+    /// every restart then appended a second chain to the same file.
+    ///
+    /// The chain head comes from the store and from nowhere else, so a deployment
+    /// without that device resumes from a table its records never reached. The file
+    /// grows a new run whose `prev_hash` names a record that is not the line above
+    /// it -- which is what a rewritten trail looks like, produced by starting the
+    /// service.
+    #[test]
+    fn refuses_an_audit_configuration_without_the_store_device() {
+        let text = COMPLETE.replace(
+            "type = \"sqlite\"",
+            "type = \"file\"\npath = \"/var/lib/ciphr/audit.jsonl\"",
+        );
+        assert!(
+            matches!(Config::parse(&text), Err(ConfigError::NoStoreAuditDevice)),
+            "a file-only audit configuration must be refused, not accepted"
+        );
+    }
+
+    /// And the refusal says what to add rather than only what is wrong.
+    #[test]
+    fn the_refusal_names_the_device_and_why_it_is_the_head() {
+        let message = ConfigError::NoStoreAuditDevice.to_string();
+        assert!(message.contains("sqlite"), "{message}");
+        assert!(message.contains("chain head"), "{message}");
+        assert!(
+            message.contains("second copy, not a replacement"),
+            "an operator with a file device has to learn that it is not an alternative: {message}"
+        );
     }
 
     #[test]

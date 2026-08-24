@@ -184,6 +184,8 @@ pub enum ConfigError {
     },
     /// No audit device was configured.
     NoAuditDevice,
+    /// Audit devices are configured, but not the one the chain head is read from.
+    NoStoreAuditDevice,
     /// A `[[surface]]` stanza names something that is not an entry.
     SurfaceUnknown {
         /// What was written.
@@ -232,6 +234,14 @@ impl core::fmt::Display for ConfigError {
             Self::NoAuditDevice => f.write_str(
                 "no audit device is configured; a secret store without an audit trail is a \
                  configuration error, so the server will not start",
+            ),
+            Self::NoStoreAuditDevice => f.write_str(
+                "the `sqlite` audit device is required and is not configured. The chain head a \
+                 restart resumes from is read from the store, so a configuration without it \
+                 starts a second chain in whatever devices it does have — a file would grow a \
+                 new run beside the old one, which is indistinguishable from a rewritten \
+                 trail. Add an `[[audit]]` stanza of type `sqlite`; a file device beside it is \
+                 a second copy, not a replacement",
             ),
             Self::SurfaceUnknown { name, known } => write!(
                 f,
