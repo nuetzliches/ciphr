@@ -9,10 +9,12 @@
 # says nothing about what it is; Docker uses the digest when both are present.
 # Each is the multi-platform index digest, so this stays platform-agnostic.
 #
-# This pins the base layer, not the build. `apt-get install` below still
-# resolves whatever the archive currently offers, so the image is *pinned* and
-# not yet *reproducible* — see docs/threat-model.md for why that gap is left
-# open while the repository is private.
+# This pins the base layer. Since 2026-08-24 it also pins what `apt-get` adds to
+# the runtime stage: exact versions, resolved from a Debian snapshot rather than
+# from whatever the archive offers today — see the block above that stage. What
+# is still not pinned is the toolchain image's own contents and the `musl-tools`
+# the wrapper's builder installs, so this image is closer to reproducible and is
+# not yet reproducible. `docs/threat-model.md` says what that gap costs.
 FROM rust:1.94-bookworm@sha256:6ae102bdbf528294bc79ad6e1fae682f6f7c2a6e6621506ba959f9685b308a55 AS builder
 
 WORKDIR /build
@@ -29,14 +31,55 @@ RUN cargo build --release --locked --bin ciphr-server --bin ciphr
 # ── Stage 2: runtime ─────────────────────────────────────────────────────────
 FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241
 
-# `curl` is here for the health check and nothing else. It is what lets the
-# check speak HTTPS to the service and *verify* the certificate — ADR-8 rules
-# out `--insecure` everywhere, including in a HEALTHCHECK, and a check that
-# skipped verification would be the one place the rule was quietly broken.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl gosu && \
-    rm -rf /var/lib/apt/lists/* && \
-    groupadd -r ciphr && useradd -r -g ciphr -s /sbin/nologin ciphr
+# Three packages, and each is here for one reason.
+#
+# `curl` is for the health check and nothing else. It is what lets the check
+# speak HTTPS to the service and *verify* the certificate — ADR-8 rules out
+# `--insecure` everywhere, including in a HEALTHCHECK, and a check that skipped
+# verification would be the one place the rule was quietly broken. `gosu` is what
+# the entrypoint drops privileges with, and `ca-certificates` is what anything
+# speaking TLS from inside this container would expect to find.
+#
+# ── Why a snapshot and exact versions ────────────────────────────────────────
+#
+# `apt-get install curl` resolves to whatever the archive offers on the day of
+# the build, so two builds of the same commit produced two different images and
+# nothing recorded which one a deployment was running. The base layer was pinned
+# by digest and this was not, which made "pinned" true of one half.
+#
+# The three versions below were read out of the snapshot named in
+# `DEBIAN_SNAPSHOT` on 2026-08-24, on amd64 **and** on arm64 — identical on both,
+# including the `+b10` binNMU on gosu. That is the detail that decides whether one
+# set of pins can serve a multi-architecture build at all, and it was measured
+# rather than assumed.
+#
+# Bumping them is a deliberate commit: move the snapshot, read the three versions
+# out of it, and say in the changelog what the bump carries. What this gives up is
+# a security update arriving on its own; what it buys is that an image built from
+# this commit next year is the image built from it today.
+#
+# The snapshot list is handed to apt rather than written into the image: with
+# `Dir::Etc::SourceList` and an empty `SourceParts`, the base image's own
+# `debian.sources` is neither replaced nor deleted, so a container somebody
+# debugs later still has ordinary apt sources.
+ARG DEBIAN_SNAPSHOT=20260824T000000Z
+ARG CA_CERTIFICATES_VERSION=20250419~deb12u1
+ARG CURL_VERSION=7.88.1-10+deb12u15
+ARG GOSU_VERSION=1.14-1+b10
+
+RUN set -eu; \
+    printf 'deb http://snapshot.debian.org/archive/debian/%s bookworm main\n' "$DEBIAN_SNAPSHOT" > /tmp/snapshot.list; \
+    printf 'deb http://snapshot.debian.org/archive/debian-security/%s bookworm-security main\n' "$DEBIAN_SNAPSHOT" >> /tmp/snapshot.list; \
+    apt_opts="-o Dir::Etc::SourceList=/tmp/snapshot.list -o Dir::Etc::SourceParts=/dev/null -o Acquire::Check-Valid-Until=false -o Acquire::Retries=3"; \
+    apt-get $apt_opts update; \
+    apt-get $apt_opts install -y --no-install-recommends \
+      ca-certificates="$CA_CERTIFICATES_VERSION" \
+      curl="$CURL_VERSION" \
+      gosu="$GOSU_VERSION"; \
+    rm -f /tmp/snapshot.list; \
+    rm -rf /var/lib/apt/lists/*; \
+    groupadd -r ciphr; \
+    useradd -r -g ciphr -s /sbin/nologin ciphr
 
 # Both binaries, deliberately. The CLI is not a convenience here: `init`,
 # `token issue`, `destroy`, `audit verify` and `rotate-master-key` need the

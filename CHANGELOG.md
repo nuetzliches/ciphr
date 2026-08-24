@@ -8,6 +8,34 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Changed — the runtime stage installs exact package versions from a Debian snapshot
+
+`docs/threat-model.md` said the `apt-get install` in the runtime stage of the `Dockerfile` was "the
+first thing that will have to give way" for reproducible builds. It has.
+
+Until 2026-08-24 that line resolved `ca-certificates curl gosu` to whatever the archive offered on
+the day of the build. The base layer was pinned by digest and this was not, so two builds of one
+commit produced two images and nothing recorded which one a deployment was running. It now installs
+three exact versions from a Debian snapshot named in a build argument.
+
+**The versions were measured on both architectures before they were written down** — identical on
+amd64 and arm64, including the `+b10` binNMU on `gosu`. That is the detail that decides whether one
+set of pins can serve a multi-architecture build at all, and it is the kind of thing that is assumed
+and then discovered during a release. Both runtime stages were then built and read back: each
+contains exactly the pinned versions, the service user, and the base image's own apt sources —
+untouched, because the snapshot list is handed to apt rather than written into the image.
+
+**What this is worth, narrowly:** an image built from this commit next year installs the same three
+packages. It is **not** a claim that two builds produce the same digest — the toolchain image is
+pinned only by its digest, `musl-tools` in the wrapper's builder stage is not pinned, and nobody has
+rebuilt a published image and compared it. The threat model says so in those words rather than
+letting "pinned" stand in for "reproducible". What did change is that a third party can now check:
+the repository is public.
+
+**Bumping a version is a deliberate commit** — move the snapshot, read the three versions out of it,
+say in the changelog what the bump carries. A security update arriving on its own is what this gives
+up.
+
 ### Added — the gates cover arm64, and the action picks the architecture it is on
 
 Half of [issue #4](https://github.com/nuetzliches/ciphr/issues/4), and the half it calls the one with

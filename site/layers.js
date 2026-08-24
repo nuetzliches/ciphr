@@ -248,8 +248,8 @@ const CONTENT = {
         'Supply-chain hygiene rather than application code: pinned dependencies, <code>cargo-deny</code> and <code>cargo audit</code> as blocking gates, action hashes instead of action tags, base images by digest instead of by tag.'
       ]},
       { h: 'And the point at which that changes', items: [
-        '<strong>Reproducible builds are named and not implemented.</strong> While the repository is private, nobody outside can fetch the source, rebuild the image and compare — reproducibility would be a property nobody can check.',
-        '<strong>It buys something the moment the repository becomes public.</strong> That is the point at which this paragraph has to change, and the <code>apt-get install</code> in the runtime stage of the <code>Dockerfile</code> is the first thing that has to go for it.'
+        '<strong>Reproducible builds are named and not implemented</strong> — but the first thing that had to give way has. Since 2026-08-24 the runtime stage installs three exact package versions from a Debian snapshot instead of whatever the archive offered that day, measured on both architectures before they were written down.',
+        '<strong>That is not a claim that two builds produce the same digest.</strong> The toolchain image is pinned only by its digest, the <code>musl-tools</code> in the wrapper builder stage is not pinned, and nobody has rebuilt a published image and compared it. The repository is public since 2026-08-24, so a third party now can — until somebody does, this is <em>more pinned</em> rather than reproducible.'
       ]}
     ],
     sources: [src('docs/threat-model.md'), src('Dockerfile'), src('AGENTS.md')],
@@ -660,7 +660,7 @@ function buildSubstrate() {
   }, g);
   el('rect', { x: -790, y: -720, width: 1580, height: 1300, rx: 26, class: 'hit' }, g);
   text(g, -770, 552, 'cut-label', 'Substrate: the build pipeline — whoever replaces the image wins');
-  text(g, -770, 572, 'ring-sub', 'Crosses no ring. Reproducible builds: named, not implemented — and checkable only once the repository is public.');
+  text(g, -770, 572, 'ring-sub', 'Crosses no ring. Reproducible builds: named, partly pinned, not verified by anybody yet.');
 }
 
 function buildCuts() {
