@@ -68,8 +68,26 @@ COPY ci/build-wrapper.sh ci/
 # the checksum of a file sitting beside the file is worth nothing anyway. A glob
 # that ever matches two binaries makes `mv` fail loudly, which is the right
 # direction for the day a second architecture appears.
-RUN sh ci/build-wrapper.sh /out && \
-    rm -f /out/*.sha256 && \
+# `TARGETARCH` is set by buildx for the platform being built, and the target has
+# to follow it. Without this the script took its default and an arm64 builder
+# tried to cross-compile x86_64 with the native `musl-gcc`, which fails inside
+# `ring` with `unrecognized command-line option '-m64'` -- a message that says
+# nothing about the actual mistake. Caught by the `Images (arm64)` job in
+# `ci.yml` on the pull request that added it, which is where a thing like this
+# is supposed to be caught rather than during a release.
+#
+# An architecture with no musl target here is refused rather than defaulted: the
+# alternative is building the wrong binary and finding out when somebody mounts
+# it.
+ARG TARGETARCH
+RUN set -eu; \
+    case "$TARGETARCH" in \
+      amd64) target=x86_64-unknown-linux-musl ;; \
+      arm64) target=aarch64-unknown-linux-musl ;; \
+      *) echo "no musl target known for TARGETARCH=$TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    TARGET="$target" sh ci/build-wrapper.sh /out; \
+    rm -f /out/*.sha256; \
     mv /out/ciphr-run-* /out/ciphr-run
 
 # ── Stage 2: the artefact ────────────────────────────────────────────────────

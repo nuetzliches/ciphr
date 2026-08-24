@@ -4,10 +4,9 @@
 `Unreleased` in the changelog ([ADR-25](../adr/0025-the-ci-side-fetch-is-its-own-binary.md)). Both
 `ciphr-ci` and `action.yml` are built and covered by tests that run the real binary against the real
 service; what does not exist until the next tag is the *release asset*, so the `version` and the
-checksums below have no number to carry yet. The gates cover **both architectures** since 2026-08-24
-(issue #4): every commit builds and runs `ciphr-ci` and `ciphr-run` as static binaries on a native
-amd64 and a native arm64 runner. Publishing the arm64 asset is the other half of that issue and is
-not done. What is *measured* about the masking is narrower than what runs,
+checksums below have no number to carry yet. **Both architectures**, since 2026-08-24 (issue #4): every commit builds and runs `ciphr-ci` and
+`ciphr-run` as static binaries on a native amd64 and a native arm64 runner, and a release attaches an
+asset for each. What is *measured* about the masking is narrower than what runs,
 and the section on that says exactly where the line is.
 
 This is route A: a build or deploy job that needs values at runtime. Route B is a container that only

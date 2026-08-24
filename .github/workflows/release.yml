@@ -5,10 +5,18 @@
 # reason ci.yml gives: a tag can be moved. The comment after each hash records
 # which release it was.
 #
-# **Single architecture, on purpose.** This image runs on one amd64 host. A
-# multi-arch manifest would mean a second build, a digest-merge step and a cache
-# scope per architecture, all to produce an artifact nothing pulls. If a second
-# architecture ever appears, that is the moment to add it.
+# **Two architectures since 2026-08-24** (issue #4). Every image is a manifest
+# list over an amd64 and an arm64 build, each produced on a runner of that
+# architecture and pushed by digest, with a merge job creating the tag. The
+# comment that used to stand here said one architecture was on purpose and that a
+# second one would be the moment to add the second build, the digest-merge step
+# and a cache scope per architecture. That moment arrived from the outside rather
+# than from a host in this deployment: `ciphr-run` is mounted into images this
+# project does not own, so an arm64 runner picking up an amd64 binary is somebody
+# else's failure, inside their container, while a service is starting.
+#
+# Native runners rather than qemu. Compiling Rust under emulation is an order of
+# magnitude slower and puts the emulator inside the artefact everyone pulls.
 name: Release
 
 on:
@@ -26,19 +34,13 @@ concurrency:
 
 env:
   REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
-  # The release asset's name, defined once because three steps below reach for
-  # it. It carries the target triple while there is still only one target: this
-  # asset is what a fetch script is written against, so a second architecture
-  # must not force a choice between renaming it -- breaking those scripts -- and
-  # publishing a qualified binary beside an unqualified checksum.
-  # `ci/build-wrapper.sh` derives the same name from its `$TARGET`, and the CI
-  # artifact in `ci.yml` has always been spelled this way.
-  WRAPPER_ASSET: ciphr-run-x86_64-unknown-linux-musl
-  # The same rule for the CI-side binary (ADR-25). `ci/build-ci-binary.sh` derives
-  # this name from its own `$TARGET`, and `action.yml` downloads it by this name --
-  # which is exactly why it carries the triple: an action's `--pattern` is a fetch
-  # script like any other.
-  CI_ASSET: ciphr-ci-x86_64-unknown-linux-musl
+  # The asset names are not defined here any more. They are derived from the
+  # target triple where they are produced -- `ci/build-wrapper.sh` and
+  # `ci/build-ci-binary.sh` from `$TARGET`, the jobs below from the matrix leg --
+  # because with two architectures a name written down once is a name that is
+  # right about one of them. The triple was added to those names on 2026-08-21,
+  # while amd64 was the only one, which is what made today an addition rather
+  # than a rename (issue #4).
 
 jobs:
   # The image is only built if the code that goes into it passes. Duplicating
@@ -48,67 +50,60 @@ jobs:
     name: Verify before publishing
     uses: ./.github/workflows/ci.yml
 
-  # The gate `v0.6.0` did not have. That release published its server image and
-  # moved `:latest` to it, then failed to build `Dockerfile.run` -- the asset
-  # rename in `1f82928` had left it copying a path the build no longer produces --
-  # so one version existed as one image and not as the other, and the tag could
-  # not be rebuilt without overwriting a digest somebody may already have pinned.
-  #
-  # Nothing caught it because nothing builds that file except a release, and the
-  # two publishing jobs below have no reason to wait for each other: they both
-  # hang off `verify` and run in parallel. This one builds the wrapper image and
-  # pushes nothing, and both of them wait for it -- so a wrapper that cannot be
-  # built now costs a failed release rather than half a published one, which is
-  # the difference between an inconvenience and a version that means two things.
-  #
-  # Deliberately *not* the same thing as building this file on every push. That is
-  # the more thorough answer, and `0.6.1`'s changelog priced it and declined: it
-  # doubles a CI job on every commit for a file that changes rarely. This runs
-  # only on a release, and the job that publishes the same image afterwards reads
-  # the same `scope=wrapper` cache, so the second build is a cache hit and not a
-  # second compile. Asked for in `docs/field-report-2026-08-22.md`, finding 5.
-  wrapper-image:
-    name: The wrapper image builds before anything is published
+  # The version, derived once. Four jobs below need it, and deriving it four
+  # times is four places for a manual run to become a release by accident.
+  version:
+    name: Derive the version
     needs: verify
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.derive.outputs.version }}
+      release: ${{ steps.derive.outputs.release }}
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-
-      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
-
-      # No registry login and no `push:`, so this job needs none of the
-      # credentials the two after it hold. The build is the whole assertion.
-      - name: Build it and publish nothing
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
-        with:
-          context: .
-          file: Dockerfile.run
-          platforms: linux/amd64
-          push: false
-          cache-from: type=gha,scope=wrapper
-          cache-to: type=gha,mode=max,scope=wrapper
-
-  image:
-    name: Build and publish
-    needs: [verify, wrapper-image]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-
       - name: Derive the version
-        id: version
+        id: derive
         run: |
           set -euo pipefail
           ref='${{ github.ref }}'
           case "$ref" in
             refs/tags/v*) version="${ref#refs/tags/v}" ;;
-            # A manual run has no tag. It still produces an image, but one that
-            # cannot be mistaken for a release: no `latest`, and a name that
-            # says where it came from.
+            # A manual run has no tag. It still produces images, but ones that
+            # cannot be mistaken for a release: no `latest`, no release assets,
+            # and a name that says where it came from.
             *)            version="0.0.0-dev.${GITHUB_SHA::7}" ;;
           esac
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "release=${{ startsWith(github.ref, 'refs/tags/v') }}" >> "$GITHUB_OUTPUT"
+
+  # ── Both images, once per architecture, pushed by digest ─────────────────────
+  #
+  # The pattern is one build per architecture on a native runner, each pushed
+  # *by digest* with no tag, and a merge job afterwards that creates the tag as a
+  # manifest list over those digests. The alternative -- one runner, two
+  # platforms, qemu -- compiles Rust under emulation, which is an order of
+  # magnitude slower and puts the emulator inside the artefact everybody pulls.
+  #
+  # The pre-flight build that used to sit here is gone: `verify` calls `ci.yml`,
+  # and that workflow builds both files on both architectures on every pull
+  # request now. The gate `v0.6.0` needed -- a release must not publish one image
+  # and then fail to build the other -- moved earlier and got wider rather than
+  # being dropped.
+  image:
+    name: The service image (${{ matrix.arch }})
+    needs: version
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
 
@@ -118,72 +113,122 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
+      - name: Build and push by digest
         id: build
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: .
-          platforms: linux/amd64
-          push: true
-          tags: |
-            ${{ env.REGISTRY_IMAGE }}:${{ steps.version.outputs.version }}
-            ${{ steps.version.outputs.release == 'true' && format('{0}:latest', env.REGISTRY_IMAGE) || '' }}
+          platforms: ${{ matrix.platform }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.title=ciphr
             org.opencontainers.image.description=Secret manager for machine identities: KV secrets, gap-free access auditing, path-based authorization.
             org.opencontainers.image.licenses=MIT OR Apache-2.0
-            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.version=${{ needs.version.outputs.version }}
             org.opencontainers.image.revision=${{ github.sha }}
-          cache-from: type=gha,scope=release
-          cache-to: type=gha,mode=max,scope=release
+          outputs: type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=release-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=release-${{ matrix.arch }}
+
+      # The digest as a filename, which is all the merge job needs: a set of
+      # digests to point one tag at.
+      - name: Keep the digest
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/digests
+          digest='${{ steps.build.outputs.digest }}'
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: digests-image-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  image-manifest:
+    name: Publish the service image tag
+    needs: [version, image]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: /tmp/digests
+          pattern: digests-image-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # One tag over both digests. `:latest` only for a real tag -- a manual run
+      # publishes something pullable and nothing that moves a name a deployment
+      # follows.
+      - name: Create the manifest list
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          IS_RELEASE: ${{ needs.version.outputs.release }}
+          IMAGE: ${{ env.REGISTRY_IMAGE }}
+        run: |
+          set -euo pipefail
+          cd /tmp/digests
+          tags="-t ${IMAGE}:${VERSION}"
+          if [ "$IS_RELEASE" = "true" ]; then
+            tags="$tags -t ${IMAGE}:latest"
+          fi
+          # shellcheck disable=SC2086
+          docker buildx imagetools create $tags $(printf "${IMAGE}@sha256:%s " *)
 
       # What was published, by digest. A deployment pins the digest rather than
       # the tag: a tag is a name that can be moved, and this is the one image in
-      # the fleet that reads every secret in it.
+      # the fleet that reads every secret in it. The digest below is the manifest
+      # list, which is what a `docker pull` on either architecture resolves.
       - name: Report the digest
-        run: |
-          echo "### Published" >> "$GITHUB_STEP_SUMMARY"
-          echo '' >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          echo '${{ env.REGISTRY_IMAGE }}:${{ steps.version.outputs.version }}' >> "$GITHUB_STEP_SUMMARY"
-          echo '${{ steps.build.outputs.digest }}' >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-
-  # The artefact that is not a service. `ciphr-run` is bind-mounted into images
-  # this project does not own (ADR-14), so a deployment needs the file itself --
-  # there is nothing to run.
-  #
-  # It goes out twice, and the second one is not redundancy. A release asset is
-  # the right home for a file, and it is readable only by something that can
-  # authenticate to GitHub; while this repository is private, that is a person
-  # with a token and not the host that has to mount the file. `Dockerfile.run`
-  # exists so the wrapper reaches that host through the registry the server image
-  # already uses, and the file the release carries is extracted from the image
-  # that was pushed, so the two cannot disagree about what they contain.
-  wrapper:
-    name: Publish the static wrapper
-    needs: [verify, wrapper-image]
-    # A manual run publishes no image tag and gets no release either; there is no
-    # release to attach a file to.
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    permissions:
-      # `contents` to attach the file to the release -- this is the only job in
-      # either workflow that writes anything to the repository, and what it
-      # writes is two release assets. `packages` for the image that carries the
-      # same bytes to a deployment that cannot read a release asset at all.
-      contents: write
-      packages: write
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-
-      - name: Derive the version
-        id: version
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          IMAGE: ${{ env.REGISTRY_IMAGE }}
         run: |
           set -euo pipefail
-          version='${{ github.ref_name }}'
-          echo "version=${version#v}" >> "$GITHUB_OUTPUT"
+          digest=$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          {
+            echo "### Published"
+            echo ''
+            echo '```'
+            echo "${IMAGE}:${VERSION}"
+            echo "$digest"
+            echo '```'
+            echo ''
+            echo 'Architectures:'
+            echo ''
+            echo '```'
+            docker buildx imagetools inspect "${IMAGE}:${VERSION}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # The artefact that is not a service. `ciphr-run` is bind-mounted into images
+  # this project does not own (ADR-14), so a deployment needs the file, not
+  # something to run -- and the architecture of that file is decided by whoever
+  # mounts it, which is why both exist (issue #4).
+  wrapper-image:
+    name: The wrapper image (${{ matrix.arch }})
+    needs: version
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
 
@@ -195,53 +240,86 @@ jobs:
 
       # The build runs `ci/build-wrapper.sh` inside the builder stage, so the
       # linkage check and the size budget apply to the file that actually ships
-      # -- the same script CI runs, in one place rather than duplicated here.
-      #
-      # No `:latest`, deliberately, and not for the reason the server image has
-      # one. A deployment pins this file by checksum; a moving tag for it would
-      # be a way to change the bytes that get mounted into a foreign container
-      # without anything recording that it happened.
-      - name: Build and push the wrapper image
+      # -- the same script CI runs, and since 2026-08-24 with the budget for this
+      # architecture rather than one number for both.
+      - name: Build and push by digest
         id: build
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
           context: .
           file: Dockerfile.run
-          platforms: linux/amd64
-          push: true
-          tags: ${{ env.REGISTRY_IMAGE }}/run:${{ steps.version.outputs.version }}
+          platforms: ${{ matrix.platform }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.title=ciphr-run
             org.opencontainers.image.description=The static entrypoint wrapper from ADR-14, as the only file in its image.
             org.opencontainers.image.licenses=MIT OR Apache-2.0
-            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.version=${{ needs.version.outputs.version }}
             org.opencontainers.image.revision=${{ github.sha }}
-          cache-from: type=gha,scope=wrapper
-          cache-to: type=gha,mode=max,scope=wrapper
+          outputs: type=image,name=${{ env.REGISTRY_IMAGE }}/run,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=wrapper-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=wrapper-${{ matrix.arch }}
 
-      # By digest, not by tag, and pulled back rather than read out of a local
-      # build: buildx pushed straight from its own container, so this actually
-      # fetches what the registry now serves. That makes the checksum below a
-      # statement about the published image and not about a build that happened
-      # to precede it.
-      #
-      # These are also the three commands the documentation tells a deployment to
-      # run, which is the point -- the retrieval path is exercised on every
-      # release rather than the first time somebody needs it.
-      - name: Take the binary out of the image that was published
+      - name: Keep the digest
         run: |
           set -euo pipefail
-          ref='${{ env.REGISTRY_IMAGE }}/run@${{ steps.build.outputs.digest }}'
-          mkdir -p target/wrapper
-          docker create --name ciphr-run-export "$ref"
-          docker cp ciphr-run-export:/ciphr-run "target/wrapper/$WRAPPER_ASSET"
-          docker rm ciphr-run-export
-          (cd target/wrapper && sha256sum "$WRAPPER_ASSET" > "$WRAPPER_ASSET.sha256")
+          mkdir -p /tmp/digests
+          digest='${{ steps.build.outputs.digest }}'
+          touch "/tmp/digests/${digest#sha256:}"
 
-      # `gh` is preinstalled on the runner and authenticates with the job's token,
-      # so this needs no additional third-party action to pin.
-      - name: Attach it to the release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: digests-wrapper-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # No `:latest`, deliberately, and not for the reason the service image has one.
+  # A deployment pins this file by checksum; a moving tag for it would be a way to
+  # change the bytes that get mounted into a foreign container with nothing
+  # recording that it happened.
+  wrapper-manifest:
+    name: Publish the wrapper image tag
+    needs: [version, wrapper-image]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: /tmp/digests
+          pattern: digests-wrapper-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create the manifest list
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          IMAGE: ${{ env.REGISTRY_IMAGE }}/run
+        run: |
+          set -euo pipefail
+          cd /tmp/digests
+          # shellcheck disable=SC2086
+          docker buildx imagetools create -t "${IMAGE}:${VERSION}" $(printf "${IMAGE}@sha256:%s " *)
+
+  # The release, created once. Two jobs attach files to it, and two jobs racing
+  # to create it is how a release ends up existing twice or not at all.
+  release-shell:
+    name: The release exists
+    needs: version
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Create it if it is not there
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
@@ -250,61 +328,118 @@ jobs:
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --title "$TAG" --generate-notes
           fi
-          gh release upload "$TAG" \
-            "target/wrapper/$WRAPPER_ASSET" \
-            "target/wrapper/$WRAPPER_ASSET.sha256" \
-            --clobber
 
-      # What a deployment has to check before mounting it, and where it can get
-      # it from. Printed here so both are in the run's own record, not only
-      # inside the uploaded file.
-      - name: Report the checksum
+  # Both wrapper binaries, taken out of the images that were just published.
+  #
+  # By digest and by platform, pulled back rather than read out of a local build:
+  # buildx pushed straight from its own container, so this fetches what the
+  # registry now serves. That makes the checksums a statement about the published
+  # images rather than about builds that happened to precede them -- and these are
+  # the commands the documentation tells a deployment to run, so the retrieval
+  # path is exercised on every release rather than the first time somebody needs
+  # it.
+  #
+  # One runner for both architectures: `docker create` does not start the
+  # container, so pulling a foreign-architecture image to copy one file out of it
+  # needs no emulation.
+  wrapper-assets:
+    name: Attach the wrapper binaries
+    needs: [version, wrapper-manifest, release-shell]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Take the binaries out of the images that were published
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          IMAGE: ${{ env.REGISTRY_IMAGE }}/run
         run: |
+          set -euo pipefail
+          mkdir -p target/wrapper
+          for pair in "linux/amd64 x86_64-unknown-linux-musl" "linux/arm64 aarch64-unknown-linux-musl"; do
+            set -- $pair
+            platform="$1"
+            triple="$2"
+            name="ciphr-run-${triple}"
+            container="export-${triple}"
+            docker create --platform "$platform" --name "$container" "${IMAGE}:${VERSION}"
+            docker cp "${container}:/ciphr-run" "target/wrapper/${name}"
+            docker rm "$container"
+            (cd target/wrapper && sha256sum "$name" > "${name}.sha256")
+          done
+
+      - name: Attach them to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" target/wrapper/ciphr-run-* --clobber
+
+      # What a deployment has to check before mounting a file, and where it can
+      # get it from. Printed here so both are in the run's own record, not only
+      # inside the uploaded file.
+      - name: Report the checksums
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          IMAGE: ${{ env.REGISTRY_IMAGE }}/run
+        run: |
+          set -euo pipefail
           {
             echo "### The wrapper"
             echo ''
             echo '```'
-            echo "${{ env.REGISTRY_IMAGE }}/run:${{ steps.version.outputs.version }}"
-            echo "${{ steps.build.outputs.digest }}"
-            cat "target/wrapper/$WRAPPER_ASSET.sha256"
+            echo "${IMAGE}:${VERSION}"
+            cat target/wrapper/*.sha256
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # The second artefact that is not an image, and the one a workflow rather than
-  # a host consumes: `ciphr-ci` (ADR-25).
-  #
-  # A release asset and no image, which is the opposite of the wrapper's answer
-  # and rests on the same argument. The wrapper has an image because the host
-  # that mounts it authenticates to a registry and not to the forge. This binary
-  # is fetched by a *job*, and a job always holds a token for the forge it runs
-  # on -- so the channel that is awkward for a host is the natural one here, and
-  # a second image would be a second thing to keep in step for no reader.
-  #
-  # Built on the runner rather than in a container: the wrapper's image exists
-  # anyway and carries its build along, and there is no image here to carry this
-  # one. `ci/build-ci-binary.sh` is the same script CI runs, so the linkage check
-  # and the size budget apply to the file that actually ships.
+  # The CI-side binary (ADR-25): a release asset and no image, because a job
+  # always holds a credential for the forge it runs on. Built on a runner of each
+  # architecture rather than extracted from an image, since there is no image
+  # here to extract from.
   ci-binary:
-    name: Publish the static CI binary
-    needs: [verify, wrapper-image]
-    # A manual run publishes no tag and gets no release to attach a file to.
+    name: The CI binary (${{ matrix.arch }})
+    needs: [version, release-shell]
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     permissions:
-      # Only `contents`, and only to attach two files. This job pushes no image
-      # and therefore needs nothing from the registry.
       contents: write
+    strategy:
+      fail-fast: false
+      # One at a time: both legs upload to the same release, and `gh release
+      # upload` on two runners at once is a race nobody needs for two files.
+      max-parallel: 1
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: Add the musl target
         run: |
           set -euo pipefail
-          rustup target add x86_64-unknown-linux-musl
+          rustup target add ${{ matrix.target }}
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends musl-tools
 
       - name: Build it, verify linkage, and check the budget
+        env:
+          TARGET: ${{ matrix.target }}
         run: sh ci/build-ci-binary.sh target/ci
 
       - name: Attach it to the release
@@ -313,24 +448,23 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --title "$TAG" --generate-notes
-          fi
           gh release upload "$TAG" \
-            "target/ci/$CI_ASSET" \
-            "target/ci/$CI_ASSET.sha256" \
+            "target/ci/ciphr-ci-${{ matrix.target }}" \
+            "target/ci/ciphr-ci-${{ matrix.target }}.sha256" \
             --clobber
 
-      # The number a workflow passes to the action as `sha256`. Printed into the
-      # run's own record, because that is where somebody writing the workflow
-      # will look for it -- and because a checksum that only exists inside the
-      # file it describes is a checksum nobody can use before downloading.
+      # The number a workflow passes to the action as `sha256-amd64` or
+      # `sha256-arm64`. Printed into the run's own record, because that is where
+      # somebody writing a workflow looks for it -- and because a checksum that
+      # only exists inside the file it describes is a checksum nobody can use
+      # before downloading.
       - name: Report the checksum
         run: |
+          set -euo pipefail
           {
-            echo "### The CI binary"
+            echo "### The CI binary (${{ matrix.arch }})"
             echo ''
             echo '```'
-            cat "target/ci/$CI_ASSET.sha256"
+            cat "target/ci/ciphr-ci-${{ matrix.target }}.sha256"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

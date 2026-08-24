@@ -8,6 +8,29 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added — every image and every binary is published for arm64 as well
+
+The rest of [issue #4](https://github.com/nuetzliches/ciphr/issues/4). The three images —
+service, wrapper, viewer — are manifest lists over an amd64 and an arm64 build, and the release
+attaches four binary assets instead of two.
+
+- **One build per architecture on a runner of that architecture**, pushed by digest, with a merge job
+  creating the tag. Not one runner with qemu: compiling Rust under emulation is an order of magnitude
+  slower and puts the emulator inside the artefact everybody pulls.
+- **The wrapper assets are still taken out of the images that were just published** — `docker create
+  --platform` against the manifest digest, then `docker cp`. So each asset and the file inside its
+  image are the same bytes, and the retrieval path a deployment follows is exercised on every release
+  rather than the first time somebody needs it. `docs/operations/wrapper.md` gains the `--platform`
+  it now needs, and says why it is needed even when it matches the host.
+- **`docs/operations/wrapper.md` also says the thing that bites:** the file is not interchangeable
+  between architectures. An amd64 binary mounted on an arm64 host is `exec format error` at the moment
+  a service is starting without its secrets.
+
+**And CI builds the images now.** Nothing did, before this: a release built them, and only a release,
+which is how `v0.6.0` published one image and failed to build the other. Both files are built on both
+architectures on every pull request, pushing nothing. The pre-flight build inside the release workflow
+is gone — the gate did not disappear, it moved earlier and got wider.
+
 ### Changed — the runtime stage installs exact package versions from a Debian snapshot
 
 `docs/threat-model.md` said the `apt-get install` in the runtime stage of the `Dockerfile` was "the
