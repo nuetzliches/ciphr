@@ -8,6 +8,26 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Changed — this repository is public, and the site is live
+
+Since 2026-08-24. <https://nuetzliches.github.io/ciphr/> is published from `site/` by
+`.github/workflows/pages.yml`, and `README.md` and `docs/README.md` link to it — a link deliberately
+absent while the site was reachable nowhere.
+
+**The guard in that workflow did its job on the way there**, which is worth recording because it is
+the only evidence that a guard of this shape is worth building. Two runs fired from pushes while the
+repository was still private; both resolved the visibility check and skipped the deployment. The
+first run that published anything was the manual one after the flip.
+
+**Private vulnerability reporting is enabled**, which it was not at the moment of publication. For a
+few minutes `SECURITY.md` pointed reporters at a button that did not exist — the documented channel
+existed as prose before it existed as a setting. Both channels work now: the GitHub form, and
+`security@nuetzliche.it`.
+
+One thing publication does **not** do by itself, and it is the one an operator feels: the GHCR
+package does not become public with the repository. Until it is switched, a deployment host without a
+read credential cannot pull a new image.
+
 ### Changed — three decisions taken on the way to a public repository
 
 Each of these was recorded in the repository as a condition, and each is now answered with a date

@@ -215,8 +215,15 @@ deliberately out of scope, is in [`docs/threat-model.md`](docs/threat-model.md).
 
 ## Documentation
 
+**<https://nuetzliches.github.io/ciphr/>** is the short way in: what this is, the four consumer
+routes with the code for each, the security notes an integration has to get right, and the security
+layers as a diagram. It orders what is below rather than replacing it — every claim on it links to the
+document that decided the thing, and where the two disagree the document is the one maintained with
+the software.
+
 | Where | What |
 |---|---|
+| [the site](https://nuetzliches.github.io/ciphr/) | Overview, integration examples, security notes, and the layer diagram |
 | [`docs/`](docs/README.md) | The documentation index, including a table of risk areas |
 | [`docs/adr/`](docs/adr/) | The 25 architecture records, one file each, with what was rejected and why |
 | [`docs/crypto.md`](docs/crypto.md) | The implemented key hierarchy and wire format, and what the tests establish |

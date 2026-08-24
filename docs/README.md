@@ -4,6 +4,11 @@
 in it; route A's binary (`ciphr-ci`, ADR-25) is built and not yet in a release; the viewer (phase 5) ships as its own image on its own cadence. Describes what is built, and
 says so where something is not.
 
+**There is a site**, at <https://nuetzliches.github.io/ciphr/>, published from
+[`site/`](../site/README.md) since 2026-08-24. It carries an overview, the four consumer routes with
+their code, security notes for whoever writes a consumer, and the layer diagram. It is an ordering of
+what is in this directory and not a second source: every claim there links back here.
+
 **Phase 8 shipped in `v0.5.0`.** The `alert` tier of ADR-15, behind the `honeypot_alert` surface entry
 (ADR-20) and therefore absent from a default build. The surface added by it is *newer than the accepted
 review* — [security-review.md](security-review.md) marks the three claims that describe it, and that is

@@ -2,8 +2,9 @@
 
 **Status:** current as of 2026-08-24. Four pages, three of them written on that date; the fourth is
 the security-layers diagram, which is drawn against `v0.5.1`, carries the complete surface list, and
-says both on itself. The site exists and runs locally. **It is not published, and it publishes
-itself the day this repository becomes public** — see *Publishing* below.
+says both on itself. **It is live at <https://nuetzliches.github.io/ciphr/>** since 2026-08-24,
+deployed by [`../.github/workflows/pages.yml`](../.github/workflows/pages.yml) on every push that
+touches this directory — see *Publishing* below for the guard that kept it offline until then.
 
 Everything here is English, like the rest of the repository. The three new pages were written that
 way; the diagram was translated from German on 2026-08-24, when the site grew a navigation that would
@@ -91,35 +92,36 @@ against `v0.10.0`" and is meant to be.
 
 ## Publishing
 
-**This site goes online with the decision to make the repository public** — not before it, and not
-separately from it. The reason is not secrecy: the pages contain nothing `docs/` does not say, and the
-threat model explicitly does not rely on obscurity. It is that every claim here links to
-`blob/main/…`, and from a private repository each of those links is a 404 for the reader. A published
-page whose sources nobody can open is exactly the state in which documentation produces confident
-errors.
+**This site went online with the decision to make the repository public**, on 2026-08-24 — not
+before it, and not separately from it. The reason was not secrecy: the pages contain nothing `docs/`
+does not say, and the threat model explicitly does not rely on obscurity. It is that every claim here
+links to `blob/main/…`, and from a private repository each of those links is a 404 for the reader. A
+published page whose sources nobody can open is exactly the state in which documentation produces
+confident errors.
 
-**Since 2026-08-24 that decision is a guard rather than a missing file.**
+**That decision was a guard rather than a missing file, and the guard did its job.**
 [`../.github/workflows/pages.yml`](../.github/workflows/pages.yml) publishes `site/` on a push that
 touches it — and its first job asks the API whether this repository is public and skips the
 deployment while the answer is no. `workflow_dispatch` goes through the same guard, so a manual run
-cannot get past it either. Nothing has to be remembered on the day the visibility flips, and nothing
-publishes early because a branch got pushed.
+cannot get past it either. Two runs fired from pushes on 2026-08-24 while the repository was still
+private: both resolved the guard and skipped the deployment. The first run that published was the
+manual one after the visibility flipped.
 
 It uses the artefact route rather than a branch source: from a branch, GitHub Pages publishes only
 `/` or `/docs`, and `/docs` would send the Markdown documentation through Jekyll. This way `site/` is
 served exactly as it is in the tree and `docs/` is untouched. Actions are pinned to a commit hash
 rather than a tag, as in `ci.yml` and `release.yml`.
 
-What is still to be done by hand, on the day:
+What that day cost, and what it left open:
 
-- **A link** from [`../README.md`](../README.md) and [`../docs/README.md`](../docs/README.md).
-  Deliberately not set while the site is reachable nowhere.
-- **Checking the links.** Every source reference points at `blob/main/…`. They all resolve in the
-  working tree today — that was checked on 2026-08-24 — but nothing in CI keeps them resolving, and a
-  rename in `docs/` breaks them silently.
-- **The version placeholders in `integrate.html`.** Route A names a tag and a checksum that do not
-  exist until `ciphr-ci` is released. The page says so; a published page should say it or carry the
-  real numbers.
+- **The link** from [`../README.md`](../README.md) and [`../docs/README.md`](../docs/README.md) is
+  set. It was deliberately absent while the site was reachable nowhere.
+- **The source links resolve.** Every reference points at `blob/main/…`; they resolve in the working
+  tree and two were checked against the public repository after publication. Nothing in CI keeps them
+  resolving, though, and a rename in `docs/` breaks them silently — that gate does not exist.
+- **The version placeholders in `integrate.html` are still placeholders.** Route A names a tag and a
+  checksum that do not exist until `ciphr-ci` is released. The page says so on itself; it should carry
+  the real numbers as soon as there is a release to take them from.
 
 Two paragraphs that the same decision triggers and that do not belong here, but should be read
 together with it: the reproducibility of the builds in
