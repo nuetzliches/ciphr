@@ -195,7 +195,7 @@ const CONTENT = {
     sections: [
       { h: 'What holds here', items: [
         '<strong>Path and version are bound as additional authenticated data.</strong> A ciphertext cannot be moved from path A to path B — whoever can write to the database gets a decryption failure rather than a silent transfer of authority.',
-        'Whoever reads the file (a backup, a stolen disk — A4) holds complete ciphertext. <strong>Without the master key the database is worthless</strong> — which is why the key and the backup do not belong in the same bucket, or the backup <em>is</em> the secret store.',
+        'Whoever reads the file (a backup, a stolen disk — A4) holds encrypted <em>values</em> — and plaintext everything else: paths, rotation classes, version timestamps, who wrote each version, the token inventory, the audit trail. <strong>Without the master key the values stay closed and the shape of the estate does not.</strong> The key and the backup still do not belong in the same bucket, or the backup <em>is</em> the secret store.',
         'The envelope scheme and its AAD binding are on the closed list (property 4).'
       ]}
     ],

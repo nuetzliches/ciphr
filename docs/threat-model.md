@@ -37,12 +37,36 @@ database, the CLI, the optional read-only UI, and the optional MCP server.
 | A1 | Network participant on the local network | HTTP requests to the listener | Authentication required, deny by default, no anonymous endpoint except `/v1/health` |
 | A2 | Compromised container on the same bridge network | Network access, possible traffic capture | TLS terminated at the listener (ADR-8), token authentication |
 | A3 | Compromised deploy runner | Holds a valid deploy token | Policy limited to that runner's paths; every access audited. **Detection is optional and off by default:** the `honeypot_alert` entry turns a read of bait into a signal that needs no interpretation (ADR-15). It catches enumeration and a credential tried everywhere; it does not catch a runner that reads only what it came for, which is what the audit trail is still for. |
-| A4 | Reader of the database file (backup, stolen disk) | Full ciphertext | Envelope encryption; the database is worthless without the master key |
+| A4 | Reader of the database file (backup, stolen disk) | Encrypted **values**, plaintext metadata: paths, rotation classes, versions and their timestamps, the identity that wrote each one, the token inventory, and the whole audit trail | Envelope encryption for values and wrapped keys. **Not** for the metadata — see below |
 | A5 | Root on the host | Everything: process memory, the environment file, the database | **Not defended against.** Deliberate boundary, see below |
 | A6 | Internal user with partial access | A valid identity with a limited policy | Policy evaluation, audit, no escalation path through the API |
 | A7 | Browser context of the admin UI (XSS, malicious npm dependency) | Runs in the tab of a signed-in human | UI is read-only, reveal is per value, strict CSP, no `v-html`, token in `sessionStorage` rather than a cookie |
 | A8 | LLM client at the MCP server | A valid token, but responses flow into model context and provider logs | Plaintext only through an opt-in capability on narrow paths, metadata by default; MCP context marked in the audit trail |
 | A9 | Anonymous reporter at `POST /v1/report` | Unauthenticated requests carrying a candidate secret value, and whatever volume they can generate | Identical response for a match and a miss, so the endpoint is no oracle; size and rate limits applied before the audit write and before the store lock; one monotonic metadata write per matched version, read by nothing that makes a decision; no path to any tripwire tier above `alert`; off unless a deployment enables it |
+
+### What a reader of the database file actually gets (A4)
+
+Corrected 2026-08-24, F10 of [the full-repository review](review-2026-08-24-full-repository.md). This
+row said "full ciphertext" and "the database is worthless without the master key", and both were
+overclaims about the same file. **The values are encrypted and the metadata is not**, which ADR-22
+states plainly in a different context — it is the reason a metadata listing writes no audit entry:
+those columns are plaintext, so whoever can run the listing could read the rows with `sqlite3` and
+leave nothing behind.
+
+So a reader of the file — a stolen backup, a snapshot on shared storage, a copy in the wrong bucket —
+learns the secret inventory and its taxonomy, the identities and the token records, when each version
+was written and by whom, and the entire audit trail. That is the map of the estate and its history.
+What stays closed without the master key is the thing the map points at: the values, and the wrapped
+keys.
+
+Two consequences that follow from saying it correctly. A backup is not harmless because the values
+are encrypted, so it belongs somewhere with the access controls that inventory deserves. And "the key
+and the backup do not belong in the same bucket" remains true for a second reason: together they are
+the store, and separately the backup is still the map.
+
+**Still open from the same finding:** `VACUUM INTO` creates the backup destination through SQLite, so
+its mode follows the caller's umask rather than being owner-only by construction. Until that is fixed,
+`ciphr backup` should write into a directory that is already private.
 
 ## Deliberately not defended against
 
