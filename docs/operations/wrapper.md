@@ -70,36 +70,47 @@ started, and never a value.
 Two channels carry the same binary. Which one applies depends on what the host can authenticate to,
 not on preference.
 
-**As a release asset**, named `ciphr-run-x86_64-unknown-linux-musl` and attached to the tag beside
-`ciphr-run-x86_64-unknown-linux-musl.sha256`. This is the direct route for anything that can
-authenticate to the source forge.
+**Two architectures since 2026-08-24**, and the file is not interchangeable between them: mounting an
+amd64 binary into a container on an arm64 host produces `exec format error` at the moment a service is
+starting without its secrets. Take the one that matches the host, not the one that matches the machine
+you are fetching from.
 
-The name carries the target triple although only one target is built. That is deliberate rather than
-pedantic: an asset name is the thing a fetch script is written against, so qualifying it later would
-mean either breaking every such script or publishing a qualified binary beside an unqualified
-checksum. The suffix costs nothing now and buys the choice later.
+**As a release asset**, named after its target triple — `ciphr-run-x86_64-unknown-linux-musl` or
+`ciphr-run-aarch64-unknown-linux-musl` — each attached to the tag beside its own `.sha256`. This is
+the direct route for anything that can authenticate to the source forge.
 
-**As an image whose whole filesystem is that one file**, pushed under `<image>/run:<version>` next
-to the service image. This is the route for a host that authenticates to a registry and not to the
-forge — which, while the repository is private, is the normal case. The file comes out without the
-container ever being started:
+The name carried that triple before there was a second target, which is what made the second one an
+addition rather than a rename: an asset name is the thing a fetch script is written against, and
+qualifying it afterwards would have meant breaking every such script or publishing a qualified binary
+beside an unqualified checksum (issue #4).
+
+**As an image whose whole filesystem is that one file**, pushed under `<image>/run:<version>` next to
+the service image. This is the route for a host that authenticates to a registry rather than to the
+forge. The tag is a manifest list over both architectures, so a host pulls its own without asking; the
+file comes out without the container ever being started:
 
 ```sh
-docker create --name ciphr-run-export <image>/run@sha256:<digest>
+docker create --platform linux/arm64 --name ciphr-run-export <image>/run@sha256:<digest>
 docker cp ciphr-run-export:/ciphr-run ./ciphr-run
 docker rm ciphr-run-export
 ```
 
-`docker cp` reads the filesystem of a *created* container, so an image with no shell in it is no
-obstacle. The file inside the image is plain `/ciphr-run` and stays that way: an image states its
-architecture in its own manifest, so the digest already answers the question the suffix answers for
-the release asset -- a file pulled from a tag arrives carrying nothing but its name. Pin the digest,
-not the tag: this file is mounted into containers built by other people,
-and there is deliberately no `:latest` to follow.
+`--platform` is what picks the variant out of the manifest list, and it is needed even when it matches
+the host: `docker create` would otherwise resolve to the host's architecture, which is right until
+somebody fetches on a laptop for a server. `docker cp` reads the filesystem of a *created* container,
+so an image with no shell in it is no obstacle, and nothing is executed — pulling a foreign
+architecture to copy one file out of it needs no emulation.
 
-**Verify the checksum, and expect the two channels to agree.** They carry the same bytes: the release
-asset is extracted from the image that was just pushed, with `docker create` and `docker cp` against
-its digest, and the published number is computed from what came out. So a mismatch between the asset
+The file inside the image is plain `/ciphr-run` and stays that way: an image states its architecture
+in its own manifest, so the digest already answers the question the triple answers for the release
+asset. Pin the digest, not the tag: this file is mounted into containers built by other people, and
+there is deliberately no `:latest` to follow.
+
+**Verify the checksum, and expect the two channels to agree — per architecture.** They carry the same
+bytes: each release asset is extracted from the image that was just pushed, with `docker create
+--platform` and `docker cp` against its digest, and the published number is computed from what came
+out. The two *architectures* have different checksums, and that is not a disagreement between
+channels. So a mismatch between the asset
 and the file inside the image is not an expected difference between two builds — it is something to
 stop for.
 
