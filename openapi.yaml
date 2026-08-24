@@ -294,9 +294,20 @@ paths:
       description: |
         **Optional route**, belonging to the `bulk_export` surface entry (ADR-20). It
         answers `404` from the router's fallback where a deployment did not name that
-        entry. `ciphr-run` then cannot fetch at all — both `--prefix` and `--path` read
-        through here — so route B refuses with exit code 125 rather than starting a
-        service without its secrets, and route C reads one path per request instead.
+        entry.
+
+        **A consumer that reads through `ciphr-sdk` does not stop there** (since
+        2026-08-24, ADR-25): `Client::read_all` falls back to one
+        `GET /v1/secrets/{path}` per path, which is what route C was always documented as
+        doing and is now what routes B and `ciphr-ci` do as well. Turning this entry on
+        buys one request instead of one per path — worth it at container start for a
+        service with many secrets — and nothing else. It is not a precondition for
+        fetching, and it was one until that date: a deployment that had made no decision
+        had a wrapper that exited 125 on a `404`.
+
+        The trail does not notice the difference. This route writes one entry per secret
+        served rather than one per call, so a fallback changes the number of requests and
+        nothing about what is recorded. A **refusal** does differ: see below.
 
         Turning it off does **not** remove fetched prefixes, and an earlier version of
         this description said it did. This route reads the paths a caller *names* —
@@ -311,7 +322,12 @@ paths:
         exactly the blind spot that disqualified other candidates during the evaluation.
 
         One refusal fails the whole export rather than returning the permitted subset,
-        so an export cannot be used to map which paths a caller may read.
+        so an export cannot be used to map which paths a caller may read. That property
+        belongs to this route and not to the API: read one path at a time — which is what
+        a client does where this entry is off — a `403` names the path it refused, and the
+        paths fetched before it have been served and audited. Nothing is disclosed that
+        `GET /v1/secrets/{path}` does not already answer for any token holder; what changes
+        is that a partial fetch leaves a partial trail.
       requestBody:
         required: true
         content:

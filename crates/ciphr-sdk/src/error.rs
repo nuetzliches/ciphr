@@ -76,6 +76,28 @@ pub enum SdkError {
         /// secret, so a parse failure must not quote what it failed to parse.
         detail: String,
     },
+    /// A route this deployment did not turn on — `404` from an optional route (ADR-20).
+    ///
+    /// Its own variant because the status is the same one a missing secret produces and
+    /// the two need opposite reactions: a missing secret is a question about the store,
+    /// an absent route is a question about the deployment's configuration, and only one
+    /// of them is fixed by editing a file on the server.
+    ///
+    /// **A `404` is only read this way where the route has nothing else to be missing.**
+    /// `POST /v1/export` takes its paths in the body, so there is no path in its URL that
+    /// could be absent; the same status on `GET /v1/secrets/{path}` stays
+    /// [`SdkError::NotFound`], because there it genuinely means the secret.
+    ///
+    /// The entry name comes from `openapi.yaml`, which carries `x-surface-entry` on every
+    /// optional route. It is not a copy of the entry *list* — that lives in the server and
+    /// the CLI, with `ci/check-surface-entries.sh` keeping the two in step — but the one
+    /// entry this client's own request belongs to.
+    SurfaceEntryUnavailable {
+        /// The route that answered, as it is written in the API document.
+        route: String,
+        /// The surface entry it belongs to, as a deployment would name it.
+        entry: String,
+    },
     /// A path this client was given is not a valid secret path.
     ///
     /// Refused here rather than sent, so that an invalid path never becomes a request
@@ -141,6 +163,12 @@ impl fmt::Display for SdkError {
                 "nothing is visible under {prefix}: either there is nothing there, or this \
                  identity has no 'list' capability on it — the service cannot tell those apart \
                  and neither can this client"
+            ),
+            Self::SurfaceEntryUnavailable { route, entry } => write!(
+                formatter,
+                "{route} is not available on this deployment: it belongs to the '{entry}' \
+                 surface entry, which is off unless a configuration names it. GET /v1/health \
+                 lists the entries this instance has"
             ),
             Self::Path(error) => write!(formatter, "{error}"),
             Self::EnvName(error) => write!(formatter, "{error}"),
@@ -223,6 +251,25 @@ mod tests {
             }
             .is_retryable()
         );
+    }
+
+    #[test]
+    fn an_absent_optional_route_is_not_retryable_and_says_what_to_edit() {
+        // A route that is off stays off until somebody changes a file on the server, so
+        // retrying is not the reaction -- and the message has to name the thing that gets
+        // changed, because the status code alone is indistinguishable from a path that
+        // never existed.
+        let error = SdkError::SurfaceEntryUnavailable {
+            route: "POST /v1/export".to_owned(),
+            entry: "bulk_export".to_owned(),
+        };
+        assert!(!error.is_retryable());
+
+        let message = error.to_string();
+        assert!(message.contains("bulk_export"), "{message}");
+        assert!(message.contains("surface entry"), "{message}");
+        // Where to look without guessing: the health route lists what this instance has.
+        assert!(message.contains("/v1/health"), "{message}");
     }
 
     #[test]

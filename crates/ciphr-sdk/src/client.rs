@@ -304,7 +304,18 @@ impl Client {
             .header("authorization", self.header())
             .send(body.as_bytes());
 
-        let wire: ExportWire = decode(response, "export")?;
+        // A `404` here cannot be a missing secret: this route names its paths in the
+        // body, so there is nothing in its URL to be absent. What it does mean is a
+        // deployment that did not name `bulk_export`, and saying so is the difference
+        // between an operator editing a configuration file and an operator searching a
+        // store for a path that is in it (ADR-20, ADR-25).
+        // The subject a refusal names. This route refuses whole and does not say which
+        // path it refused — deliberately, so that an export cannot be used to map what a
+        // caller may read — so the honest subject is the set that was asked for rather
+        // than the word "export", which is what a `403` used to report and which names
+        // nothing anybody can act on.
+        let subject = format!("one of: {}", requested.join(", "));
+        let wire: ExportWire = decode(response, &subject).map_err(absent_export_route)?;
         wire.secrets
             .into_iter()
             .map(|entry| {
@@ -320,6 +331,41 @@ impl Client {
                 })
             })
             .collect()
+    }
+
+    /// The values for these paths, by whichever route this deployment offers.
+    ///
+    /// [`Client::export`] where `POST /v1/export` is available, and one
+    /// `GET /v1/secrets/{path}` per path where it is not — which is what a consumer of a
+    /// default deployment needs, because `bulk_export` is a surface entry and surface
+    /// entries are off until a configuration names them (ADR-20).
+    ///
+    /// **The audit trail is the same either way.** The bulk route writes one entry per
+    /// secret served rather than one per call, so switching routes changes the number of
+    /// requests and nothing about what the trail records.
+    ///
+    /// **What does differ is what a refusal costs.** `POST /v1/export` fails whole: one
+    /// denied path refuses the call, and nothing is served. Read one at a time, the paths
+    /// before the refused one have been served and audited, and the error names the path
+    /// that was refused. That is not a new disclosure — `GET /v1/secrets/{path}` answers
+    /// per path for anyone holding a token — but it is a difference worth knowing when
+    /// reading a trail that stops halfway.
+    ///
+    /// # Errors
+    ///
+    /// See [`SdkError`]. The first refusal ends the fetch in both shapes.
+    pub fn read_all(&self, paths: &[SecretPath]) -> Result<Vec<Secret>, SdkError> {
+        match self.export(paths) {
+            Ok(secrets) => Ok(secrets),
+            Err(SdkError::SurfaceEntryUnavailable { .. }) => {
+                let mut secrets = Vec::with_capacity(paths.len());
+                for path in paths {
+                    secrets.push(self.get(path)?);
+                }
+                Ok(secrets)
+            }
+            Err(other) => Err(other),
+        }
     }
 
     /// Everything under a prefix, as an environment: route C, in one call site.
@@ -372,7 +418,11 @@ impl Client {
         // without the audit entries that reading them would have written.
         EnvVarName::assign(paths)?;
 
-        let secrets = self.export(paths)?;
+        // `read_all` rather than `export`: a deployment that has not named `bulk_export`
+        // is a deployment where route B and route C would otherwise not work at all, and
+        // the one-per-request shape is what `openapi.yaml` has always said such a
+        // consumer does.
+        let secrets = self.read_all(paths)?;
         Environment::assemble(secrets)
     }
 
@@ -717,6 +767,28 @@ fn status_error(status: u16, body: &str, subject: &str) -> SdkError {
     }
 }
 
+/// The bulk read's route, and the surface entry it belongs to.
+///
+/// Both are written in `openapi.yaml` next to the route itself — the path in the document's
+/// `paths`, the entry in its `x-surface-entry`. This is not a second copy of the entry list
+/// (that is the server's `ENTRIES` and the CLI's `KNOWN`, held together by
+/// `ci/check-surface-entries.sh`); it is the one entry this client's own request depends on,
+/// which is a property of the request rather than of the deployment.
+const EXPORT_ROUTE: &str = "POST /v1/export";
+/// The entry name a deployment writes into its `[[surface]]` stanza to turn that route on.
+const EXPORT_ENTRY: &str = "bulk_export";
+
+/// Read a `404` from the bulk route as what it can only be there.
+fn absent_export_route(error: SdkError) -> SdkError {
+    match error {
+        SdkError::NotFound { .. } => SdkError::SurfaceEntryUnavailable {
+            route: EXPORT_ROUTE.to_owned(),
+            entry: EXPORT_ENTRY.to_owned(),
+        },
+        other => other,
+    }
+}
+
 /// A version from the wire, refusing zero.
 fn parse_version(version: u32) -> Result<SecretVersion, SdkError> {
     SecretVersion::new(version).ok_or_else(|| SdkError::Unexpected {
@@ -727,8 +799,34 @@ fn parse_version(version: u32) -> Result<SecretVersion, SdkError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_base_url, read_authorities, status_error};
+    use super::{absent_export_route, normalize_base_url, read_authorities, status_error};
     use crate::SdkError;
+
+    #[test]
+    fn a_404_from_the_bulk_route_is_read_as_the_entry_being_off() {
+        // The route names its paths in the body, so its `404` has nothing else to be
+        // about. Everything else the mapping sees is passed through unchanged -- a
+        // `403` from the export route is still a refusal about a path.
+        let absent = absent_export_route(SdkError::NotFound {
+            path: "export".to_owned(),
+        });
+        let SdkError::SurfaceEntryUnavailable { route, entry } = absent else {
+            panic!("a 404 from the bulk route must name the entry");
+        };
+        assert_eq!(route, "POST /v1/export");
+        assert_eq!(entry, "bulk_export");
+
+        assert!(matches!(
+            absent_export_route(SdkError::Forbidden {
+                path: "infra/a/DB_PASSWORD".to_owned()
+            }),
+            SdkError::Forbidden { .. }
+        ));
+        assert!(matches!(
+            absent_export_route(SdkError::Unauthenticated),
+            SdkError::Unauthenticated
+        ));
+    }
 
     /// Finding F7: the client used to follow redirects it had validated nothing about.
     ///

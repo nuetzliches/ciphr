@@ -43,6 +43,72 @@
 //! # }
 //! ```
 //!
+//! # At startup, where the service may be waiting on the store
+//!
+//! There is no retry loop in this crate ([`SdkError::is_retryable`] says which failures could
+//! change on their own, and nothing here decides how long to wait). This is what one looks
+//! like in the caller, and it is the shape a container start wants: a bounded wait for the
+//! two states that can resolve themselves, and an immediate failure for everything else.
+//!
+//! ```no_run
+//! use std::time::Duration;
+//!
+//! use ciphr_sdk::{Client, Environment, SdkError, SecretPath};
+//!
+//! fn fetch(client: &Client, prefix: &SecretPath) -> Result<Environment, SdkError> {
+//!     let step = Duration::from_secs(2);
+//!     let budget = Duration::from_secs(30);
+//!     let mut waited = Duration::ZERO;
+//!
+//!     loop {
+//!         match client.environment(prefix) {
+//!             Ok(environment) => return Ok(environment),
+//!             // A refused token and a missing capability are not waited on: they cannot
+//!             // become true by themselves, and a service that retries them looks like a
+//!             // slow start rather than the misconfiguration it is.
+//!             Err(error) if !error.is_retryable() => return Err(error),
+//!             Err(error) if waited >= budget => return Err(error),
+//!             Err(_) => {
+//!                 std::thread::sleep(step);
+//!                 waited += step;
+//!             }
+//!         }
+//!     }
+//! }
+//! ```
+//!
+//! # Handing the values to a child process
+//!
+//! Reading from the [`Environment`] directly is the better option — the value then never
+//! enters `/proc/<pid>/environ` at all. Where the consumer is a program that only reads
+//! environment variables, this is the way to give it them without setting any of *this*
+//! process's:
+//!
+//! ```no_run
+//! use std::process::Command;
+//!
+//! use ciphr_sdk::{Client, SecretPath};
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # let client: Client = todo!();
+//! let environment = client.environment(&SecretPath::parse("infra/service-a")?)?;
+//!
+//! let mut command = Command::new("/usr/local/bin/migrate");
+//! for (name, value) in environment.into_entries() {
+//!     // Values are UTF-8 text on the wire (`openapi.yaml`); a binary secret is encoded
+//!     // by whoever stored it.
+//!     command.env(name.as_str(), std::str::from_utf8(value.expose())?);
+//! }
+//!
+//! let status = command.status()?;
+//! assert!(status.success());
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! The names are the ones `ciphr export`, `ciphr-ci` and `ciphr-run` produce for the same
+//! paths (ADR-18), so a program moved from one route to another meets the same environment.
+//!
 //! # Three properties this crate has by construction
 //!
 //! - **It cannot trust the public CA set.** The transport is compiled without
@@ -56,6 +122,16 @@
 //!   this crate forbids `unsafe_code`. [`Environment`] hands back a mapping; reading from
 //!   it directly keeps the value out of `/proc/<pid>/environ` entirely, and
 //!   `Command::env` covers the child-process case.
+//!
+//! # One route, two shapes
+//!
+//! `POST /v1/export` is a surface entry and is off unless a deployment names it (ADR-20).
+//! [`Client::read_all`] therefore reads through it where it exists and one
+//! `GET /v1/secrets/{path}` per path where it does not, and [`Client::environment`] and
+//! [`Client::environment_of`] are built on that — so a service fetching its own secrets
+//! works against a deployment that made no decision about optional routes at all. The
+//! audit trail is the same either way (one entry per secret served, never one per call);
+//! a refusal is not, and [`Client::read_all`] says how.
 //!
 //! # What is not here yet
 //!

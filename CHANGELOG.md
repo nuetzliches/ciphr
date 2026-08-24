@@ -8,6 +8,27 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — a job on a default deployment could not fetch at all
+
+`POST /v1/export` is a surface entry and is off unless a deployment names it (ADR-20). Route B and
+route C both read exclusively through it, so a deployment that had made **no** decision had a wrapper
+that could not start a service and an SDK that could not assemble an environment — and a `404` to
+explain it, the same status a missing secret produces.
+
+- **`ciphr-sdk` falls back to one `GET /v1/secrets/{path}` per path** where the bulk route is absent
+  (`Client::read_all`, used by `environment` and `environment_of`). This is what `openapi.yaml` has
+  always said a route-C consumer does. The audit trail is unchanged: the bulk route writes one entry
+  per secret served, never one per call, so only the number of requests differs. What does differ is
+  a refusal — read one at a time, the paths before the refused one have been served and audited, and
+  the error names the path that was refused rather than the set.
+- **`SdkError::SurfaceEntryUnavailable`** is the new variant for a `404` from an optional route, and
+  it names the entry and points at `GET /v1/health`, which lists what an instance has. A `404` is only
+  read this way where the route has nothing else to be missing: `POST /v1/export` takes its paths in
+  the body, so there is no path in its URL to be absent.
+- **A `403` from the bulk route names the paths that were asked for.** It reported the literal word
+  `export` before, which named nothing anybody could act on. The service still does not say *which*
+  path it refused — that is the property that keeps an export from mapping what a caller may read.
+
 ### Changed — the viewer image refuses to build on an nginx configuration nginx refuses
 
 `RUN nginx -t` after the configuration is copied in, for the same reason `vue-tsc` runs inside the

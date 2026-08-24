@@ -1,8 +1,8 @@
 # `ciphr-run`: getting the wrapper, and mounting it
 
-**Status:** implemented and tested as of 2026-08-20, scope guidance added 2026-08-21, release
-asset renamed to carry its target triple 2026-08-21, the token file's trust requirement written
-down 2026-08-23 (phase 7,
+**Status:** implemented and tested as of 2026-08-24. Built 2026-08-20, scope guidance added
+2026-08-21, release asset renamed to carry its target triple 2026-08-21, the token file's trust
+requirement written down 2026-08-23, and the `bulk_export` dependency removed 2026-08-24 (phase 7,
 [ADR-14](../adr/0014-ciphr-run-injects-into-a-child-process.md)).
 The wrapper works and ships; where a deployment keeps the token file and which entrypoint it pins
 are decisions this document does not make for it.
@@ -18,6 +18,52 @@ ciphr-run --url https://host:4400 --token-file /run/secrets/token --ca /etc/ciph
 
 `--prefix` needs `list` **and** `read`. `--path`, repeatable, needs only `read` and is the narrower
 grant — prefer it where the set of secrets is known. The two are mutually exclusive.
+
+## The shape a deployment actually writes
+
+The command line above is what runs; what somebody edits is a compose file. The whole change to a
+third-party service is an `entrypoint:` override and two read-only mounts:
+
+```yaml
+services:
+  app:
+    image: someone-elses/app@sha256:<digest>   # unchanged, and no derived Dockerfile
+    entrypoint:
+      - /ciphr-run
+      - --url
+      - https://ciphr.internal:4400
+      - --token-file
+      - /run/secrets/ciphr-token
+      - --ca
+      - /etc/ciphr/ca.crt
+      - --path
+      - infra/host/app/DB_PASSWORD
+      - --path
+      - infra/host/app/API_KEY
+      - --report
+      - --
+      # Everything after `--` is what the image's own entrypoint was. Record it
+      # from `docker inspect`, because overriding it means owning it: a base image
+      # that moves its entrypoint moves it silently, and `--report` prints what was
+      # invoked so the drift shows up in the container log rather than in an outage.
+      - /original/entrypoint
+      - --config
+      - /etc/app.conf
+    volumes:
+      - ./ciphr-run:/ciphr-run:ro
+      - ciphr-token:/run/secrets:ro            # not a directory this service can write
+      - ./ca.crt:/etc/ciphr/ca.crt:ro
+```
+
+Three things in that file are decisions rather than syntax, and each has its own paragraph below:
+the token lives in a **named volume** and not in the working directory (*Who has to be trusted*), the
+image is pinned by digest for the same reason the wrapper is (*Where the file comes from*), and the
+list form of `entrypoint:` is required — the string form goes through a shell, which would put the
+flags back into a place that re-splits them.
+
+The exec form also means `--report` output and the service's own output land on the same stream,
+which is intended: one container log shows which variables were delivered and which program was
+started, and never a value.
 
 ## Where the file comes from
 
@@ -104,6 +150,23 @@ so drift is visible in the record instead of only in the outage.
 **The platform has no `exec`.** The wrapper refuses, before it reads the token. There is no
 spawn-and-wait fallback: a supervisor that stayed alive would hold every value for the lifetime of
 the service and swallow its signals, which is the opposite of the point.
+
+## It no longer needs an optional route to be on
+
+Until 2026-08-24 both forms read through `POST /v1/export`, which is a surface entry
+([ADR-20](../adr/0020-optional-surface.md)) and therefore **off unless a deployment names it**. A
+deployment that had made no decision about that entry had a wrapper that could not fetch at all: exit
+`125`, with a `404` behind it — the same status a missing secret produces.
+
+The SDK reads through the bulk route where it exists and falls back to one `GET /v1/secrets/{path}`
+per path where it does not, so route B now works on a default deployment. Two things do not change
+with the route: the audit trail records one entry per secret served either way, and the capabilities
+are the same (`read` per path, plus `list` for `--prefix`). One thing does — a refusal. The bulk route
+refuses whole; read one at a time, the paths before the refused one have been served and audited, and
+the error names the path that was refused. The wrapper still `exec`s nothing in either case.
+
+Naming the entry is still worth doing where a service has many secrets: it is one request instead of
+one per path, at container start, which is when a service is waiting.
 
 ## `--path` or `--prefix`
 

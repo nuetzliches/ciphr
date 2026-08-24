@@ -67,7 +67,21 @@ struct Live {
 
 impl Live {
     /// Start the service on an ephemeral port and return once it is listening.
+    ///
+    /// With `bulk_export` on, which is what most of this file needs: it is the route a
+    /// prefix fetch reads through. [`Live::start_without_bulk_export`] is the other half —
+    /// a default deployment, where that entry is off.
     fn start() -> Self {
+        Self::start_with(&["bulk_export"])
+    }
+
+    /// A service with no optional surface at all: what a deployment gets by not deciding.
+    fn start_without_bulk_export() -> Self {
+        Self::start_with(&[])
+    }
+
+    /// The harness, with the surface the caller wants.
+    fn start_with(surface: &[&str]) -> Self {
         let directory = tempfile::tempdir().expect("temp dir");
         let database = directory.path().join("store.db");
 
@@ -131,12 +145,12 @@ impl Live {
             root,
             "static".to_owned(),
             "supplied".to_owned(),
-            // `bulk_export` is a surface entry now (ADR-20), and a prefix fetch goes
-            // through `POST /v1/export` -- so an empty surface would test the router's
-            // fallback rather than this client. `only` rather than `resolve`: this
-            // composes a router in-process, which is not a deployment starting on a
-            // configuration, so the startup record ADR-20 requires does not apply.
-            ciphr_server::surface::only(&["bulk_export"]).expect("a known entry"),
+            // `only` rather than `resolve`: this composes a router in-process, which is
+            // not a deployment starting on a configuration, so the startup record ADR-20
+            // requires does not apply. Which entries are on is the caller's choice,
+            // because both answers are a real deployment and this client has to work
+            // against each of them.
+            ciphr_server::surface::only(surface).expect("a known entry"),
         );
 
         // The certificate covers both spellings of the loopback address; the client
@@ -418,6 +432,75 @@ fn refusals_arrive_as_the_variant_a_caller_can_act_on() {
         Err(SdkError::NothingUnderPrefix { .. }) => {}
         Err(other) => panic!("expected a refusal, got {other}"),
         Ok(_) => panic!("an empty environment was handed to a consumer"),
+    }
+}
+
+/// A deployment that never named `bulk_export` — which is every deployment by default.
+///
+/// The gap this closes: `POST /v1/export` is a surface entry (ADR-20), so on a default
+/// deployment it is absent from the router and answers `404` from the fallback. Route B and
+/// route C both fetched exclusively through it, so an operator who had made no decision at
+/// all had a wrapper that could not start a service and an SDK that could not assemble an
+/// environment — with a `404` to explain it, the same status a missing secret produces.
+///
+/// Asserted against the real router rather than against a hand-built `404`, because what
+/// is being tested is precisely that the router's fallback and this client agree about
+/// what an absent optional route looks like.
+#[test]
+fn a_deployment_without_the_bulk_route_still_serves_an_environment() {
+    let live = Live::start_without_bulk_export();
+    let client = live.client();
+
+    // The route itself: gone, and the client says which entry would bring it back rather
+    // than reporting a missing path.
+    let paths = [
+        SecretPath::parse("infra/service-a/DB_PASSWORD").expect("valid"),
+        SecretPath::parse("infra/service-a/API_TOKEN").expect("valid"),
+    ];
+    match client.export(&paths) {
+        Err(SdkError::SurfaceEntryUnavailable { route, entry }) => {
+            assert_eq!(route, "POST /v1/export");
+            assert_eq!(entry, "bulk_export");
+        }
+        Err(other) => panic!("expected the entry to be named, got {other}"),
+        Ok(_) => panic!("the route is not registered on this service"),
+    }
+
+    // And the fetch a consumer actually makes: one request per path instead, with the
+    // same values and the same names.
+    let environment = client.environment_of(&paths).expect("read one at a time");
+    assert_eq!(environment.len(), 2);
+    assert_eq!(
+        environment
+            .get("DB_PASSWORD")
+            .expect("under the prefix")
+            .expose(),
+        b"seeded-db"
+    );
+    assert_eq!(
+        environment
+            .get("API_TOKEN")
+            .expect("under the prefix")
+            .expose(),
+        b"seeded-api"
+    );
+
+    // The prefix form too, which needs the listing route -- and that one is not an entry,
+    // so it is there.
+    let prefix = SecretPath::parse("infra/service-a").expect("valid");
+    let by_prefix = client.environment(&prefix).expect("list, then read each");
+    assert_eq!(by_prefix.len(), 2);
+
+    // What the fallback must not do is paper over a refusal. The outsider holds no rule
+    // reaching this prefix, and reading one path at a time has to end at the first `403`
+    // rather than delivering the paths that came before it.
+    let outsider = live.client_with(&live.outsider_token, &live.certificate_authority);
+    match outsider.environment_of(&paths) {
+        Err(SdkError::Forbidden { path }) => {
+            assert_eq!(path, "infra/service-a/DB_PASSWORD");
+        }
+        Err(other) => panic!("expected a refusal, got {other}"),
+        Ok(_) => panic!("an identity with no rule here received values"),
     }
 }
 
