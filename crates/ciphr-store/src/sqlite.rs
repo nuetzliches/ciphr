@@ -367,10 +367,11 @@ impl Store for SqliteStore {
         Ok(())
     }
 
-    fn put(
+    fn put_with_rotation(
         &mut self,
         path: &SecretPath,
         created_by: &str,
+        rotation: Option<Rotation>,
         encrypt: EncryptForVersion<'_>,
     ) -> Result<SecretVersion, StoreError> {
         reject_reserved(path)?;
@@ -431,9 +432,20 @@ impl Store for SqliteStore {
                 created_by,
             ],
         )?;
+        // The class rides on the statement that publishes the version, so a `PUT`
+        // carrying one cannot half-succeed. `COALESCE` leaves the existing class where
+        // no class was named, which is what makes this one statement rather than two
+        // branches -- and for a new path the row was inserted above with the default.
         transaction.execute(
-            "UPDATE secrets SET current_version = ?2, updated_at = ?3 WHERE id = ?1",
-            params![secret_id, i64::from(next.get()), now],
+            "UPDATE secrets
+                SET current_version = ?2, updated_at = ?3, rotation = COALESCE(?4, rotation)
+              WHERE id = ?1",
+            params![
+                secret_id,
+                i64::from(next.get()),
+                now,
+                rotation.map(Rotation::as_str)
+            ],
         )?;
 
         transaction.commit()?;

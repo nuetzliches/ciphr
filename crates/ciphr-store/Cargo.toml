@@ -16,6 +16,11 @@ rusqlite.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+# Already a dependency of this crate, so this adds nothing to the tree. It is here
+# for one thing: `tests/atomicity.rs` installs a SQLite trigger to make a statement
+# inside a transaction fail, which is the only way to assert a rollback without a
+# fault-injection hook in the production code.
+rusqlite.workspace = true
 tempfile.workspace = true
 
 [lints]
