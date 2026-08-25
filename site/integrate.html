@@ -29,9 +29,9 @@
 
   <p class="status"><strong>Status:</strong> all four routes are in <code>v0.12.0</code>; route A's
   binary and its action arrived in <code>v0.11.0</code>, covered by tests that run the real program
-  against the real service. The tag in route A's example is <code>v0.12.0</code>;
-  <strong>the two checksums are placeholders</strong> until that release's job summary exists, because
-  new binaries have new numbers. Take them from the release page.</p>
+  against the real service. The tag and both checksums in route A's example are the ones
+  <code>v0.12.0</code> published, and they are pinned rather than illustrative — copy the block as it
+  stands.</p>
 
   <h2>What every consumer needs</h2>
 
@@ -98,8 +98,8 @@
     <span class="t-key">token</span>: <span class="t-var">${{ secrets.CIPHR_TOKEN }}</span>       <span class="t-com"># the one forge secret that stays</span>
     <span class="t-key">paths</span>: ci/widget/DB_PASSWORD ci/widget/API_KEY
     <span class="t-key">version</span>: v0.12.0
-    <span class="t-key">sha256-amd64</span>: <span class="t-ph">&lt;the number from that release's job summary&gt;</span>
-    <span class="t-key">sha256-arm64</span>: <span class="t-ph">&lt;the other number from the same summary&gt;</span>
+    <span class="t-key">sha256-amd64</span>: d11c662f9e5ee7d790eb03512ff298e6e785772915b75b24c9df69d3eb44100f
+    <span class="t-key">sha256-arm64</span>: e6b91c4f1ec66bfaf694adca0abaf63d9f4860b5b0392677e919ecadbf643591
 
 - <span class="t-key">name</span>: Deploy
   <span class="t-key">run</span>: ./deploy.sh                          <span class="t-com"># DB_PASSWORD and API_KEY are in the environment</span></code></pre>
