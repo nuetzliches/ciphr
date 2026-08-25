@@ -54,6 +54,12 @@ and is not part of the database: SQLite recreates it, and carrying a stale one g
 
 Step 5 is last on purpose, and from `0.3.0` it is load-bearing rather than tidy — see below.
 
+**Step 5 assumes the viewer tag exists, and at a release that only adds a field, nothing checks
+that.** A viewer that cannot read a field the service has just started reporting does not fail — it
+renders the screen without it, which is indistinguishable from a service that has nothing to report.
+The tag to take is named in each version's section below when it matters;
+[ui.md](../ui.md) says why the question is structural.
+
 From `0.4.0` there is a step 0: **check the file modes below before stopping anything.** A refusal
 there happens at start, which is the worst moment to discover it.
 

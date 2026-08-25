@@ -10,12 +10,27 @@ This file is updated in the same commit as the change it describes.
 
 ### Changed
 
+- **The startup warning for a quarantined device reads as a sentence.** It carried two runs of
+  fourteen spaces into the output — a continuation literal indented to match the surrounding code —
+  found by [the field report of 2026-08-25 (b)](docs/assurance/field-reports/field-report-2026-08-25-b.md).
+  Nothing malfunctioned; this is the one line in the system whose entire purpose is that a human reads
+  it in a deploy log, so reading badly is a defect. The message is now built by a function with a test
+  that asserts it contains no run of more than one space.
+
 - **A request body sent to a route that is not there is read and discarded.** A fallback that
   answers without reading the body leaves the server no choice but to close a connection it would
   otherwise have kept, and a client that has already pooled that connection can fail on the *next*
   request — one with nothing wrong with it. Reading is bounded at 64 KiB, so an unmatched route is
   not a place to send gigabytes to; a body past the bound is still left unread and the connection
   still closes, which is the right answer for a request that was going nowhere.
+
+### Documentation
+
+- **What a separate viewer cadence costs to run, written down once.** Every ordering rule in
+  `upgrade.md` answers "does this viewer tag still fit the service" — a question with a failing check
+  behind it. A service release that only *adds* a field has no such check: nothing breaks, and the
+  field is simply missing from the screen. `ui.md` now says that the question at such a release is
+  **"does a viewer tag that reads the new field exist yet"**, and `upgrade.md`'s step 5 points at it.
 
 ## [0.12.1] — 2026-08-25
 

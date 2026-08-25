@@ -117,8 +117,8 @@ fn run(config_path: &str, check_only: bool) -> Result<Outcome, Box<dyn core::err
             .label_for(&stopped.device)
             .unwrap_or_else(|| stopped.device.clone());
         eprintln!(
-            "ciphr-server: audit device {label} ({}) is quarantined from seq {}: it is              missing records the chain has and will not be written to again while this              process runs. See docs/operations/audit-trail.md.",
-            stopped.device, stopped.missed_from,
+            "{}",
+            quarantine_warning(&label, &stopped.device, stopped.missed_from)
         );
     }
 
@@ -127,6 +127,34 @@ fn run(config_path: &str, check_only: bool) -> Result<Outcome, Box<dyn core::err
         .build()?
         .block_on(server.serve())?;
     Ok(Outcome::Fine)
+}
+
+/// The startup line for a quarantined device, built rather than printed, so a test can
+/// read it.
+///
+/// **It is separate from the `eprintln!` for one reason: this line's entire purpose is
+/// that a human reads it in a deploy log.** The field report of 2026-08-25 (b) found the
+/// first version carrying two runs of fourteen spaces into the output — a continuation
+/// literal indented to match the surrounding code — which nothing detected because
+/// nothing looked at the string. Everything else in this system is checked by what it
+/// does; this line can only be checked by what it says.
+fn quarantine_warning(label: &str, device: &str, missed_from: u64) -> String {
+    // One fragment per line, each ending in the space that joins it to the next, so the
+    // joins are visible -- a literal continued across lines puts the next line's
+    // indentation into the string instead, which is the defect this replaces. The names
+    // are passed rather than captured because a format string expanded from a macro
+    // cannot capture them.
+    format!(
+        concat!(
+            "ciphr-server: audit device {label} ({device}) is quarantined from seq ",
+            "{missed_from}: it is missing records the chain has and will not be ",
+            "written to again while this process runs. See ",
+            "docs/operations/audit-trail.md."
+        ),
+        label = label,
+        device = device,
+        missed_from = missed_from
+    )
 }
 
 /// The whole `--check-config` report: the half that travels with the files, then the
@@ -344,8 +372,34 @@ fn usage() {
 
 #[cfg(test)]
 mod tests {
-    use super::{check_report, surface_report};
+    use super::{check_report, quarantine_warning, surface_report};
     use ciphr_server::{ActiveSurface, Check, StartupError};
+
+    /// The finding of the field report of 2026-08-25 (b), as an assertion rather than a
+    /// reading.
+    ///
+    /// A run of two spaces mid-sentence is what a continuation literal leaves behind when
+    /// the following source line is indented to match its surroundings, and it is
+    /// invisible in the code — `cargo fmt` had folded the offending literal onto one long
+    /// line, where the fourteen spaces read as one. So this asserts the property the line
+    /// exists for: it is one line, and it reads as a sentence.
+    #[test]
+    fn the_startup_warning_reads_as_a_sentence() {
+        let warning = quarantine_warning("file-1", "file:/var/log/ciphr/audit.jsonl", 382);
+
+        assert!(
+            !warning.contains("  "),
+            "the line a human reads has a run of spaces in it: {warning:?}"
+        );
+        assert_eq!(warning.lines().count(), 1, "one line: {warning:?}");
+
+        // Both identifiers and the sequence, which is what makes it actionable: the label
+        // matches `/v1/health`, the device name finds the file to archive.
+        assert!(warning.contains("file-1"));
+        assert!(warning.contains("file:/var/log/ciphr/audit.jsonl"));
+        assert!(warning.contains("seq 382"));
+        assert!(warning.contains("docs/operations/audit-trail.md"));
+    }
 
     /// The order the finding is about: everything that is a function of the file comes
     /// before the section that describes this host.

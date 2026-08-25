@@ -203,3 +203,20 @@ is a route nobody would remember to secure.
 The viewer is released on its own cadence (`.github/workflows/release-ui.yml`, tags `ui-v*`). That is
 ADR-11's third argument made concrete: an npm advisory or a layout fix must not force a new server
 image, and therefore not a restart of the service whose restart demands the most care.
+
+**A separate cadence has one failure mode, and it is not the one ordering rules are about.** Every
+ordering rule in [upgrade.md](operations/upgrade.md) — the viewer after the service, never before —
+answers the question *does this viewer tag still fit the service*. That question has a failing check
+behind it: a viewer reading a response shape the service no longer produces breaks visibly. A service
+release that only **adds** a field has no such check. Nothing breaks, nothing fails, the viewer keeps
+working; the two halves simply describe different versions of the same system, and the new field is
+missing from the screen with nothing to indicate that it should be there.
+
+So at a service release that adds a field, the question a deployment has to ask is not "does the
+newest viewer tag still fit" but **"does a viewer tag that reads the new field exist yet"** — and if
+it does not, waiting for one is a deploy decision, not a nice-to-have. `ui-v0.3.2` above is what the
+unasked version of that question looks like from the operating side. This is written here rather than
+in [ADR-11](adr/0011-ui-is-an-optional-separate-package.md) because the ADR decides the cadence and
+this is what the cadence costs to run;
+[the field report of 2026-08-25 (b)](assurance/field-reports/field-report-2026-08-25-b.md) is where it
+was named as structural rather than as a story about one release.
