@@ -1,6 +1,6 @@
 # The viewer
 
-**Status:** current as of 2026-08-24, phase 5, released as `ui-v0.3.2`, which is `ui-v0.3.1`'s code published for arm64 as well; the capability its token needs changed on 2026-08-23 (ADR-23), and `ui-v0.3.1` closes finding F4 — the viewer now refuses to mount while a service worker controls its document. Built and running: the five
+**Status:** current as of 2026-08-25, phase 5, released as `ui-v0.3.3`, the first viewer that reads the two states `0.12.0` added; the capability its token needs changed on 2026-08-23 (ADR-23), and `ui-v0.3.1` closes finding F4 — the viewer now refuses to mount while a service worker controls its document. Built and running: the five
 views below, the strict Content-Security-Policy, and the container that serves them. Sign-in is a
 pasted token; SSO is post-v1 (ADR-12). **This viewer requires a service at `0.3.0` or newer** — it
 reads the rotation class from `GET /v1/versions/{path}`, which returned a bare array before that.
@@ -12,16 +12,23 @@ whose subject is missing — the column falls back to the path, which is every r
 That is why this release has **no deploy ordering constraint**, unlike `ui-v0.2.0`, which needed the
 service first because it read a response shape `0.2.0` did not produce.
 
-**Its own version, on its own cadence** (ADR-11). `ui-v0.3.2` is the fifth viewer release; the
-numbers are not meant to line up with the service's, and they have not since `ui-v0.1.1`. It changes
-**nothing in `ui/`** — it is `ui-v0.3.1`'s code, published as a manifest list over an amd64 and an
-arm64 build. `ui-v0.3.1` was tagged before `release-ui.yml` grew the second architecture, so the
-image a deployment could actually pull was amd64-only while the rest of `0.11.0` was not, and an
-arm64 host got a service and a wrapper and then a viewer it could not start. That is the sentence
-issue #4 was written around, so the honest fix is a tag rather than a narrower claim.
+**Its own version, on its own cadence** (ADR-11). `ui-v0.3.3` is the sixth viewer release; the
+numbers are not meant to line up with the service's, and they have not since `ui-v0.1.1`.
 
-`ui-v0.3.1` remains what it was: the service-worker refusal, and no particular service version needed
-to do it. Both statements below still describe `ui-v0.3.2`, because the code is the same code.
+**It exists because the fifth was tagged too early**, and a deployment found out.
+[The field report of 2026-08-25](assurance/field-reports/field-report-2026-08-25.md) checked the
+tag rather than assuming it: `ui-v0.3.2`'s diff against `ui-v0.3.1` is `package.json` and the
+lockfile, and the code that reads `degraded` and `quarantined_from` was merged *after* it. So a
+deployment that took `0.12.0` and the newest viewer together — which is what that one did, in one
+deploy — got a service reporting two states for humans and a viewer that showed a **quarantined**
+device as `refused` and a **degraded** service as green. The second of those is F9's finding
+reappearing one layer out, in the surface a human actually looks at.
+
+**This release is that code, and nothing else.** `ui-v0.3.2` was `ui-v0.3.1`'s code published for
+arm64 as well, after `ui-v0.3.1` was tagged before `release-ui.yml` grew its second architecture — the
+sentence issue #4 was written around. `ui-v0.3.1`'s service-worker refusal is unchanged, and no
+particular service version is needed for it. Reading the two new fields needs `0.12.0`; against an
+older service they are simply absent, which is what the viewer already renders correctly.
 
 A read-only browser view of a ciphr deployment: the audit trail, secret metadata with a per-value
 reveal, identities, policies, and health. It is what makes the audit trail usable without the CLI,

@@ -8,6 +8,32 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — the viewer that reads the two states `0.12.0` added (`ui-v0.3.3`)
+
+**`ui-v0.3.2` was tagged too early, and a deployment found out.**
+[The field report of 2026-08-25](docs/assurance/field-reports/field-report-2026-08-25.md) checked the
+tag rather than assuming it: that tag's `ui/` diff against `ui-v0.3.1` is `package.json` and the
+lockfile, and the code that reads `degraded` and `quarantined_from` was merged **after** it, in #35 and
+#38. So it sits between the last viewer tag and `v0.12.0` — on `main`, in no published image.
+
+A deployment taking `0.12.0` and the newest viewer together, which is what that one did in a single
+deploy, got a service reporting two states for humans and a viewer that shows:
+
+- a **quarantined** device as `refused` — the word this same view uses for the state that recovers on
+  its own, shown for the one that needs somebody to archive a file and restart;
+- a **degraded** service as **green**, because the old view branches only on `sealed`. That is F9's
+  finding reappearing one layer out, in the surface a human actually looks at.
+
+`ui-v0.3.3` is that code and nothing else. Reading the two fields needs a `0.12.0` service; against an
+older one they are simply absent, which the viewer already renders correctly, so there is no deploy
+ordering constraint in either direction.
+
+**How this happened is worth recording, because the shape repeats.** The viewer was tagged for a
+reason unrelated to those fields — `ui-v0.3.2` published `ui-v0.3.1`'s code for arm64 — and the code
+that needed a tag arrived an hour later in a service pull request. A viewer released on its own cadence
+(ADR-11) has no failing check when the service gains a field it does not read: nothing is broken, and
+the two halves simply describe different versions of the same system.
+
 ### Documentation — the field report of 2026-08-25, and a gate that fired on it
 
 **[The sixth report from the pilot deployment](docs/assurance/field-reports/field-report-2026-08-25.md)**,
