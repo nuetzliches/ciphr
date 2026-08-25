@@ -2,11 +2,8 @@
 
 **Status:** implemented and tested as of 2026-08-25, **released in `v0.12.0`**
 ([ADR-25](../adr/0025-the-ci-side-fetch-is-its-own-binary.md)). Both `ciphr-ci` and `action.yml` are
-covered by tests that run the real binary against the real service. The tag below is `v0.12.0`;
-**the two checksums are placeholders again**, because a new release produces new binaries and their
-numbers do not exist until its job summary does. They are filled in from it — a workflow written
-before that lands should take both from the release page rather than copy them from here, or pin
-`v0.11.0`, whose numbers are real and whose assets are still there. **Both architectures**, since 2026-08-24 (issue #4): every commit builds and runs `ciphr-ci` and
+covered by tests that run the real binary against the real service. The tag and both checksums below
+are the ones `v0.12.0` published; they are the values to use, not an illustration of their shape. **Both architectures**, since 2026-08-24 (issue #4): every commit builds and runs `ciphr-ci` and
 `ciphr-run` as static binaries on a native amd64 and a native arm64 runner, and a release attaches an
 asset for each. What is *measured* about the masking is narrower than what runs,
 and the section on that says exactly where the line is.
@@ -38,8 +35,8 @@ from the OS CSPRNG and checked against the value. Those rules are shared with `c
     token: ${{ secrets.CIPHR_TOKEN }}       # the one forge secret that stays
     paths: ci/widget/DB_PASSWORD ci/widget/API_KEY
     version: v0.12.0
-    sha256-amd64: <the number from that release's job summary>
-    sha256-arm64: <the other number from the same summary>
+    sha256-amd64: d11c662f9e5ee7d790eb03512ff298e6e785772915b75b24c9df69d3eb44100f
+    sha256-arm64: e6b91c4f1ec66bfaf694adca0abaf63d9f4860b5b0392677e919ecadbf643591
 
 - name: Deploy
   run: ./deploy.sh                          # DB_PASSWORD and API_KEY are in the environment
@@ -48,7 +45,8 @@ from the OS CSPRNG and checked against the value. Those rules are shared with `c
 Pin the tag in both places: the action and the asset it downloads should come from the same release,
 so a workflow cannot end up verifying one version's checksum against another version's binary. **The
 two numbers belong to the tag above**, one per architecture — a release means three edits in this
-block, not one, and that is exactly what is outstanding here until `v0.12.0` has run.
+block, not one, and a tag bumped without its checksums is the failure the two inputs exist to
+catch.
 
 The variable name is the **last path segment**: `ci/widget/DB_PASSWORD` becomes `DB_PASSWORD`
 ([ADR-18](../adr/0018-one-rule-for-the-variable-name.md)). A set in which two paths want the same name
