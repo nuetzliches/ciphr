@@ -95,6 +95,19 @@ impl Server {
             )
         })?;
 
+        // And one per device that came back behind the chain. After the surface entry
+        // rather than before it, so the first record of a run stays the one that says
+        // what this process offers; this one says what its trail is missing.
+        //
+        // Fail-closed on the same terms: a process that cannot record why its own trail
+        // is incomplete should not go on to serve requests into it.
+        state.record_quarantined().map_err(|_| {
+            StartupError::Audit(
+                "no audit device accepted the startup record naming a quarantined device"
+                    .to_owned(),
+            )
+        })?;
+
         Ok(Self {
             state,
             config,

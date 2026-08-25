@@ -96,6 +96,32 @@ fn run(config_path: &str, check_only: bool) -> Result<Outcome, Box<dyn core::err
     }
 
     let server = Server::prepare(config)?;
+
+    // The one state this release describes as needing a human, said where a human is
+    // looking. Finding 1 of the field report of 2026-08-25: a device quarantined at
+    // startup reached `/v1/health` and nothing else -- not the trail, not either stream
+    // -- and the moment it fires most often is the first start after an upgrade, which
+    // is exactly when somebody is watching a deploy log and the monitoring rule for a
+    // field added in that same release has not been written yet.
+    //
+    // Here rather than in the library, because a library that prints has no idea what it
+    // is printing into; `ci/check-no-print.sh` holds that line and exempts this file.
+    // The trail is still the artefact -- `record_quarantined` wrote it before this ran.
+    // This only says the state exists.
+    //
+    // Both names: the label is what `/v1/health` shows, so a reader can match the two,
+    // and the device's own name is what identifies the file they have to archive.
+    for stopped in server.state().quarantined() {
+        let label = server
+            .state()
+            .label_for(&stopped.device)
+            .unwrap_or_else(|| stopped.device.clone());
+        eprintln!(
+            "ciphr-server: audit device {label} ({}) is quarantined from seq {}: it is              missing records the chain has and will not be written to again while this              process runs. See docs/operations/audit-trail.md.",
+            stopped.device, stopped.missed_from,
+        );
+    }
+
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?

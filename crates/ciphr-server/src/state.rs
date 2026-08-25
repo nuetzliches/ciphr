@@ -493,7 +493,7 @@ impl AppState {
         match outcome {
             Ok(written) => {
                 self.note_device_outcome(&written.failures, &written.quarantined);
-                self.explain_the_gap(&written.failures);
+                self.explain_the_gap(&written.failures, &written.quarantined);
                 Ok(())
             }
             Err(AuditError::AllDevicesFailed { failures }) => {
@@ -915,7 +915,11 @@ impl AppState {
     /// further to try, and retrying or reporting would turn a degraded audit trail into
     /// a failed request that had already succeeded. The device state on `/v1/health` is
     /// the other half of this, and it does not depend on this write.
-    fn explain_the_gap(&self, failures: &[ciphr_audit::DeviceFailure]) {
+    fn explain_the_gap(
+        &self,
+        failures: &[ciphr_audit::DeviceFailure],
+        quarantined: &[ciphr_audit::Quarantined],
+    ) {
         if failures.is_empty() {
             return;
         }
@@ -931,12 +935,91 @@ impl AppState {
             // The device's own error message is left out. It is an I/O string that
             // belongs in the operator's logs; the trail needs to say which copy is
             // incomplete, not why the disk was unhappy.
-            let entry = Entry::denied(
-                Action::AuditDeviceFailed,
-                format!("device-refused: {}", failure.device),
-            );
+            // Two different events, and the trail says which. A refusal can be a
+            // disk that was briefly full and recovers on its own; a device that is
+            // *stopped* as a result of it does not recover without somebody archiving
+            // a file. A reader of the trail who cannot tell them apart has to treat
+            // every refusal as the expensive one.
+            let stopped = quarantined.iter().any(|one| one.device == failure.device);
+            let reason = if stopped {
+                format!("device-quarantined: {}", failure.device)
+            } else {
+                format!("device-refused: {}", failure.device)
+            };
+            let entry = Entry::denied(Action::AuditDeviceFailed, reason);
             let _ = sink.record(&entry, now_millis());
         }
+    }
+
+    /// Record which optional surface entries this process started with (ADR-20).
+    ///
+    /// One entry, at startup, before the listener is bound. `none` when a deployment
+    /// turned nothing on — an empty string there would leave a reader unable to tell
+    /// "nothing was active" from "this version did not record it", which is the same
+    /// distinction the trail keeps everywhere else by writing nulls out.
+    ///
+    /// Inside the fail-closed contract on purpose: this is the entry that says what the
+    /// process offers, and serving requests while unable to record that is the state the
+    /// audit requirement exists to prevent.
+    ///
+    /// # Errors
+    ///
+    /// [`ApiError::AuditUnavailable`] if no device accepted the record, which the
+    /// caller turns into a refusal to start.
+    /// One entry per device the sink stopped writing to before this process began.
+    ///
+    /// Finding 1 of `docs/assurance/field-reports/field-report-2026-08-25.md`. A device
+    /// quarantined at *startup* — the case `upgrade.md` names as the one that will fire
+    /// most often — existed only as a field on `/v1/health`: nothing in the trail, and
+    /// nothing on any stream. The one state the release notes describe as needing a
+    /// human was the one state with a single channel.
+    ///
+    /// Runtime quarantine already reached the trail, through the entry that explains the
+    /// refusal it followed. This is the other half.
+    ///
+    /// Fail-closed like the surface entry beside it, and by the same argument: a process
+    /// that cannot record why its trail is incomplete should not go on to serve requests
+    /// into it.
+    ///
+    /// # Errors
+    ///
+    /// [`ApiError::AuditUnavailable`] if no device accepted the record.
+    pub fn record_quarantined(&self) -> Result<(), ApiError> {
+        for stopped in self.quarantined() {
+            let entry = Entry::denied(
+                Action::AuditDeviceFailed,
+                format!("device-behind-at-start: {}", stopped.device),
+            )
+            .with_detail(format!("missed from seq {}", stopped.missed_from));
+            self.record(&entry)?;
+        }
+        Ok(())
+    }
+
+    /// Every device the sink stopped writing to, with where each one stopped.
+    ///
+    /// Read from the sink rather than from the health snapshot, because the health
+    /// snapshot carries the published *label* and this needs the device's own name —
+    /// the one that identifies the file somebody has to go and archive.
+    pub fn quarantined(&self) -> Vec<ciphr_audit::Quarantined> {
+        self.inner
+            .audit
+            .lock()
+            .map(|sink| sink.quarantined())
+            .unwrap_or_default()
+    }
+
+    /// The published label for a device, given the name the sink calls it.
+    ///
+    /// So an operator-facing line can carry both: the label to match against what
+    /// `/v1/health` shows, and the name to find the file.
+    pub fn label_for(&self, source: &str) -> Option<String> {
+        self.inner.devices.lock().ok().and_then(|devices| {
+            devices
+                .iter()
+                .find(|device| device.source == source)
+                .map(|device| device.name.clone())
+        })
     }
 
     /// Record which optional surface entries this process started with (ADR-20).

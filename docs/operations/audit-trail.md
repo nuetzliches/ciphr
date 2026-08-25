@@ -215,6 +215,30 @@ process runs, and `/v1/health` reports `audit_devices[].quarantined_from` with t
 number it missed. **That field is the one to alert on.** A deployment runs two devices so that it has
 two copies; a value there means it has one.
 
+**An existing rule on `accepting` already fires**, which is worth saying because the paragraph above
+reads as though a new one were required to see the state at all. A quarantined device reports
+`accepting: false` and keeps reporting it — it is not being asked, so it cannot succeed, and a device
+that went back to `true` because nobody wrote to it would be the clearest possible way to hide this.
+`quarantined_from` is what tells the two apart: `accepting: false` alone can be a volume that filled
+and will free itself, and `quarantined_from` never clears while the process runs.
+
+**It is in three other places, and one place it is not.** Since 2026-08-25, from
+[the field report of that date](../assurance/field-reports/field-report-2026-08-25.md):
+
+- **the trail**, as an `audit-device-failed` entry. `device-quarantined: <device>` for a device
+  stopped while running, written on the same request as the refusal it followed;
+  `device-behind-at-start: <device>` for one found behind the chain at startup, with `detail` naming
+  the sequence it missed from.
+- **stderr**, one line per quarantined device at startup, naming both the published label and the
+  device's own name — the label to match against `/v1/health`, the name to find the file. The trail
+  is still the artefact; the line only says that the state exists.
+- **`/v1/health`**, as above.
+
+**Not the container health check.** It passes while a device is quarantined, and that is deliberate on
+this release's own terms — `degraded` is explicitly not a liveness signal, and this is less than
+`degraded`. So both signals a container platform reads, exit status and health, say fine. Do not
+conclude from a green container that the devices are green.
+
 What quarantine trades is worth stating plainly. The quarantined copy stops growing, so it is
 incomplete. What it keeps is the property that makes a copy worth having: everything in it verifies,
 end to end, and where it stops is visible. **An incomplete trail that says so beats a

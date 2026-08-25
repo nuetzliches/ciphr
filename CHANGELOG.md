@@ -8,6 +8,35 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — a quarantined audit device is announced in more than one place
+
+**Finding 1 of [the field report of 2026-08-25](docs/assurance/field-reports/field-report-2026-08-25.md)**,
+measured there rather than asserted: a throwaway `0.12.0` server holding a quarantined file device
+reported itself healthy, its container health check passed, and `docker logs` was empty on both
+streams. The only place the state existed was one field on one unauthenticated JSON route — for the
+one state the release notes describe as **needing a human**, and the one that never clears while the
+process runs.
+
+It reaches three places now.
+
+**The trail**, as an `audit-device-failed` entry, with a reason that says which of two events it was.
+`device-quarantined: <device>` for a device stopped while running — written on the same request as the
+refusal it followed, where the entry previously read `device-refused` whether the device recovered on
+its own or was stopped for good. `device-behind-at-start: <device>` for one found behind the chain at
+startup, with `detail` naming the sequence it missed from. That second case wrote **nothing** before:
+`AppState::new` read the sink's quarantine list into the health snapshot and no further.
+
+**stderr**, one line per device at startup, from the binary rather than the library —
+`ci/check-no-print.sh` holds that line and exempts exactly this file. It names both the published
+label, to match against `/v1/health`, and the device's own name, to find the file somebody has to
+archive. The trail is still the artefact; the line only says the state exists.
+
+**And `audit-trail.md` gains what the report asked for.** That a quarantined device also reports
+`accepting: false`, so an existing rule already fires and the section no longer reads as though a new
+one were required to see the state at all. And that the **container health check stays green**, which
+is defensible on this release's own terms — `degraded` is explicitly not a liveness signal and this is
+less than `degraded` — but means both signals a container platform reads say fine.
+
 ### Fixed — the viewer that reads the two states `0.12.0` added (`ui-v0.3.3`)
 
 **`ui-v0.3.2` was tagged too early, and a deployment found out.**

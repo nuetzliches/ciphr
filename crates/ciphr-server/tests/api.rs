@@ -207,8 +207,19 @@ impl Harness {
                 Box::new(SqliteAuditDevice::open(&database).expect("audit device")),
                 Box::new(AlwaysFails),
             ],
+            AuditKind::Behind => vec![
+                Box::new(SqliteAuditDevice::open(&database).expect("audit device")),
+                Box::new(Behind),
+            ],
         };
-        let sink = AuditSink::new(devices, Chain::new()).expect("sink");
+        // `Behind` reports a head of 1, so a chain resumed past that is what makes it
+        // behind. Every other kind starts from a fresh chain, where nothing can be.
+        let chain = if matches!(kind, AuditKind::Behind) {
+            Chain::resume(4, [0u8; ciphr_audit::HASH_LEN])
+        } else {
+            Chain::new()
+        };
+        let sink = AuditSink::new(devices, chain).expect("sink");
 
         let policies = ciphr_policy::PolicySet::from_toml(POLICIES).expect("policies");
         let state = AppState::new(
@@ -222,6 +233,13 @@ impl Harness {
             // did not choose.
             surface,
         );
+
+        // What `Server::prepare` does, so a harness is not a shape production never
+        // has. A no-op for every kind but `Behind`, where it is the thing under test:
+        // no device is quarantined at startup unless one came back behind the chain.
+        state
+            .record_quarantined()
+            .expect("the startup quarantine record");
 
         Self {
             router: api::router(state),
@@ -385,6 +403,30 @@ enum AuditKind {
     /// One device that works and one that refuses everything. The state a second
     /// device is actually in when it has quietly stopped accepting records.
     Partial,
+    /// One device that works and one that comes back holding fewer records than the
+    /// chain -- the startup case, and the one a deployment meets after an upgrade.
+    Behind,
+}
+
+/// A device that comes back behind the chain, the way a volume that filled would.
+///
+/// It writes fine; what it reports is a head below the one the chain resumed from, which
+/// is the state `AuditSink::new` compares for and the case a deployment meets on its
+/// first start after an upgrade.
+struct Behind;
+
+impl AuditDevice for Behind {
+    fn name(&self) -> &'static str {
+        "file:/tmp/behind.jsonl"
+    }
+
+    fn head_seq(&self) -> Result<Option<u64>, String> {
+        Ok(Some(1))
+    }
+
+    fn write(&mut self, _record: &EncodedRecord) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// A device that refuses everything, for the fail-closed test.
@@ -2565,6 +2607,104 @@ fn health_labels_its_audit_devices_and_never_names_their_paths() {
     assert!(
         !text.contains("sqlite:"),
         "nor the device's own `kind:path` name, got {text}"
+    );
+}
+
+/// A device quarantined at startup is in the trail, not only on `/v1/health`.
+///
+/// Finding 1 of [the field report of 2026-08-25]. That deployment measured it: a
+/// throwaway server holding a quarantined file device reported itself healthy, its
+/// container health check passed, and `docker logs` was empty. The only place the state
+/// existed was one field on one unauthenticated JSON route -- for the one state the
+/// release notes describe as needing a human, and the one that never clears while the
+/// process runs.
+///
+/// It is also the case that fires most often: the first start after an upgrade, for any
+/// deployment whose file device had already fallen behind. That is precisely when
+/// somebody is watching a deploy log and precisely when the monitoring rule for a field
+/// introduced in the same release has not been written yet.
+#[test]
+fn a_device_quarantined_at_startup_is_in_the_trail() {
+    let harness = Harness::with_audit(AuditKind::Behind);
+
+    let entries = harness.audit_entries();
+    let stopped: Vec<_> = entries
+        .iter()
+        .filter(|entry| entry["entry"]["action"] == "audit-device-failed")
+        .collect();
+    assert_eq!(
+        stopped.len(),
+        1,
+        "one entry, written before the first request"
+    );
+    assert_eq!(
+        stopped[0]["entry"]["deny_reason"], "device-behind-at-start: file:/tmp/behind.jsonl",
+        "and it says which device, and that this is the startup case"
+    );
+    assert_eq!(
+        stopped[0]["entry"]["detail"], "missed from seq 2",
+        "where it stopped, which is what the recovery procedure needs"
+    );
+
+    // And health still says it too -- the trail is the artefact, the route is the
+    // interface, and this finding was about there being only one of them.
+    let health = harness.get("/v1/health", None).1;
+    let device = health["audit_devices"]
+        .as_array()
+        .expect("array")
+        .iter()
+        .find(|d| d["name"] == "file-1")
+        .expect("the device that fell behind");
+    assert_eq!(device["quarantined_from"], 2);
+    assert_eq!(device["accepting"], false);
+}
+
+/// A device stopped at runtime says so in the trail, and not just that it refused once.
+///
+/// Finding 1 of the field report of 2026-08-25 is about the *startup* case; this is the
+/// other half of the same complaint. The trail already carried an entry when a device
+/// refused a record, but it read the same whether the device recovered on its own or was
+/// stopped for good — and a reader who cannot tell those apart has to treat every refusal
+/// as the expensive one.
+#[test]
+fn the_trail_says_a_device_was_stopped_and_not_merely_that_it_refused() {
+    let harness = Harness::with_audit(AuditKind::Partial);
+
+    let (status, _) = harness.get(
+        "/v1/secrets/infra/service-a/DB_PASSWORD",
+        Some(&harness.deploy_token),
+    );
+    assert_eq!(status, StatusCode::OK);
+
+    let entries = harness.audit_entries();
+    let device_entries: Vec<_> = entries
+        .iter()
+        .filter(|entry| entry["entry"]["action"] == "audit-device-failed")
+        .collect();
+    assert_eq!(
+        device_entries.len(),
+        1,
+        "one entry for the device that missed it"
+    );
+    assert_eq!(
+        device_entries[0]["entry"]["deny_reason"], "device-quarantined: always-fails",
+        "stopped for good, which `device-refused` alone would not say"
+    );
+
+    // A second request does not add another: the device is not asked any more, so it
+    // refuses nothing and there is nothing further to explain.
+    harness.get(
+        "/v1/secrets/infra/service-a/DB_PASSWORD",
+        Some(&harness.deploy_token),
+    );
+    assert_eq!(
+        harness
+            .audit_entries()
+            .iter()
+            .filter(|entry| entry["entry"]["action"] == "audit-device-failed")
+            .count(),
+        1,
+        "the gap is explained once, not once per later request"
     );
 }
 
