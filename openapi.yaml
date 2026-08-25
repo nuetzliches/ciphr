@@ -1447,6 +1447,7 @@ components:
                   classify,
                   issue-token,
                   revoke-token,
+                  request-refused,
                   surface-active,
                   honeypot-triggered,
                   honeypot-marked,
@@ -1470,7 +1471,7 @@ components:
             allowed: { type: boolean }
             deny_reason:
               type: [string, "null"]
-              enum: [unknown-identity, no-matching-rule, not-granted, tie, unauthenticated, not-found, write-failed, delete-failed, not-listed, not-served, null]
+              enum: [unknown-identity, no-matching-rule, not-granted, tie, unauthenticated, not-found, write-failed, delete-failed, not-listed, not-served, classify-failed, revoke-failed, malformed-path, malformed-export, unmatched-route, unmatched-method, null]
               description: |
                 Stable labels, except for `audit-device-failed` entries, whose reason is
                 `device-refused: <device name>` so a later reader can tell which copy of
@@ -1481,6 +1482,14 @@ components:
                 authorized to read is not a denial. `latch-failed` marks the one case
                 where a trip was recorded and its latch was not, which means
                 `/v1/health` may not show it.
+
+                `request-refused` carries `malformed-path`, `malformed-export`,
+                `unmatched-route` or `unmatched-method`: an authenticated caller was
+                turned away before any decision was reached, so there is no rule and no
+                path on the entry. **The input is not echoed into it** -- the malformed
+                part is exactly what the caller controls, and the trail is the artefact
+                this project keeps tamper-evident. `detail` says what they were
+                attempting.
 
                 `not-found`, `write-failed`, `delete-failed`, `not-listed`, and
                 `not-served` mark a **correcting second entry**: the decision above them

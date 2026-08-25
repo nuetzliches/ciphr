@@ -29,6 +29,36 @@ identifier. That is structural rather than reviewed: the types that hold secrets
 Every field is written out, including as `null`. Skipping absent fields would make "not applicable"
 and "an older version did not record this" indistinguishable in a file read years later.
 
+### A refused request, and what it does not say
+
+**Since 2026-08-25**, F12 of
+[the full-repository review](../assurance/reviews/review-2026-08-24-full-repository.md). The trail had
+an inversion in it. A credential that *failed* authentication produced an entry — that is how a
+brute-force attempt becomes visible at all. A credential that *worked*, used to ask for a path that is
+not a path, a route that does not exist, or a method a route does not have, produced nothing. Somebody
+holding a stolen token and mapping this API worked in silence, while the failed guess from outside did
+not.
+
+Those now write a `request-refused` entry, with a `deny_reason` of `malformed-path`,
+`malformed-export`, `unmatched-route` or `unmatched-method`.
+
+**It is not a denial, and the difference is the point.** A denial means the evaluator considered a
+request and said no; this means the request never reached it. So the entry carries **no rule and no
+path** — there was no path, that is what was wrong with it — and `detail` says what the caller was
+attempting.
+
+**The input is not in the entry.** The malformed part is exactly the part a caller controls, and
+putting unparseable bytes into the one artefact this project keeps tamper-evident is how a trail
+becomes an injection surface. Who, what they attempted, and that it was refused is what the question
+afterwards is about.
+
+**Only an authenticated caller is recorded**, and that is a decision rather than an oversight. The
+trail is fail-closed: a full audit volume takes the service down. If anonymous traffic wrote entries,
+anybody who can reach the listener could turn a `404` into an outage by asking for pages that do not
+exist — and a made-up token is exactly as cheap to produce as none, so an unknown route treats the two
+the same. On a route that *does* exist a failed authentication is still recorded, because that path is
+bounded by having to know a route.
+
 ### Two entries about one operation, and how to read them
 
 **The decision is recorded before the work happens.** That is the property the whole design rests on
