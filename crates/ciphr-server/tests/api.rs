@@ -372,6 +372,14 @@ impl AuditDevice for AlwaysFails {
         "always-fails"
     }
 
+    /// It stores nothing, so it holds nothing. Empty rather than an error: an empty
+    /// device is not quarantined at startup, which keeps this double doing the one thing
+    /// it exists for -- failing a *write* -- instead of also standing in for a device
+    /// that cannot say where it is.
+    fn head_seq(&self) -> Result<Option<u64>, String> {
+        Ok(None)
+    }
+
     fn write(&mut self, _record: &EncodedRecord) -> Result<(), String> {
         Err("this device always fails".to_owned())
     }
@@ -2230,6 +2238,70 @@ fn health_labels_its_audit_devices_and_never_names_their_paths() {
         !text.contains("sqlite:"),
         "nor the device's own `kind:path` name, got {text}"
     );
+}
+
+/// A device that missed a record is stopped, and health says so and keeps saying so.
+///
+/// Finding F6 of the review of 2026-08-24. Two halves, and the second is the one that
+/// would regress silently: a quarantined device is no longer *asked*, so it is absent
+/// from the failure list of every later record — and a naive reading of that list would
+/// mark it as accepting again. Health would then be green over a copy of the audit trail
+/// that stopped growing an hour ago.
+#[test]
+fn a_quarantined_device_is_reported_and_does_not_go_green_again() {
+    let harness = Harness::with_audit(AuditKind::Partial);
+
+    let (status, _) = harness.get(
+        "/v1/secrets/infra/service-a/DB_PASSWORD",
+        Some(&harness.deploy_token),
+    );
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "one working device serves the request"
+    );
+
+    let after = harness.get("/v1/health", None).1;
+    let devices = after["audit_devices"].as_array().expect("array");
+    let broken = devices
+        .iter()
+        .find(|d| d["name"] == "device-1")
+        .expect("the failing device");
+    assert_eq!(
+        broken["quarantined_from"], 1,
+        "it missed the first record, and that is the number to alert on"
+    );
+    assert_eq!(broken["accepting"], false);
+
+    let working = devices
+        .iter()
+        .find(|d| d["name"] == "sqlite-1")
+        .expect("the working device");
+    assert!(
+        working.get("quarantined_from").is_none(),
+        "a device that is still being written to carries no such field"
+    );
+
+    // A second request. The quarantined device is skipped, so it fails nothing -- and
+    // must not be reported as healthy for it.
+    let (status, _) = harness.get(
+        "/v1/secrets/infra/service-a/DB_PASSWORD",
+        Some(&harness.deploy_token),
+    );
+    assert_eq!(status, StatusCode::OK);
+
+    let later = harness.get("/v1/health", None).1;
+    let broken = later["audit_devices"]
+        .as_array()
+        .expect("array")
+        .iter()
+        .find(|d| d["name"] == "device-1")
+        .expect("still listed");
+    assert_eq!(
+        broken["accepting"], false,
+        "not asked is not the same as accepting"
+    );
+    assert_eq!(broken["quarantined_from"], 1, "and it stays stopped");
 }
 
 #[test]

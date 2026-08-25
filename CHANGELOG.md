@@ -8,6 +8,55 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — a device that misses a record is stopped instead of writing an unverifiable copy
+
+**F6 of [the full-repository review](docs/assurance/reviews/review-2026-08-24-full-repository.md).**
+The hash chain is shared and the devices are not. It advanced as soon as *any* device stored a
+record — so a device that failed one write kept being written to, and the next record it accepted
+carried a `prev_hash` naming a record that is not in it. That file stops verifying at that point,
+permanently, and what it looks like afterwards is a trail somebody edited. It was produced by a volume
+that was briefly full.
+
+Meanwhile `/v1/health` reported `accepting: true` for it, because that field described the most recent
+write and the device had just taken one.
+
+**A device that misses a committed record is now quarantined**: not written to again, and reported as
+`audit_devices[].quarantined_from` with the first sequence number it missed. **That is the field to
+alert on** — a deployment runs two devices to have two copies, and a value there means it has one.
+
+**What quarantine trades.** The stopped copy stops growing, so it is incomplete. What it keeps is the
+property that makes a copy worth having: everything in it verifies, end to end, and where it stops is
+visible. An incomplete trail that says so beats a complete-looking one that cannot be checked.
+
+Three properties follow from the quarantine decision sitting *after* the chain advances, and each is a
+case that would otherwise bite:
+
+- **A total failure quarantines nothing.** A record no device stored is a record no device missed, so
+  a volume that fills and is freed recovers on its own.
+- **The last device standing is never quarantined.** Its refusal means nothing was committed, so the
+  request is refused fail-closed and the device stays eligible — quarantine cannot walk a deployment
+  down to no devices one failure at a time.
+- **A restart does not lift it.** Restarting is the first thing anybody does when a device fails, and
+  an in-memory quarantine would be undone by exactly that. So each device is asked where it is at
+  startup and compared against the chain; one holding records but standing behind the head starts
+  quarantined. An **empty** device is not — that is what a rotation leaves behind, and it is the way
+  back.
+
+**`accepting` no longer flips back to `true` for a stopped device.** It is not asked, so it appears in
+no later failure list, and the obvious reading of that list would have called it healthy — which is
+the "green health over a broken copy" half of the finding.
+
+**There is no backfill, by decision.** Copying the missed records out of the SQLite device into the
+file would make the file *look* continuous while its content came from the very device the second copy
+exists to be independent of. Two files with a documented window between them, both verifying, is the
+honest artefact. [audit-trail.md](docs/operations/audit-trail.md) has the procedure for bringing a
+device back, and [monitoring.md](docs/operations/monitoring.md) has the rule to write.
+
+**A gap found while writing that procedure and not fixed here:** there is no command that verifies a
+standalone audit *file*. `ciphr audit verify` reads the chain out of the store — the device that kept
+working. The format supports checking the file by hand (one line is exactly one hashed payload), and
+the CLI does not do it for you. Said in the runbook rather than left to be discovered during an
+incident.
 ### Fixed — a write carrying a rotation class can no longer half-succeed
 
 **F13 of [the full-repository review](docs/assurance/reviews/review-2026-08-24-full-repository.md).**

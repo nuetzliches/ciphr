@@ -1,6 +1,6 @@
 # The audit trail
 
-**Status:** implemented and tested as of 2026-08-24. The chain, the fail-closed sink, the file
+**Status:** implemented and tested as of 2026-08-25. The chain, the fail-closed sink, the file
 device, and the SQLite device work and are tested, and so do `ciphr audit tail`, `verify`, `anchor`,
 and `cut` — the last of these is what bounds the queryable trail, and it arrived after the rest.
 
@@ -165,6 +165,65 @@ of the value of having a second one.
 The SQLite device writes into the same database as the secrets; the file device is the second copy
 that is deliberately *not* in that database. A break in one and not the other localizes the damage —
 which is the main reason to run both.
+
+### A device that misses a record is stopped, and how to bring it back
+
+**Since 2026-08-24**, F6 of
+[the full-repository review](../assurance/reviews/review-2026-08-24-full-repository.md). Before that,
+a device that failed one write kept being written to — and because the chain is shared and advances
+as soon as *any* device stores the record, the next record that device accepted carried a `prev_hash`
+naming a record that is not in it. That file stops verifying at that point, permanently, and what it
+looks like afterwards is a trail somebody edited. It was produced by a volume that was briefly full.
+
+So a device that misses a committed record is **quarantined**: it is not written to again while the
+process runs, and `/v1/health` reports `audit_devices[].quarantined_from` with the first sequence
+number it missed. **That field is the one to alert on.** A deployment runs two devices so that it has
+two copies; a value there means it has one.
+
+What quarantine trades is worth stating plainly. The quarantined copy stops growing, so it is
+incomplete. What it keeps is the property that makes a copy worth having: everything in it verifies,
+end to end, and where it stops is visible. **An incomplete trail that says so beats a
+complete-looking one that cannot be checked.**
+
+Three properties follow from where the quarantine decision sits, and each of them is a case that
+would otherwise bite:
+
+- **A total failure quarantines nothing.** The decision is taken *after* the chain advances, so a
+  record no device stored is a record no device missed. A volume that fills and is then freed
+  recovers on its own.
+- **The last device standing is never quarantined.** Its refusal means nothing was committed, so the
+  request is refused fail-closed and the device stays eligible. Quarantine cannot walk a deployment
+  down to no devices one failure at a time.
+- **A restart does not lift it.** Restarting is the first thing anybody does when a device fails, and
+  an in-memory quarantine would be undone by exactly that — the first record after the restart
+  splicing the file as before. So at startup each device is asked where it is and compared against
+  the chain; a device holding records but standing behind the head starts quarantined.
+
+**Bringing a device back:**
+
+1. **Note where it stopped.** `quarantined_from` on `/v1/health` is the first sequence it missed, so
+   it holds everything below that number and nothing above it.
+2. **Archive it.** Move the file aside, the way a rotation would, and keep it — it is evidence for
+   the window it covers, and nothing else holds an independent copy of that window.
+3. **Fix the volume**, then **restart the service**. An **empty** device is not quarantined: it
+   begins a new segment whose first record names a `prev_hash` that the archived file explains. That
+   is the same shape a log rotation leaves behind, which is why it is not treated as a fault. A
+   device brought back onto a disk that is still full is quarantined again on its next record.
+
+**One thing this procedure cannot tell you, and it is a gap rather than a subtlety.** There is no
+command that verifies a standalone audit *file*: `ciphr audit verify` reads the chain out of the
+store, which is the device that kept working. So "the quarantined copy verifies cleanly up to where
+it stopped" is a property this format supports — one line is exactly one hashed payload, checkable
+with `sha256sum` — and not one this CLI will confirm for you. Worth knowing before an incident is the
+moment you find out.
+
+**There is no backfill**, and that is a decision rather than an omission. Copying the missed records
+out of the SQLite device into the file would make the file *look* continuous while its content came
+from the very device the second copy exists to be independent of. The gap is the honest artefact:
+two files, a documented window between them, and both verifying.
+
+**Fix the volume before step 3.** A device that is brought back onto a disk that is still full is a
+device that is quarantined again on its next record.
 
 ### What a recorded token issuance is worth, and what it is not
 

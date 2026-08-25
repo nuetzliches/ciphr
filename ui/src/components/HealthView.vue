@@ -119,7 +119,15 @@ onMounted(load);
               deny: device.accepting === false,
             }"
           >
-            <template v-if="device.accepting === null">
+            <!--
+              Quarantine first: a stopped device reports `accepting: false`, and
+              "refused" would describe the last record it was asked about rather than the
+              state it is in now. It is not being asked at all.
+            -->
+            <template v-if="device.quarantined_from !== undefined">
+              stopped — missed record {{ device.quarantined_from }} onwards
+            </template>
+            <template v-else-if="device.accepting === null">
               nothing written yet by this process
             </template>
             <template v-else>{{ device.accepting ? "accepted" : "refused" }}</template>
@@ -133,6 +141,10 @@ onMounted(load);
       gave is not on this route because the route is unauthenticated. The service log has it.
       <em>Nothing written yet</em> is a third state and not a healthy one: it means this process has
       recorded nothing since it started, so no device has been asked anything.
+      <strong>Stopped</strong> is the fourth and the one that needs a human: the device missed a
+      committed record, so it is no longer written to — writing to it again would produce a copy that
+      cannot be verified past that point. It stays stopped until somebody archives what it holds and
+      restarts the service.
     </p>
 
     <p class="note">

@@ -457,6 +457,7 @@ impl Client {
                 .map(|device: DeviceHealthWire| DeviceHealth {
                     name: device.name,
                     accepting: device.accepting,
+                    quarantined_from: device.quarantined_from,
                 })
                 .collect(),
             degraded: wire.degraded,

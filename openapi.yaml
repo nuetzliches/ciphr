@@ -1061,10 +1061,37 @@ components:
                 type: boolean
                 nullable: true
                 description: |
-                  Whether the device accepted the last record. `null` until the first
-                  record is written -- "nothing recorded yet" is a different state from
-                  "the last record was accepted", and a monitor that conflates them
-                  reports a healthy device on a service that has never written to it.
+                  Whether the device accepted the last record it was asked to store.
+                  `null` until the first record is written -- "nothing recorded yet" is a
+                  different state from "the last record was accepted", and a monitor that
+                  conflates them reports a healthy device on a service that has never
+                  written to it.
+
+                  Frozen at `false` once the device is quarantined. From then on it is
+                  not asked, so it appears in no failure list, and reporting `true` for a
+                  device nobody is writing to would be the clearest possible way to hide
+                  the situation.
+              quarantined_from:
+                type: integer
+                minimum: 1
+                description: |
+                  The first sequence number this device is known to have missed. **Absent
+                  for a device that is still being written to**, which is the ordinary
+                  case.
+
+                  A device that misses a committed record is stopped rather than written
+                  to again: the chain is shared, so the next record it accepted would
+                  carry a `prev_hash` naming a record that is not in it, and that file
+                  would stop verifying at that point for good -- looking exactly like an
+                  edited trail, produced by a volume that was briefly full.
+
+                  **This is the field to alert on.** A deployment runs two devices so
+                  that it has two copies; a value here means it has one, and the other is
+                  frozen at whatever it held. `audit-trail.md` has the procedure for
+                  bringing it back.
+
+                  A number and never a reason -- a device failure message names a path,
+                  and this route is unauthenticated.
         surface:
           type: array
           description: |

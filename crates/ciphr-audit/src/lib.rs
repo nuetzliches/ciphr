@@ -70,7 +70,7 @@ pub mod verify;
 pub use anchor::{Anchor, AnchorError, verify_with_anchor};
 pub use archive::{Coverage, coverage_of, rotation_set};
 pub use chain::{Chain, EncodedRecord, GENESIS, HASH_LEN, hash_payload};
-pub use device::{AuditDevice, AuditSink, Written};
+pub use device::{AuditDevice, AuditSink, Quarantined, Written};
 pub use entry::{Action, DecidingRule, Entry, Principal, RequestContext};
 pub use error::{AuditError, BreakKind, ChainBreak, DeviceFailure};
 pub use file::FileDevice;

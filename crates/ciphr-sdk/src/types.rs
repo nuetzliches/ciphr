@@ -136,6 +136,16 @@ pub struct DeviceHealth {
     /// path of the database or the audit file is free reconnaissance for anyone who can
     /// reach the port. The label is stable across restarts and is what to key a rule on.
     pub name: String,
+    /// The first sequence number this device is known to have missed, if it has missed
+    /// one, and `None` for a device still being written to.
+    ///
+    /// A device that misses a committed record is stopped rather than written to again:
+    /// the chain is shared, so the next record it accepted would name a `prev_hash` it
+    /// does not hold, and that copy would stop verifying at that point for good. A value
+    /// here means the deployment has one copy of its trail where it configured two.
+    ///
+    /// `None` from a service older than the field, which reads correctly.
+    pub quarantined_from: Option<u64>,
     /// Whether it accepted the last record. `None` until the first record is written —
     /// "nothing recorded yet" is a different state from "the last record was accepted",
     /// and a monitor that conflates them reports a healthy device on a service that has
@@ -219,6 +229,8 @@ pub(crate) struct HealthWire {
 pub(crate) struct DeviceHealthWire {
     pub(crate) name: String,
     pub(crate) accepting: Option<bool>,
+    #[serde(default)]
+    pub(crate) quarantined_from: Option<u64>,
 }
 
 /// The error body every failing route returns.

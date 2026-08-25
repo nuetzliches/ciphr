@@ -153,12 +153,26 @@ pub struct DeviceHealth {
     /// What the device calls itself, carrying the configured path.
     ///
     /// The key `note_device_outcome` matches a [`ciphr_audit::DeviceFailure`] against,
-    /// and the reason this is a separate field rather than the one above. Never
-    /// serialized.
+    /// and a [`ciphr_audit::Quarantined`] against, and the reason this is a separate field
+    /// rather than the one above. Never serialized.
     #[serde(skip)]
     pub source: String,
-    /// Whether it accepted the last record. `None` before the first one.
+    /// Whether it accepted the last record it was asked to store. `None` before the
+    /// first one, and frozen at `false` once the device is quarantined — from then on it
+    /// is not asked, and reporting `true` for a device nobody wrote to would be the
+    /// clearest possible way to hide this.
     pub accepting: Option<bool>,
+    /// The first sequence number this device is known to have missed, if it has missed
+    /// one. `None` for a device that is still being written to.
+    ///
+    /// **This is the field to alert on.** A deployment runs two devices so that it has
+    /// two copies; a value here means it has one, and the second is frozen at whatever it
+    /// held. Finding F6 of the review of 2026-08-24.
+    ///
+    /// A number and never a reason: a device failure message names a path, and this route
+    /// is unauthenticated — the same rule the failure reasons already follow.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quarantined_from: Option<u64>,
 }
 
 /// Turn the devices' own names into stable published labels.
@@ -254,13 +268,29 @@ impl AppState {
         surface: crate::surface::Active,
     ) -> Self {
         let pepper = TokenPepper::derive(&root);
+        // Both asked before the sink is moved. The quarantine list matters at startup
+        // because a device can be stopped before this process writes anything:
+        // `AuditSink::new` compares each device with the chain it resumed from, so one
+        // that missed records while an earlier process ran is stopped before the first
+        // request arrives. Health has to say that from the start rather than from the
+        // first write.
         let sources = audit.device_names();
+        let stopped = audit.quarantined();
         let devices = device_labels(&sources)
             .into_iter()
             .zip(sources.iter())
             .map(|(name, source)| DeviceHealth {
+                // Matched on the device's own name, which is what the sink reports --
+                // never on the published label.
+                quarantined_from: stopped
+                    .iter()
+                    .find(|one| one.device == *source)
+                    .map(|one| one.missed_from),
                 name,
                 source: (*source).to_owned(),
+                // `None` and not `false`: nothing has been written yet, so "did not
+                // accept the last record" is not a fact about any device here -- a
+                // quarantined one missed records that somebody else wrote.
                 accepting: None,
             })
             .collect();
@@ -337,13 +367,33 @@ impl AppState {
     /// was stored somewhere, the request succeeds, and without this the fact that one
     /// device refused would be discarded — which is how a second device that has been
     /// failing for a month becomes a second device that does not exist.
-    fn note_device_outcome(&self, failures: &[ciphr_audit::DeviceFailure]) {
+    fn note_device_outcome(
+        &self,
+        failures: &[ciphr_audit::DeviceFailure],
+        quarantined: &[ciphr_audit::Quarantined],
+    ) {
         let Ok(mut guard) = self.inner.devices.lock() else {
             return;
         };
         for device in guard.iter_mut() {
-            // Matched on `source`, the name the sink reports, and not on the published
-            // label -- the label is for whoever reads health, this is the join key.
+            // Both matched on `source`, the name the sink reports, and never on the
+            // published label -- the label is for whoever reads health, this is the join
+            // key.
+            if let Some(stopped) = quarantined
+                .iter()
+                .find(|stopped| stopped.device == device.source)
+            {
+                device.quarantined_from = Some(stopped.missed_from);
+            }
+
+            // **A quarantined device is not asked, and therefore does not report `true`.**
+            // Without this the next successful record would find it absent from the
+            // failure list -- because it was skipped -- and mark it as accepting again,
+            // which is precisely the "green health over a broken copy" half of F6.
+            if device.quarantined_from.is_some() {
+                device.accepting = Some(false);
+                continue;
+            }
             device.accepting = Some(!failures.iter().any(|f| f.device == device.source));
         }
     }
@@ -442,12 +492,13 @@ impl AppState {
 
         match outcome {
             Ok(written) => {
-                self.note_device_outcome(&written.failures);
+                self.note_device_outcome(&written.failures, &written.quarantined);
                 self.explain_the_gap(&written.failures);
                 Ok(())
             }
             Err(AuditError::AllDevicesFailed { failures }) => {
-                self.note_device_outcome(&failures);
+                // No quarantine: nothing was committed, so no device missed anything.
+                self.note_device_outcome(&failures, &[]);
                 Err(ApiError::AuditUnavailable)
             }
             Err(_) => Err(ApiError::AuditUnavailable),
