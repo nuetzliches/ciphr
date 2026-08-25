@@ -1,9 +1,15 @@
 # Secrets in a CI job: `ciphr-ci`, and the masking trap
 
-**Status:** implemented and tested as of 2026-08-25, **released in `v0.12.0`**
+**Status:** implemented and tested as of 2026-08-25, current as of `v0.12.1`
 ([ADR-25](../adr/0025-the-ci-side-fetch-is-its-own-binary.md)). Both `ciphr-ci` and `action.yml` are
-covered by tests that run the real binary against the real service. The tag and both checksums below
-are the ones `v0.12.0` published; they are the values to use, not an illustration of their shape. **Both architectures**, since 2026-08-24 (issue #4): every commit builds and runs `ciphr-ci` and
+covered by tests that run the real binary against the real service.
+
+**The example below pins `v0.12.0`, on purpose, and will not follow every release.** The tag and both
+checksums are real and that release's assets are still there, which is all a workflow needs — and the
+alternative is what the last three releases did: new binaries have new numbers, so each one turned the
+block back into placeholders until somebody filled them in again. A block that oscillates between
+numbers and placeholders teaches a reader to distrust it. Pin a newer tag when there is a reason to,
+take both numbers from that release's job summary, and change all three together. **Both architectures**, since 2026-08-24 (issue #4): every commit builds and runs `ciphr-ci` and
 `ciphr-run` as static binaries on a native amd64 and a native arm64 runner, and a release attaches an
 asset for each. What is *measured* about the masking is narrower than what runs,
 and the section on that says exactly where the line is.

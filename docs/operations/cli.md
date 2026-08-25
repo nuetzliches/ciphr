@@ -1,6 +1,6 @@
 # The `ciphr` command
 
-**Status:** implemented and tested as of 2026-08-25, released in `v0.12.0` except where a line says
+**Status:** implemented and tested as of 2026-08-25, released in `v0.12.1` except where a line says
 otherwise. Every command below works and every one of them is in a release. The export *rendering*
 moved into `ciphr-export` on 2026-08-24 and is now shared with `ciphr-ci` (ADR-25); no command's
 behaviour changed with it. Deployment

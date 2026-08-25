@@ -1,6 +1,6 @@
 # Monitoring: what to poll, and what each answer means
 
-**Status:** current as of 2026-08-25, `v0.12.0` released; the three extra channels below land in `0.12.1`. Every field below was read out of `crates/ciphr-server/src/api.rs`
+**Status:** current as of 2026-08-25, `v0.12.1` released. Every field below was read out of `crates/ciphr-server/src/api.rs`
 and `state.rs` rather than out of `openapi.yaml`, because the point of this page is what the process
 actually reports. Where the two disagree, it says so.
 
