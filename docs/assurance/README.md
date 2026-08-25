@@ -55,7 +55,8 @@ what broke, what was confusing, and what an operator needed and did not have.
 
 | Report | Date | Against | Answered in |
 |---|---|---|---|
-| [field-reports/field-report-2026-08-25.md](field-reports/field-report-2026-08-25.md) | 2026-08-25 | `v0.12.0` | `ui-v0.3.3`, and in progress |
+| [field-reports/field-report-2026-08-25-b.md](field-reports/field-report-2026-08-25-b.md) | 2026-08-25 | `v0.12.1`, `ui-v0.3.3` | open |
+| [field-reports/field-report-2026-08-25.md](field-reports/field-report-2026-08-25.md) | 2026-08-25 | `v0.12.0` | `v0.12.1`, `ui-v0.3.3` |
 | [field-reports/field-report-2026-08-23-b.md](field-reports/field-report-2026-08-23-b.md) | 2026-08-23 | `v0.9.0` | `v0.10.0` |
 | [field-reports/field-report-2026-08-23.md](field-reports/field-report-2026-08-23.md) | 2026-08-23 | `v0.7.0` | `v0.8.0` |
 | [field-reports/field-report-2026-08-22.md](field-reports/field-report-2026-08-22.md) | 2026-08-22 | `v0.6.1` | `v0.7.0` |
