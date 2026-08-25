@@ -8,6 +8,26 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Documentation — the field report of 2026-08-25, and a gate that fired on it
+
+**[The sixth report from the pilot deployment](docs/assurance/field-reports/field-report-2026-08-25.md)**,
+written against `v0.12.0` during the upgrade from `0.10.0`. It carries a measurement rather than only
+asks: a pre-flight against copies of the real store and audit file, with a throwaway `0.12.0` server,
+showing the chain at `seq 1..391` and the file device at `2..391` — heads in agreement, no quarantine —
+and then the same copy truncated by ten lines to produce the case rather than only its absence.
+
+**`check-doc-index.sh` refused it, and the gate was wrong.** It read *"391 records"* — a count of audit
+chain records — as a claim about the number of architecture decision records, because it checked any
+`N record(s)` in any document. "Record" is an ordinary word in this repository; the audit trail is made
+of them.
+
+The check is narrowed rather than the document allowlisted. A **qualified** claim — *"25 architecture
+records"*, *"24 decision records"* — is still checked wherever it appears, because that phrase means
+one thing. A **bare** *"N records"* is checked only on the pages whose subject is the record set: the
+four indexes and the root README. Verified by putting the drifts the gate was written for back one at
+a time; both are still caught. Allowlisting a legitimate document would have left a gate that fires on
+unrelated prose, which is a gate people learn to work around.
+
 ### Fixed — a malformed request body no longer buys silence
 
 The gap [`0.12.0`](CHANGELOG.md) named and did not close. F12 recorded an authenticated caller refused
