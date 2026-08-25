@@ -25,6 +25,7 @@
 
 use std::net::{IpAddr, SocketAddr};
 
+use axum::body::Body;
 use axum::extract::{
     ConnectInfo, FromRef, FromRequest, FromRequestParts, Path, Query, Request, State,
 };
@@ -170,7 +171,9 @@ async fn unmatched_route(
     State(state): State<AppState>,
     headers: HeaderMap,
     origin: Origin,
+    body: Body,
 ) -> ApiError {
+    drain(body).await;
     refused_request(&state, &headers, origin, "unmatched-route")
 }
 
@@ -179,8 +182,36 @@ async fn unmatched_method(
     State(state): State<AppState>,
     headers: HeaderMap,
     origin: Origin,
+    body: Body,
 ) -> ApiError {
+    drain(body).await;
     refused_request(&state, &headers, origin, "unmatched-method")
+}
+
+/// Read and discard a request body a fallback is not going to look at.
+///
+/// **Answering a request without reading its body costs the connection.** The server
+/// cannot keep a connection whose request it never finished reading, so it closes one it
+/// would otherwise have kept. A client that has already returned that connection to its
+/// pool can hand it out again before it sees the close, and the request that draws it
+/// reports `Peer disconnected` -- a failure on a request that had nothing wrong with it.
+///
+/// One CI run failed with exactly that shape: `read_all` on a deployment without
+/// `bulk_export` posts to an absent `/v1/export`, and the error landed two requests
+/// later, on the prefix listing. It has not reproduced -- the same run was green on a
+/// re-run of the same commit, and it does not reproduce locally with this code removed.
+/// The change is here because the hazard is real whether or not it explains that run,
+/// and reading a few kilobytes nobody wants is cheaper than a connection nobody can
+/// keep.
+///
+/// **Bounded, because the alternative is a place to send gigabytes to.** A body past the
+/// limit is left unread and the connection closes, which is the right answer for a
+/// request that was going nowhere anyway — the bound is there so an unmatched route
+/// cannot be turned into a way to make this process read for as long as somebody wants
+/// to write.
+async fn drain(body: Body) {
+    const DRAIN_MAX: usize = 64 * 1024;
+    let _ = axum::body::to_bytes(body, DRAIN_MAX).await;
 }
 
 /// Answer a request that reached no handler, and record it if it carried a valid token.

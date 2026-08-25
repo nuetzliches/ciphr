@@ -8,6 +8,15 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Changed
+
+- **A request body sent to a route that is not there is read and discarded.** A fallback that
+  answers without reading the body leaves the server no choice but to close a connection it would
+  otherwise have kept, and a client that has already pooled that connection can fail on the *next*
+  request — one with nothing wrong with it. Reading is bounded at 64 KiB, so an unmatched route is
+  not a place to send gigabytes to; a body past the bound is still left unread and the connection
+  still closes, which is the right answer for a request that was going nowhere.
+
 ## [0.12.1] — 2026-08-25
 
 **A point release that a deployment reported into existence.** Everything here answers
