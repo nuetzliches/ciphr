@@ -52,6 +52,14 @@
 # twenty-five and adds a few a year, and past that the gate says so rather than
 # passing quietly.
 #
+# **A bare "N records" counts only on a page whose subject is the record set.**
+# "Record" is an ordinary word in this repository -- the audit trail is made of
+# them -- so a field report writing "391 records" about a chain is not making a
+# claim about this directory. A *qualified* claim, "N architecture records" or
+# "N decision records", means one thing and is checked wherever it appears. The
+# looser rule fired on exactly such a report on 2026-08-25, and a gate that
+# fails on an unrelated document is a gate people learn to work around.
+#
 # **Nothing about `.claude/plans/` or the site.** The plan is a specification,
 # not an index, and `site/` is a curated ordering that deliberately does not
 # carry everything.
@@ -184,11 +192,29 @@ if [ -z "$expected_word" ]; then
     echo "    extend word_for() in $0 -- an unchecked count is how the last one drifted" >&2
     status=1
 else
-    # Every count claim about the records, in either form, in any document that
-    # makes one.
+    # Every count claim about the *architecture* records.
+    #
+    # "Record" is an ordinary word here -- the audit trail is made of them -- so a
+    # bare "391 records" is a claim about a chain and not about this directory.
+    # Two scopes rather than one, which is what keeps the check from firing on a
+    # field report that counted something else:
+    #
+    #   * a **qualified** claim -- "25 architecture records", "24 decision
+    #     records" -- is checked wherever it appears, because that phrase means
+    #     one thing;
+    #   * a **bare** claim -- "twenty-four records" -- is checked only on the
+    #     pages whose subject is the record set: the four indexes and the root
+    #     README.
+    #
+    # All three drifted counts this gate was written for are still caught: the
+    # root README's was qualified, and the other two were bare on index pages.
     for doc in README.md $(find docs -name '*.md' | sort); do
-        # A claim is a number or number word immediately before "record" or
-        # "architecture record", which is how every one of them is phrased.
+        bare=''
+        case " $indexes README.md " in
+            *" $doc "*) bare='yes' ;;
+        esac
+
+        # A claim is a number or number word immediately before the noun.
         # Lower-cased before comparison: `docs/adr/README.md` opens a sentence
         # with "Twenty-four records", and a gate that missed a claim because it
         # began a sentence would be checking punctuation rather than the number.
@@ -198,7 +224,12 @@ else
         # subshell and lose every failure it found, and iterating `$(grep ...)`
         # directly is SC2013. Word splitting is what is wanted here -- each claim
         # is a single token by construction.
-        claims=$(grep -oiE '[a-z0-9-]+ (architecture )?(decision )?records?' "$doc" |
+        if [ -n "$bare" ]; then
+            pattern='[a-z0-9-]+ (architecture )?(decision )?records?'
+        else
+            pattern='[a-z0-9-]+ (architecture|decision) records?'
+        fi
+        claims=$(grep -oiE "$pattern" "$doc" |
                      awk '{ print tolower($1) }' | sort -u)
 
         for claim in $claims; do
