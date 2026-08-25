@@ -1,6 +1,6 @@
 # Monitoring: what to poll, and what each answer means
 
-**Status:** current as of 2026-08-25. Every field below was read out of `crates/ciphr-server/src/api.rs`
+**Status:** current as of 2026-08-25, `v0.12.0` released. Every field below was read out of `crates/ciphr-server/src/api.rs`
 and `state.rs` rather than out of `openapi.yaml`, because the point of this page is what the process
 actually reports. Where the two disagree, it says so.
 
@@ -28,18 +28,18 @@ is the deferred `POST /v1/report` (ADR-16). Two consequences worth holding onto 
 
 | Field | What it is | Changes at runtime? |
 |---|---|---|
-| `status` | `"ok"`, or `"degraded"` when the process could not establish something it reports on | **Yes, since `0.11.0`.** It was the literal `"ok"` before that |
+| `status` | `"ok"`, or `"degraded"` when the process could not establish something it reports on | **Yes, since `0.12.0`.** It was the literal `"ok"` before that |
 | `sealed` | The literal `false` | **No.** v1 unseals at startup or refuses to start |
 | `seal` | The seal mechanism recorded in the store (`static`, or `static_env` in older stores) | No — a configuration fact |
 | `key_source` | Where *this process* read its key: `env`, `file`, or `supplied` | No — but it is the field that shows which source is live during a migration from one to the other |
 | `audit_devices[]` | One entry per configured device: `name`, `accepting`, and `quarantined_from` where it applies. The name is a label — `sqlite-1`, `file-1` — and not the configured path | **Yes**, `accepting` and `quarantined_from` do |
 | `surface` | Names of the optional entries this process is running (ADR-20) | No. The date and reason a deployment recorded stay behind `inspect` on `sys/surface` |
 | `tripped`, `open_tripwires` | Whether any tripwire is open (ADR-15) | Yes — **and absent in a build without `honeypot_alert`, or when the store could not be asked** |
-| `degraded[]` | What this process could not establish, by name. Absent when there is nothing to report | **Yes, since `0.11.0`.** The reason `status` reads `degraded` |
+| `degraded[]` | What this process could not establish, by name. Absent when there is nothing to report | **Yes, since `0.12.0`.** The reason `status` reads `degraded` |
 | `api_version` | `"v1"` | No |
 
 **Three fields carry live state now and the rest are facts about how the process was started.** Until
-`0.11.0` there was exactly one, and this page said so — a rule on `status` was a rule on a constant.
+`0.12.0` there was exactly one, and this page said so — a rule on `status` was a rule on a constant.
 Finding F9 of the [review of 2026-08-24](../assurance/reviews/review-2026-08-24-full-repository.md)
 changed that: `status` and `degraded` say when the process could not establish part of what it
 reports, which is a thing worth alerting on and previously was not expressible.
@@ -70,7 +70,7 @@ that lost its second device keeps serving and reports nothing anywhere else.
 Alert on `accepting == false` for any device. Not on the request rate, and not on the `503`s — by the
 time requests fail, every device is refusing.
 
-**And alert on `quarantined_from` being present, which is the stronger signal.** Since `0.11.0` a
+**And alert on `quarantined_from` being present, which is the stronger signal.** Since `0.12.0` a
 device that misses a committed record is stopped rather than written to again — otherwise the next
 record it accepted would carry a `prev_hash` naming a record it does not hold, and that file would
 stop verifying at that point for good. The field carries the first sequence number it missed.
@@ -105,7 +105,7 @@ is supposed to survive a full volume must not live on the volume that fills.
 has been taken" are different facts. Check `surface` for the entry name before trusting the field, and
 see [honeypots.md](honeypots.md) for what to do when it fires. A tripwire nobody polls is decoration.
 
-**It is absent for a second reason since `0.11.0`, and that one is worth an alert.** If the store
+**It is absent for a second reason since `0.12.0`, and that one is worth an alert.** If the store
 cannot be asked, `tripped` and `open_tripwires` are absent, `degraded` carries `tripwires`, and
 `status` reads `degraded`. Before that release the same situation produced `tripped: false`,
 `open_tripwires: 0` and `status: "ok"` — an affirmative *nothing has been taken* from a process that

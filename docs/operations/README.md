@@ -1,6 +1,6 @@
 # Operations
 
-**Status:** current as of 2026-08-24, `v0.11.0` released. Eleven documents: ten procedures for a
+**Status:** current as of 2026-08-25, `v0.12.0` released. Eleven documents: ten procedures for a
 system that exists, and one design for a tier that does not.
 
 Ordered by what you are trying to do, not by subsystem. The index one level up
