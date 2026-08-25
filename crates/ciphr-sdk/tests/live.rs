@@ -504,6 +504,51 @@ fn a_deployment_without_the_bulk_route_still_serves_an_environment() {
     }
 }
 
+/// A request to a route that is not there must not cost the connection.
+///
+/// `POST /v1/export` on a deployment without `bulk_export` reaches the router fallback
+/// with a body. A fallback that answers without reading it leaves the server no choice
+/// but to close a connection it would otherwise have kept, and a client that has already
+/// pooled that connection can fail on the *next* request instead -- one with nothing
+/// wrong with it. This asserts the property that makes that impossible: after a body
+/// goes to a route that is not there, the same client keeps working.
+///
+/// **This test passes with the drain removed**, here and on this machine, which is worth
+/// stating plainly: it does not reproduce the race, it pins the behaviour so a future
+/// fallback cannot quietly stop reading. Written as a loop over one pooled client
+/// because the failure needs the connection handed out again, and the request right
+/// after the fallback is not reliably that request.
+#[test]
+fn a_body_sent_to_an_absent_route_does_not_poison_the_connection() {
+    let live = Live::start_without_bulk_export();
+    let client = live.client();
+
+    let paths: Vec<SecretPath> = core::iter::repeat_with(|| {
+        SecretPath::parse("infra/service-a/DB_PASSWORD").expect("valid")
+    })
+    .take(64)
+    .collect();
+    let prefix = SecretPath::parse("infra/service-a").expect("valid");
+
+    for round in 0..12 {
+        match client.export(&paths) {
+            Err(SdkError::SurfaceEntryUnavailable { .. }) => {}
+            Err(other) => panic!("round {round}: expected the entry to be named, got {other}"),
+            Ok(_) => panic!("the route is not registered on this service"),
+        }
+
+        // The two requests after it, on the same pool. Either one is where an unread
+        // body surfaces, and neither has anything to do with the route that was absent.
+        client
+            .health()
+            .unwrap_or_else(|error| panic!("round {round}: health after the fallback: {error}"));
+        let environment = client
+            .environment(&prefix)
+            .unwrap_or_else(|error| panic!("round {round}: listing after the fallback: {error}"));
+        assert_eq!(environment.len(), 2);
+    }
+}
+
 /// The property ADR-17 is about: this client trusts one key, and not a set.
 #[test]
 fn a_certificate_from_another_authority_is_refused() {
