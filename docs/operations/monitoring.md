@@ -1,6 +1,6 @@
 # Monitoring: what to poll, and what each answer means
 
-**Status:** current as of 2026-08-25, `v0.12.0` released. Every field below was read out of `crates/ciphr-server/src/api.rs`
+**Status:** current as of 2026-08-25, `v0.12.0` released; the three extra channels below land in `0.12.1`. Every field below was read out of `crates/ciphr-server/src/api.rs`
 and `state.rs` rather than out of `openapi.yaml`, because the point of this page is what the process
 actually reports. Where the two disagree, it says so.
 
@@ -81,6 +81,11 @@ no device missed and nothing is quarantined for it. `quarantined_from` never cle
 runs — **it needs a human**, and the procedure is in
 [audit-trail.md](audit-trail.md). A deployment running two devices to have two copies has one from
 that moment on.
+
+**A rule you already have on `accepting` fires either way.** A quarantined device reports
+`accepting: false` and keeps reporting it, so this is not a state you can only see with a new rule —
+`quarantined_from` is what tells you the difference is permanent. And since `0.12.1` the same state is
+in the trail and on stderr at startup, so a deploy log shows it before any monitor does.
 
 **3. Audit volume fill level — still not answerable here, and it is the one that hurts.** Nothing on
 the endpoint reports free space. This matters more than the other three combined, because the audit

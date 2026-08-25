@@ -70,14 +70,28 @@ pub enum Action {
     /// rotate?" unanswerable from the trail — and downgrading a classification is
     /// the step that comes immediately before a rotation that destroys data.
     Classify,
-    /// An audit device refused a record that another device accepted.
+    /// An audit device is missing a record the chain has.
     ///
     /// Not an operation anybody requested — an event in the trail's own life. It exists
-    /// because the chain advances when *any* device accepts, so the refusing device is
-    /// permanently missing that sequence number, and a gap is indistinguishable from a
-    /// deleted entry afterwards. This entry is what makes the difference recoverable:
+    /// because the chain advances when *any* device accepts, so the device that did not
+    /// is permanently missing that sequence number, and a gap is indistinguishable from
+    /// a deleted entry afterwards. This entry is what makes the difference recoverable:
     /// the trail explains its own gaps instead of leaving whoever finds one to guess,
     /// and guessing wrong means treating a disk hiccup as an unlogged access.
+    ///
+    /// **Three reasons carry it, and they are not the same event.** `device-refused`
+    /// is one record a device would not take. `device-quarantined` is that device being
+    /// stopped for good as a result — a permanent state that needs a human, written on
+    /// the same request as the refusal it follows. `device-behind-at-start` is the third
+    /// and the one a deployment meets most often: a process finding, at startup, that a
+    /// device holds fewer records than the chain does, because it fell behind while
+    /// something else was running.
+    ///
+    /// The last of those was added on 2026-08-25, from
+    /// `docs/assurance/field-reports/field-report-2026-08-25.md`. Until then a device
+    /// quarantined at startup existed **only** as a field on `/v1/health`: no entry, and
+    /// no line anywhere. The release that introduced the state named that start as the
+    /// moment it would most often fire.
     AuditDeviceFailed,
     /// An authenticated caller was refused before any handler could record a decision.
     ///
