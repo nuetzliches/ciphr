@@ -1775,6 +1775,131 @@ fn export_writes_one_audit_entry_per_secret_served() {
     assert_eq!(after - before, 3, "one entry per secret, not one per call");
 }
 
+/// An export names each path once, and at most 256 of them — and a refusal costs the
+/// server a parse and nothing else.
+///
+/// Finding F5 of the review of 2026-08-24. `ExportRequest.paths` had no bound: one
+/// authenticated request could name a path ten thousand times and buy an authorization,
+/// a durable audit write, a store read and a decryption for each occurrence, all of it
+/// under the process-wide store and audit mutexes, and then a *correcting* audit write
+/// per path already processed if anything failed late.
+///
+/// The audit count is the assertion that matters. A refusal that still wrote entries
+/// would mean the structural checks had moved rather than been moved *in front of* the
+/// work.
+#[test]
+fn an_export_is_bounded_and_a_refusal_writes_nothing() {
+    let harness = Harness::new();
+    let request = Harness::build(
+        "PUT",
+        "/v1/secrets/infra/bulk/ONE",
+        Some(&harness.deploy_token),
+        Some(serde_json::json!({ "value": "x" })),
+    );
+    harness.send(request);
+
+    let entries_before = harness.audit_entries().len();
+
+    // Too many.
+    let many: Vec<String> = (0..257).map(|n| format!("infra/bulk/P{n}")).collect();
+    let (status, body) = harness.send(Harness::build(
+        "POST",
+        "/v1/export",
+        Some(&harness.deploy_token),
+        Some(serde_json::json!({ "paths": many })),
+    ));
+    assert_eq!(status, StatusCode::BAD_REQUEST, "got {body}");
+    assert!(
+        body["detail"]
+            .as_str()
+            .expect("a detail")
+            .contains("at most 256"),
+        "the refusal names the limit, got {body}"
+    );
+
+    // The same path twice. Refused rather than deduplicated: asking twice is a caller
+    // bug, and silently returning fewer entries than were asked for is how such a bug
+    // reaches production.
+    let (status, body) = harness.send(Harness::build(
+        "POST",
+        "/v1/export",
+        Some(&harness.deploy_token),
+        Some(serde_json::json!({
+            "paths": ["infra/bulk/ONE", "infra/bulk/ONE"]
+        })),
+    ));
+    assert_eq!(status, StatusCode::BAD_REQUEST, "got {body}");
+    assert!(
+        body["detail"]
+            .as_str()
+            .expect("a detail")
+            .contains("more than once"),
+        "the refusal names the rule, got {body}"
+    );
+
+    // A malformed path *after* a valid one. This is the ordering the finding was about:
+    // before the fix, the valid path ahead of it had already been authorized, recorded
+    // and decrypted, and then corrected on the way out -- two entries bought by a
+    // request that was never going to be served.
+    let (status, body) = harness.send(Harness::build(
+        "POST",
+        "/v1/export",
+        Some(&harness.deploy_token),
+        Some(serde_json::json!({
+            "paths": ["infra/bulk/ONE", "not a valid path!!"]
+        })),
+    ));
+    assert_eq!(status, StatusCode::BAD_REQUEST, "got {body}");
+
+    assert_eq!(
+        harness.audit_entries().len(),
+        entries_before,
+        "a structurally invalid export writes no audit entry at all"
+    );
+}
+
+/// An empty request is still refused, and still says so.
+#[test]
+fn an_export_with_no_paths_is_refused() {
+    let harness = Harness::new();
+    let (status, body) = harness.send(Harness::build(
+        "POST",
+        "/v1/export",
+        Some(&harness.deploy_token),
+        Some(serde_json::json!({ "paths": [] })),
+    ));
+    assert_eq!(status, StatusCode::BAD_REQUEST, "got {body}");
+    assert!(
+        body["detail"]
+            .as_str()
+            .expect("a detail")
+            .contains("no paths"),
+        "got {body}"
+    );
+}
+
+/// Exactly the limit is allowed, so the boundary is a limit and not an off-by-one.
+///
+/// The paths do not exist, so this is refused for a different reason — `404` — and that
+/// is the point: it got past the structural check, which is what is under test. Making
+/// 256 real secrets to assert a boundary would be a slower test asserting the same thing.
+#[test]
+fn the_path_limit_is_inclusive() {
+    let harness = Harness::new();
+    let at_limit: Vec<String> = (0..256).map(|n| format!("infra/bulk/P{n}")).collect();
+    let (status, body) = harness.send(Harness::build(
+        "POST",
+        "/v1/export",
+        Some(&harness.deploy_token),
+        Some(serde_json::json!({ "paths": at_limit })),
+    ));
+    assert_ne!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "256 is allowed; the refusal above it is what bounds this, got {body}"
+    );
+}
+
 #[test]
 fn an_export_that_includes_one_forbidden_path_returns_nothing() {
     // Returning the permitted subset would let a caller map which paths they may read,

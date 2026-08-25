@@ -41,6 +41,31 @@ use serde::{Deserialize, Serialize};
 use crate::error::ApiError;
 use crate::state::{AppState, Caller, DeviceHealth};
 
+/// The most paths one `POST /v1/export` request may name.
+///
+/// Finding F5 of the review of 2026-08-24: `ExportRequest.paths` had no bound at all, so
+/// one authenticated request could name a path ten thousand times and buy ten thousand
+/// authorizations, durable audit writes, store reads and decryptions — each holding the
+/// process-wide store and audit mutexes, and each keeping another plaintext copy for the
+/// response. A late failure then added a *correcting* audit write per path already
+/// processed. Denial of service by load is an accepted boundary here; supplying that much
+/// amplification inside one request is not the same thing.
+///
+/// **256 is generous rather than tight**, and deliberately so. A container's environment
+/// is a few dozen variables, and the fetching consumers — `ciphr-run` and `ciphr-ci` —
+/// name one path per variable. A deployment that exceeds this is fetching a prefix wide
+/// enough that it should say so in more than one request, and the refusal names the
+/// limit so the remedy is obvious rather than a guess.
+const EXPORT_PATHS_MAX: usize = 256;
+
+/// The most plaintext one export response may carry, in bytes.
+///
+/// The other half of F5: the request body is bounded by the extractor, and that bounds
+/// nothing about the response when a short path names a large value. Checked as the
+/// values are read, so the process stops accumulating rather than discovering the total
+/// while serializing it.
+const EXPORT_BYTES_MAX: usize = 1024 * 1024;
+
 /// The most audit entries one request will return.
 const AUDIT_LIMIT_MAX: u32 = 1000;
 /// How many audit entries a request returns if it does not say.
@@ -900,17 +925,19 @@ async fn export(
     let request = request_context(&headers, origin);
     let caller = authenticate(&state, &headers, Action::Read, &request)?;
 
-    if body.paths.is_empty() {
-        return Err(ApiError::BadRequest {
-            reason: "no paths requested".to_owned(),
-        });
-    }
+    // **Every structural check before the first audit or store operation.** Finding F5
+    // of the review of 2026-08-24. Parsing used to happen inside the loop, interleaved
+    // with authorization and durable writes, so a request that was malformed in its
+    // ninth path had already bought eight audit entries and eight decryptions -- and
+    // then eight correcting entries on the way out. A request that this server will not
+    // serve should cost it a parse and nothing else.
+    let paths = validate_export_paths(&body.paths)?;
 
     // Every path whose decision is on the trail already. Recorded before the read it
     // authorizes, so a path is in here whether or not its value was produced.
-    let mut recorded: Vec<SecretPath> = Vec::with_capacity(body.paths.len());
+    let mut recorded: Vec<SecretPath> = Vec::with_capacity(paths.len());
 
-    match export_secrets(&state, &caller, &request, body.paths, &mut recorded) {
+    match export_secrets(&state, &caller, &request, paths, &mut recorded) {
         Ok(secrets) => Ok(Json(ExportResponse { secrets })),
         Err(error) => {
             for path in &recorded {
@@ -928,6 +955,54 @@ async fn export(
     }
 }
 
+/// Every structural check an export request has to pass, before it costs anything.
+///
+/// Finding F5 of the review of 2026-08-24. Three rules, and the order matters only in
+/// that all of them run before the first audit write:
+///
+/// - **Not empty.** The one check that was already here.
+/// - **At most [`EXPORT_PATHS_MAX`].** See that constant for why the number is what it
+///   is.
+/// - **No duplicates, compared after parsing.** `a/b/C` and `a/b/C` are the obvious case;
+///   the reason this compares the *parsed* form is that two spellings normalizing to one
+///   path would otherwise slip past a textual check and buy the amplification anyway. A
+///   duplicate is refused rather than deduplicated: a caller asking twice for one secret
+///   has a bug, and quietly returning fewer entries than it asked for is how that bug
+///   reaches production.
+///
+/// # Errors
+///
+/// [`ApiError::BadRequest`], naming the rule that refused and the path where relevant.
+fn validate_export_paths(raw: &[String]) -> Result<Vec<SecretPath>, ApiError> {
+    if raw.is_empty() {
+        return Err(ApiError::BadRequest {
+            reason: "no paths requested".to_owned(),
+        });
+    }
+
+    if raw.len() > EXPORT_PATHS_MAX {
+        return Err(ApiError::BadRequest {
+            reason: format!(
+                "{} paths requested; at most {EXPORT_PATHS_MAX} in one export",
+                raw.len()
+            ),
+        });
+    }
+
+    let mut paths: Vec<SecretPath> = Vec::with_capacity(raw.len());
+    for one in raw {
+        let path = parse_path(one)?;
+        if paths.iter().any(|seen| seen.as_str() == path.as_str()) {
+            return Err(ApiError::BadRequest {
+                reason: format!("{} is requested more than once", path.as_str()),
+            });
+        }
+        paths.push(path);
+    }
+
+    Ok(paths)
+}
+
 /// The body of [`export`], separated so that a failure anywhere in it has one place to
 /// be caught.
 ///
@@ -938,13 +1013,12 @@ fn export_secrets(
     state: &AppState,
     caller: &Caller,
     request: &RequestContext,
-    paths: Vec<String>,
+    paths: Vec<SecretPath>,
     recorded: &mut Vec<SecretPath>,
 ) -> Result<Vec<ExportedSecret>, ApiError> {
     let mut secrets = Vec::with_capacity(paths.len());
-    for raw in paths {
-        let path = parse_path(&raw)?;
-
+    let mut bytes = 0usize;
+    for path in paths {
         // Per path: authorize, record, then read.
         state.authorize_and_record(caller, Action::Read, Capability::Read, &path, request)?;
         recorded.push(path.clone());
@@ -960,6 +1034,19 @@ fn export_secrets(
             String::from_utf8(plaintext.expose().to_vec()).map_err(|_| ApiError::Internal {
                 detail: "a stored value is not valid UTF-8; read it with the CLI".to_owned(),
             })?;
+
+        // Checked as the values accumulate rather than after the last one: the point is
+        // to stop holding plaintext, and a total discovered while serializing is a total
+        // that is already in memory.
+        bytes = bytes.saturating_add(value.len());
+        if bytes > EXPORT_BYTES_MAX {
+            return Err(ApiError::BadRequest {
+                reason: format!(
+                    "this export exceeds {EXPORT_BYTES_MAX} bytes of values; \
+                     request fewer paths"
+                ),
+            });
+        }
 
         secrets.push(ExportedSecret {
             path: stored.path.as_str().to_owned(),

@@ -351,6 +351,14 @@ impl Client {
     /// per path for anyone holding a token — but it is a difference worth knowing when
     /// reading a trail that stops halfway.
     ///
+    /// **The bulk route is bounded and the per-path route is not.** Since the review of
+    /// 2026-08-24 the service refuses an export naming more than 256 paths, or naming one
+    /// twice, and bounds the total value bytes it will return. This method does not chunk
+    /// around that: a set above the limit is refused by the service, with a message that
+    /// names it, rather than being split into requests the caller did not ask for and
+    /// cannot see in its own trail. Splitting a fetch is the caller's decision because
+    /// the failure modes differ -- see the paragraph above about what a refusal costs.
+    ///
     /// # Errors
     ///
     /// See [`SdkError`]. The first refusal ends the fetch in both shapes.

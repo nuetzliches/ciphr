@@ -8,6 +8,64 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — an export had no bounds, and paid for a malformed request before refusing it
+
+**F5 of [the full-repository review](docs/assurance/reviews/review-2026-08-24-full-repository.md).**
+`POST /v1/export` accepted any number of paths, including the same one repeatedly. One authenticated
+request could name a path ten thousand times and buy an authorization, a durable audit write, a store
+read and a decryption for every occurrence — each holding the process-wide store and audit mutexes,
+each keeping another plaintext copy for the response — and then a *correcting* audit write per path
+already processed if anything failed late. Denial of service by load is an accepted boundary in this
+project; supplying that much amplification inside one authenticated request is not the same thing.
+
+Three bounds, and **every structural one runs before the first audit or store operation**:
+
+- **At most 256 paths.** Generous rather than tight: a container's environment is a few dozen
+  variables, and the fetching consumers name one path per variable. The refusal names the limit.
+- **No duplicates**, compared after parsing, so two spellings of one path cannot slip past. Refused
+  rather than deduplicated — asking twice is a caller bug, and returning fewer entries than were asked
+  for is how such a bug reaches production.
+- **At most one mebibyte of values in total**, counted as they are read. The request body limit bounds
+  nothing about the response when a short path names a large value.
+
+Parsing used to happen inside the loop, so a request malformed in its ninth path had already bought
+eight audit entries and eight decryptions, and then eight correcting entries on the way out. A request
+this server will not serve now costs it a parse. The test asserts the audit count is unchanged across
+three refusals, which is the part that would silently regress.
+
+**What a deployment has to check.** A job fetching a **prefix wider than 256 secrets** through the
+bulk route is refused now, with a message naming the limit, and has to ask in more than one step.
+`Client::read_all` deliberately does **not** chunk around this: a fetch split behind the caller's back
+is a fetch whose audit trail the caller cannot predict. The per-path fallback has no such bound,
+because a request per path is already one unit of work per path. **This belongs in the next release's
+upgrade section.**
+
+### Fixed — a backup inherited the umask, and was world-readable under the ordinary one
+
+**F10 of [the full-repository review](docs/assurance/reviews/review-2026-08-24-full-repository.md).**
+`VACUUM INTO` creates the destination, so its mode was whatever the caller's umask allowed — `022`,
+the usual default, produced a `0644` backup. The *values* in a store file stay encrypted, but the
+secret inventory, the rotation classes, the timestamps, the writer identities, the token metadata and
+the whole audit trail are plaintext, so a `0644` backup hands every local user the map of what exists
+and who touched it.
+
+The mode is set to `0600` and then **read back and verified**, because the two can disagree: a
+filesystem carrying no Unix modes accepts the call and keeps what it had, and a backup this code
+silently failed to protect would be worse than one nobody promised anything about. There, the command
+fails instead of reporting success.
+
+**One window stays open, and is documented rather than hidden.** Between SQLite creating the file and
+the mode being set, the file exists with the umask's mode. Closing it needs a private temporary name
+and a rename — which would take away SQLite's refusal to overwrite an existing destination, trading a
+race that needs local access and timing for one that silently destroys the previous backup.
+[backup.md](docs/operations/backup.md) says to keep backups in a directory the service user owns,
+which closes it properly, and now says why. It also says that the raw `VACUUM INTO` a rescue procedure
+falls back on does none of this.
+
+**The overclaim F10 named was still in the source.** The correction landed in the threat model and the
+CLI reference on 2026-08-24 and missed `crates/ciphr-store/src/sqlite.rs`, whose module comment still
+opened with *"a stolen copy is worthless without the master key"* — the first place a reader of the
+code meets the claim.
 ### Fixed — health said "nothing has been taken" when it could not tell, and named the audit paths
 
 **F9 and F14 of [the full-repository review](docs/assurance/reviews/review-2026-08-24-full-repository.md)**, both on `GET /v1/health` — the one unauthenticated route.
