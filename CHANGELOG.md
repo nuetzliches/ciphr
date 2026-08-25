@@ -32,6 +32,11 @@ out of rotation for it. It is what a *monitor* branches on, and
 [monitoring.md](docs/operations/monitoring.md) says to alert on `degraded` carrying `tripwires`: the
 tripwire is unwatched, not clear.
 
+**The viewer says that too, beside the row rather than only in a runbook.** Found by looking at the
+rendered page: the device table below it carries a note explaining its states, and this row had none —
+an amber word with no sentence next to it is something an operator has to guess at, which is the
+failure the row exists to prevent, moved one step along.
+
 **The same query stopped materializing every open trip.** Computing a boolean and a count built the
 full `Trip` for every open row — seven columns and several allocations each — on a route something
 polls every few seconds, under the process-wide store mutex. `open_trip_count` is an aggregate.

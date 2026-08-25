@@ -88,6 +88,19 @@ onMounted(load);
       </tbody>
     </table>
 
+    <!--
+      Only alongside the row it explains. The device table below carries its own
+      note; this row had none, and an amber word with no sentence next to it is a
+      thing an operator has to guess at -- which is the failure the row exists to
+      prevent, moved one step along.
+    -->
+    <p v-if="degradedParts.length" class="note">
+      <strong>Could not be established</strong> names what this process could not read about
+      itself. It is still serving, and this is not an outage.
+      <code>tripwires</code> means it cannot tell whether bait has been taken — a reason to look,
+      not a reason to fail over.
+    </p>
+
     <h2>Audit devices</h2>
     <table>
       <thead>
