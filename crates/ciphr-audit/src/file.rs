@@ -21,7 +21,7 @@
 //! lose a line.
 
 use std::fs::{File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use crate::chain::EncodedRecord;
@@ -158,6 +158,87 @@ impl AuditDevice for FileDevice {
         &self.name
     }
 
+    /// The sequence number on the last line, read from the end of the file.
+    ///
+    /// Backwards in blocks rather than forwards through the file: an audit file is the
+    /// one file in this deployment that is expected to be large, and reading all of it
+    /// to learn one number at startup would make a slow start out of a big trail.
+    ///
+    /// A trailing newline is normal and skipped. A file whose last line is *not* valid
+    /// JSON, or carries no `seq`, is an error rather than `None` — "the last line is
+    /// unreadable" and "there are no lines" are different facts, and the sink treats
+    /// them differently.
+    fn head_seq(&self) -> Result<Option<u64>, String> {
+        // 8 KiB is comfortably more than one record and small enough that the ordinary
+        // case is one read. The loop below exists for the record that does not fit.
+        const BLOCK: u64 = 8 * 1024;
+
+        let mut file = File::open(&self.path).map_err(|error| {
+            format!(
+                "cannot open {} to read its head: {error}",
+                self.path.display()
+            )
+        })?;
+        let size = file
+            .metadata()
+            .map_err(|error| format!("cannot measure {}: {error}", self.path.display()))?
+            .len();
+        if size == 0 {
+            return Ok(None);
+        }
+
+        let mut tail: Vec<u8> = Vec::new();
+        let mut read_from = size;
+
+        let line = loop {
+            let take = BLOCK.min(read_from);
+            read_from -= take;
+            file.seek(SeekFrom::Start(read_from))
+                .map_err(|error| format!("cannot seek in {}: {error}", self.path.display()))?;
+            let mut block = vec![0u8; usize::try_from(take).unwrap_or(usize::MAX)];
+            file.read_exact(&mut block)
+                .map_err(|error| format!("cannot read {}: {error}", self.path.display()))?;
+            block.extend_from_slice(&tail);
+            tail = block;
+
+            // Ignore the newline the last record ended with, then look for the one
+            // before it: what lies between them is the last line.
+            let end = tail
+                .iter()
+                .rposition(|byte| *byte != b'\n')
+                .map_or(0, |at| at + 1);
+            if let Some(start) = tail[..end].iter().rposition(|byte| *byte == b'\n') {
+                break tail[start + 1..end].to_vec();
+            }
+            if read_from == 0 {
+                break tail[..end].to_vec();
+            }
+        };
+
+        if line.is_empty() {
+            return Ok(None);
+        }
+
+        let text = String::from_utf8(line)
+            .map_err(|_| format!("the last line of {} is not UTF-8", self.path.display()))?;
+        let parsed: serde_json::Value = serde_json::from_str(&text).map_err(|error| {
+            format!(
+                "the last line of {} is not a record: {error}",
+                self.path.display()
+            )
+        })?;
+        parsed
+            .get("seq")
+            .and_then(serde_json::Value::as_u64)
+            .map(Some)
+            .ok_or_else(|| {
+                format!(
+                    "the last line of {} carries no sequence number",
+                    self.path.display()
+                )
+            })
+    }
+
     fn write(&mut self, record: &EncodedRecord) -> Result<(), String> {
         // One buffer, written once. `write_all` loops internally, so building the
         // line in two calls doubles the number of places a partial write can happen.
@@ -238,6 +319,88 @@ mod tests {
             .read_to_string(&mut text)
             .expect("read");
         text.lines().map(str::to_owned).collect()
+    }
+
+    /// The head is read from the end of the file, and it is the *last* record.
+    ///
+    /// What the sink compares against the chain at startup (finding F6). A wrong answer
+    /// here either stops a healthy device or lets a device with a gap keep writing, so
+    /// this is asserted at three sizes rather than one.
+    #[test]
+    fn the_head_is_the_sequence_on_the_last_line() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("audit.jsonl");
+
+        let device = FileDevice::open(&path, None).expect("open");
+        assert_eq!(
+            device.head_seq().expect("head"),
+            None,
+            "a file with nothing in it holds nothing -- which is not the same as an error"
+        );
+        drop(device);
+
+        let mut sink = AuditSink::new(
+            vec![Box::new(FileDevice::open(&path, None).expect("open"))],
+            Chain::new(),
+        )
+        .expect("sink");
+        for at in 1..=3 {
+            sink.record(&Entry::allowed(Action::Read), at)
+                .expect("record");
+        }
+        drop(sink);
+
+        let device = FileDevice::open(&path, None).expect("reopen");
+        assert_eq!(device.head_seq().expect("head"), Some(3));
+    }
+
+    /// A record larger than one read block is still found.
+    ///
+    /// The loop that reads backwards exists for this case and for no other, so it is the
+    /// case worth writing down: without it, a single large record would make the device
+    /// report no head at all and the sink would treat a device holding records as empty.
+    #[test]
+    fn the_head_is_found_when_the_last_record_spans_several_blocks() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("audit.jsonl");
+
+        let mut sink = AuditSink::new(
+            vec![Box::new(FileDevice::open(&path, None).expect("open"))],
+            Chain::new(),
+        )
+        .expect("sink");
+        sink.record(&Entry::allowed(Action::Read), 1)
+            .expect("small");
+
+        // Comfortably past the 8 KiB block the reader uses.
+        let long = "p/".repeat(12_000);
+        let entry = Entry::allowed(Action::Read).with_detail(&long);
+        sink.record(&entry, 2).expect("large");
+        drop(sink);
+
+        let device = FileDevice::open(&path, None).expect("reopen");
+        assert_eq!(device.head_seq().expect("head"), Some(2));
+    }
+
+    /// A last line that is not a record is an error, not an absence.
+    ///
+    /// The two answers mean opposite things to the sink: "holds nothing" lets a device
+    /// start a new segment, "cannot say" leaves it alone. A file whose end is unreadable
+    /// must not be mistaken for a file that was rotated away.
+    #[test]
+    fn an_unreadable_last_line_is_an_error_rather_than_an_empty_device() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let path = directory.path().join("audit.jsonl");
+        std::fs::write(
+            &path,
+            b"{\"seq\":1}
+not a record at all
+",
+        )
+        .expect("write");
+
+        let device = FileDevice::open(&path, None).expect("open");
+        assert!(device.head_seq().is_err());
     }
 
     #[test]

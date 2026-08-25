@@ -119,7 +119,17 @@ export interface Health {
    * that collapses them either invents an alarm or hides one. The endpoint documents the
    * distinction, and rendering it takes three branches rather than a boolean.
    */
-  audit_devices: { name: string; accepting: boolean | null }[];
+  audit_devices: {
+    name: string;
+    accepting: boolean | null;
+    /**
+     * The first sequence number this device missed, if it missed one. A device that
+     * misses a committed record is stopped rather than written to again, so a value here
+     * means this deployment has one copy of its audit trail where it configured two.
+     * Absent from a service older than the field.
+     */
+    quarantined_from?: number;
+  }[];
   /**
    * What the service could not establish about itself, by name — and the reason `status`
    * reads `degraded`. Absent from a service that reports nothing unverifiable, and from

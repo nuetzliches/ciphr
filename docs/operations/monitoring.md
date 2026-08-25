@@ -1,6 +1,6 @@
 # Monitoring: what to poll, and what each answer means
 
-**Status:** current as of 2026-08-24. Every field below was read out of `crates/ciphr-server/src/api.rs`
+**Status:** current as of 2026-08-25. Every field below was read out of `crates/ciphr-server/src/api.rs`
 and `state.rs` rather than out of `openapi.yaml`, because the point of this page is what the process
 actually reports. Where the two disagree, it says so.
 
@@ -32,7 +32,7 @@ is the deferred `POST /v1/report` (ADR-16). Two consequences worth holding onto 
 | `sealed` | The literal `false` | **No.** v1 unseals at startup or refuses to start |
 | `seal` | The seal mechanism recorded in the store (`static`, or `static_env` in older stores) | No — a configuration fact |
 | `key_source` | Where *this process* read its key: `env`, `file`, or `supplied` | No — but it is the field that shows which source is live during a migration from one to the other |
-| `audit_devices[]` | One entry per configured device: `name`, and `accepting`. The name is a label — `sqlite-1`, `file-1` — and not the configured path | **Yes**, `accepting` does |
+| `audit_devices[]` | One entry per configured device: `name`, `accepting`, and `quarantined_from` where it applies. The name is a label — `sqlite-1`, `file-1` — and not the configured path | **Yes**, `accepting` and `quarantined_from` do |
 | `surface` | Names of the optional entries this process is running (ADR-20) | No. The date and reason a deployment recorded stay behind `inspect` on `sys/surface` |
 | `tripped`, `open_tripwires` | Whether any tripwire is open (ADR-15) | Yes — **and absent in a build without `honeypot_alert`, or when the store could not be asked** |
 | `degraded[]` | What this process could not establish, by name. Absent when there is nothing to report | **Yes, since `0.11.0`.** The reason `status` reads `degraded` |
@@ -69,6 +69,18 @@ that lost its second device keeps serving and reports nothing anywhere else.
 
 Alert on `accepting == false` for any device. Not on the request rate, and not on the `503`s — by the
 time requests fail, every device is refusing.
+
+**And alert on `quarantined_from` being present, which is the stronger signal.** Since `0.11.0` a
+device that misses a committed record is stopped rather than written to again — otherwise the next
+record it accepted would carry a `prev_hash` naming a record it does not hold, and that file would
+stop verifying at that point for good. The field carries the first sequence number it missed.
+
+The difference between the two matters when writing the rule. `accepting == false` can be transient:
+a volume that fills and is freed recovers on its own, because a record *no* device stored is a record
+no device missed and nothing is quarantined for it. `quarantined_from` never clears while the process
+runs — **it needs a human**, and the procedure is in
+[audit-trail.md](audit-trail.md). A deployment running two devices to have two copies has one from
+that moment on.
 
 **3. Audit volume fill level — still not answerable here, and it is the one that hurts.** Nothing on
 the endpoint reports free space. This matters more than the other three combined, because the audit

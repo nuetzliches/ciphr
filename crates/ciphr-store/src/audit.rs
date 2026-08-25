@@ -501,6 +501,24 @@ impl AuditDevice for SqliteAuditDevice {
         &self.name
     }
 
+    /// The highest sequence number in `audit_log`.
+    ///
+    /// `None` for an empty table, which is a fresh store — and also a store whose trail
+    /// `ciphr audit cut` has taken down to nothing. Both are "this device holds no
+    /// records", which is what the sink asks about.
+    ///
+    /// **A cut leaves the table holding fewer records but not older ones**, so the
+    /// maximum is still the head. That is what makes this comparable with the chain the
+    /// server resumes from, which is read out of this same table.
+    fn head_seq(&self) -> Result<Option<u64>, String> {
+        self.connection
+            .query_row("SELECT MAX(seq) FROM audit_log", [], |row| {
+                row.get::<_, Option<i64>>(0)
+            })
+            .map(|found| found.map(|seq| u64::try_from(seq).unwrap_or(0)))
+            .map_err(|error| format!("cannot read the head of {}: {error}", self.name))
+    }
+
     fn write(&mut self, record: &EncodedRecord) -> Result<(), String> {
         // `INSERT`, never `INSERT OR REPLACE`: a sequence number that already exists
         // means two records claim the same position in the chain, and overwriting one
