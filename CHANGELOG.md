@@ -46,6 +46,14 @@ case that would otherwise bite:
 no later failure list, and the obvious reading of that list would have called it healthy — which is
 the "green health over a broken copy" half of the finding.
 
+**And the viewer's note about that column was made false by this change**, which was caught by looking
+at the rendered page. It opened with *"a device that refuses is not an outage on its own — one
+accepting device is enough for a request to be served"*, and that describes the one case quarantine
+removes: a device that refuses a record another device stores is stopped now, and carries
+`quarantined_from`. So `refused` **without** a quarantine can only mean every device refused — the
+chain did not advance, and the request got `503`. The note called that "not an outage". It now names
+the four states in the colours the table gives them, and says which one is which.
+
 **There is no backfill, by decision.** Copying the missed records out of the SQLite device into the
 file would make the file *look* continuous while its content came from the very device the second copy
 exists to be independent of. Two files with a documented window between them, both verifying, is the

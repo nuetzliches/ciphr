@@ -136,13 +136,19 @@ onMounted(load);
       </tbody>
     </table>
     <p class="note">
-      A device that refuses is not an outage on its own — one accepting device is enough for a
-      request to be served — but it is a copy of the trail that is falling behind, and the reason it
-      gave is not on this route because the route is unauthenticated. The service log has it.
-      <em>Nothing written yet</em> is a third state and not a healthy one: it means this process has
-      recorded nothing since it started, so no device has been asked anything.
-      <strong>Stopped</strong> is the fourth and the one that needs a human: the device missed a
-      committed record, so it is no longer written to — writing to it again would produce a copy that
+      <!--
+        Each state word carries the colour it has in the table above, so a reader
+        maps the sentence onto the row without translating between them.
+      -->
+      <code class="allow">accepted</code> — the device stored the last record.
+      <code class="deny">refused</code> — <em>no</em> device stored it, so the request was refused
+      with <code>503</code>. That is an outage while it lasts, and the reason the device gave is not
+      on this route because the route is unauthenticated; the service log has it.
+      <code class="muted">nothing written yet</code> — this process has recorded nothing since it
+      started, so no device has been asked anything. On a service that has served requests, that is
+      itself the finding.
+      <code class="deny">stopped</code> — the one that needs a human: the device missed a committed
+      record and is no longer written to, because writing to it again would produce a copy that
       cannot be verified past that point. It stays stopped until somebody archives what it holds and
       restarts the service.
     </p>
