@@ -8,6 +8,46 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — revoking a token no longer scans the inventory, and says what it actually did
+
+**F7 and F8 of [the full-repository review](docs/assurance/reviews/review-2026-08-24-full-repository.md)**, both in `POST /v1/tokens/{token_id}/revoke`.
+
+**F7: the handler read the whole token inventory before checking whether the caller could
+revoke anything.** `tokens(None)` followed by a linear search, while holding the process-wide store
+mutex, for a request that then received `403`. Any authenticated identity that could reach the route
+could force work proportional to every credential in the deployment, repeatedly. It now uses
+`store.token(&id)` — one indexed row, by primary key, a method that already existed and was not
+reached for. The ordering is unchanged and still correct: the lookup precedes the recorded decision so
+the entry can name the credential that stopped working, and the `404` is still returned only after
+the capability check, so whether an id exists stays unanswerable without `revoke` on `sys/tokens`.
+
+**F8, first half: the trail could claim a revocation that never happened.** The decision was recorded
+at `200`, then the store write ran as a bare `?`. A disk, lock, or corruption failure returned `503`
+to the caller and left an entry behind saying an allowed revocation had occurred — read during an
+incident, that tells a responder a live credential is dead. The write is now wrapped in
+`complete_or_record`, the same machinery six other handlers use, so a failure adds a correcting
+entry labelled `revoke-failed`.
+
+**F8, second half: `revoked_now` was derived from a read taken before the write.** Two responders
+revoking the same leaked credential concurrently were both told they were the one who stopped it.
+`SqliteStore::revoke_token` now returns whether *this call* established the timestamp, decided by the
+database — `WHERE revoked_at IS NULL` rather than `COALESCE` — and the response carries that. When
+nothing is updated, one indexed read separates "already revoked" from "no such token", and neither
+answer can go stale because nothing here un-revokes.
+
+The same two corrections reach `ciphr token revoke`: it used the identical full-inventory scan, and
+it printed `<id> revoked` for a token somebody else had already revoked. It now says
+`<id> was already revoked` when that is what happened.
+
+**Nothing about the route's contract moves.** A retry still succeeds, the status codes are the same,
+and `openapi.yaml` already documented `revoked_now` as *"true when this call revoked it"* — this is
+the implementation catching up with the description rather than a new promise.
+
+**What is not covered by a test:** the store-failure path of F8's first half. There is no store fault
+injection in this repository — the audit side has `AuditKind::Broken`, the store side has nothing
+equivalent — so the correcting entry is covered only through `complete_or_record`'s other six call
+sites. Building that injection point is worth doing and is not done here.
+
 ### Changed — the viewer image is a manifest list too (`ui-v0.3.2`)
 
 **`0.11.0` claimed three images over two architectures and shipped two.** The service and the wrapper

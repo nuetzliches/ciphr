@@ -1933,9 +1933,7 @@ fn token(cli: &Context, command: TokenCommand) -> Result<(), CliError> {
             // before the refusal.
             let identity = session
                 .store
-                .tokens(None)?
-                .into_iter()
-                .find(|record| record.token_id == token_id)
+                .token(&token_id)?
                 .map(|record| record.identity);
             let Some(identity) = identity else {
                 return Err(CliError::Store(ciphr_store::StoreError::TokenNotFound {
@@ -1951,8 +1949,14 @@ fn token(cli: &Context, command: TokenCommand) -> Result<(), CliError> {
                     },
                 ),
             )?;
-            session.store.revoke_token(&token_id)?;
-            println!("{token_id} revoked");
+            // Says which of the two happened. Printing "revoked" for a token that was
+            // already revoked is the operator-facing shape of finding F8: a true
+            // statement about the end state, read as a statement about this call.
+            if session.store.revoke_token(&token_id)? {
+                println!("{token_id} revoked");
+            } else {
+                println!("{token_id} was already revoked");
+            }
             Ok(())
         }
 

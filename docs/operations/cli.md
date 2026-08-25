@@ -335,6 +335,11 @@ ciphr token revoke A1b2C3d4
 ciphr token revoke-all deploy-runner
 ```
 
+`token revoke` says which of two things happened: `A1b2C3d4 revoked` when this call established the
+timestamp, and `A1b2C3d4 was already revoked` when somebody had got there first. Both are successes
+and a retry is safe — the distinction is the one an incident asks about, when two people are working
+the same leaked credential and need to know who stopped it.
+
 The identity must exist in the policy file: identities are defined there (ADR-3), and issuing a
 token for a name nobody granted anything produces a credential that authenticates and can do
 nothing.
