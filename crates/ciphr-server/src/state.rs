@@ -776,6 +776,50 @@ impl AppState {
         self.record(&entry)
     }
 
+    /// Record that an authenticated caller was refused before any decision was reached.
+    ///
+    /// Finding F12 of the review of 2026-08-24. The trail had an inversion in it: an
+    /// *invalid* credential produced an entry, by [`Self::record_rejection`], because
+    /// that is how a brute-force attempt becomes visible at all — while a *valid*
+    /// credential doing something malformed produced none. Somebody holding a stolen
+    /// token and probing paths, routes or methods worked in silence, and the failed guess
+    /// from outside did not.
+    ///
+    /// [`Action::RequestRefused`] and not a denial, because nothing was authorized and
+    /// nothing was attempted against a path. A denial says the evaluator considered a
+    /// request and said no; this says the request never reached it.
+    ///
+    /// **`attempted` goes in the detail and the input does not go anywhere.** The thing
+    /// that was malformed is exactly the thing a caller controls, and putting unparseable
+    /// bytes into the one artefact this project keeps tamper-evident is how a trail
+    /// becomes an injection surface — the same argument F11 made about a parse error on
+    /// the way out. Who, what they were attempting, and that it was refused is what the
+    /// question afterwards is about.
+    ///
+    /// # Errors
+    ///
+    /// [`ApiError::AuditUnavailable`] if no device accepted the record. Fail-closed like
+    /// every other entry: a refusal nobody could record is not a refusal this service
+    /// reports quietly.
+    pub fn record_refusal(
+        &self,
+        caller: &Caller,
+        attempted: Action,
+        request: &RequestContext,
+        status: u16,
+        reason: &str,
+    ) -> Result<(), ApiError> {
+        let entry = Entry::denied(Action::RequestRefused, reason)
+            .with_principal(caller.as_principal())
+            .with_detail(format!("attempted: {attempted}"))
+            .with_request(RequestContext {
+                http_status: Some(status),
+                ..request.clone()
+            });
+
+        self.record(&entry)
+    }
+
     /// Run the work an allowed decision authorized, and record that it did not happen
     /// if it did not.
     ///

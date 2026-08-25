@@ -385,6 +385,160 @@ impl AuditDevice for AlwaysFails {
     }
 }
 
+/// A valid credential doing something malformed is no longer quieter than an invalid one.
+///
+/// Finding F12 of the review of 2026-08-24, and the inversion is the point. A *rejected*
+/// credential has always produced an entry — that is how a brute-force attempt becomes
+/// visible at all. A *valid* credential naming a path that is not a path produced none,
+/// so somebody holding a stolen token and probing the parser worked in silence while the
+/// failed guess from outside did not.
+#[test]
+fn an_authenticated_caller_refused_before_a_decision_is_recorded() {
+    let harness = Harness::new();
+    let before = harness.audit_entries().len();
+
+    // A path the parser refuses, with a token that works.
+    let (status, _) = harness.get(
+        "/v1/secrets/infra//DOUBLE_SLASH",
+        Some(&harness.deploy_token),
+    );
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let entries = harness.audit_entries();
+    assert_eq!(
+        entries.len(),
+        before + 1,
+        "exactly one entry, not none and not two"
+    );
+
+    let refused = entries.last().expect("an entry");
+    assert_eq!(refused["entry"]["action"], "request-refused");
+    assert_eq!(
+        refused["entry"]["allowed"], false,
+        "nothing was allowed -- and nothing was evaluated either"
+    );
+    assert_eq!(
+        refused["entry"]["principal"]["name"], "deploy",
+        "who was refused"
+    );
+    assert_eq!(
+        refused["entry"]["detail"], "attempted: read",
+        "what they were attempting, which `request-refused` alone does not say"
+    );
+
+    // No path, and no echo of what was sent. The malformed input is exactly the part a
+    // caller controls, and the trail is the one artefact this project keeps
+    // tamper-evident -- the same argument F11 made about a parse error on the way out.
+    assert!(
+        refused["entry"]["path"].is_null(),
+        "no path: there was no path, that is what was wrong with it"
+    );
+    assert!(
+        !refused.to_string().contains("DOUBLE_SLASH"),
+        "the refused input must not be echoed into the trail, got {refused}"
+    );
+}
+
+/// A route that does not exist, asked for with a valid token, is recorded.
+///
+/// Route probing is how somebody with a stolen credential learns which optional surface
+/// entries a deployment turned on. It produced nothing at all before.
+#[test]
+fn an_authenticated_caller_probing_an_unknown_route_is_recorded() {
+    let harness = Harness::new();
+    let before = harness.audit_entries().len();
+
+    let (status, _) = harness.get("/v1/does-not-exist", Some(&harness.deploy_token));
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let entries = harness.audit_entries();
+    assert_eq!(entries.len(), before + 1);
+    let refused = entries.last().expect("an entry");
+    assert_eq!(refused["entry"]["action"], "request-refused");
+    assert_eq!(refused["entry"]["deny_reason"], "unmatched-route");
+    assert_eq!(refused["entry"]["principal"]["name"], "deploy");
+}
+
+/// A method a route does not have, likewise.
+#[test]
+fn an_authenticated_caller_using_the_wrong_method_is_recorded() {
+    let harness = Harness::new();
+    let before = harness.audit_entries().len();
+
+    // `/v1/health` is a GET. A DELETE reaches the route and not the handler.
+    let (status, _) = harness.send(Harness::build(
+        "DELETE",
+        "/v1/health",
+        Some(&harness.deploy_token),
+        None,
+    ));
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "and not a 405 that maps the API"
+    );
+
+    let entries = harness.audit_entries();
+    assert_eq!(entries.len(), before + 1);
+    let refused = entries.last().expect("an entry");
+    assert_eq!(refused["entry"]["action"], "request-refused");
+    assert_eq!(refused["entry"]["deny_reason"], "unmatched-method");
+}
+
+/// Anonymous probing writes nothing, and that is the decision rather than an oversight.
+///
+/// The trail is fail-closed: a full audit volume takes the service down. If unauthenticated
+/// traffic wrote entries, anyone who can reach the listener could turn a `404` into an
+/// outage. An authenticated caller can already fill the trail with legitimate reads, so
+/// recording them adds no capability a valid token did not already carry.
+#[test]
+fn anonymous_probing_writes_nothing() {
+    let harness = Harness::new();
+    let before = harness.audit_entries().len();
+
+    let (status, _) = harness.get("/v1/does-not-exist", None);
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = harness.send(Harness::build("DELETE", "/v1/health", None, None));
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    assert_eq!(
+        harness.audit_entries().len(),
+        before,
+        "an unauthenticated caller must not be able to write to the trail"
+    );
+}
+
+/// An invalid credential on an unknown route writes nothing, like an absent one.
+///
+/// **The asymmetry here is deliberate and worth stating**, because it is not obvious. On
+/// a route that exists, a credential that does not work *is* recorded — that path
+/// predates this change and is how a brute-force attempt becomes visible. On a route that
+/// does not exist, it is not.
+///
+/// The reason is what the two bound. Recording a failed authentication on a real route
+/// requires the attacker to know a route; recording it on any URL at all would let
+/// anybody who can reach the listener write to a fail-closed trail by making up paths,
+/// and a full audit volume is an outage. A made-up token is exactly as cheap to produce
+/// as no token, so the fallback treats the two the same and asks only whether the caller
+/// *is* somebody.
+#[test]
+fn a_rejected_credential_on_an_unknown_route_writes_nothing() {
+    let harness = Harness::new();
+    let before = harness.audit_entries().len();
+
+    let (status, _) = harness.get(
+        "/v1/does-not-exist",
+        Some("cph_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+    );
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    assert_eq!(
+        harness.audit_entries().len(),
+        before,
+        "a token that authenticates nobody is as cheap to make up as none at all"
+    );
+}
+
 #[test]
 fn health_needs_no_token_and_reveals_no_inventory() {
     let harness = Harness::new();
@@ -1792,11 +1946,17 @@ fn export_writes_one_audit_entry_per_secret_served() {
 /// under the process-wide store and audit mutexes, and then a *correcting* audit write
 /// per path already processed if anything failed late.
 ///
-/// The audit count is the assertion that matters. A refusal that still wrote entries
-/// would mean the structural checks had moved rather than been moved *in front of* the
-/// work.
+/// The audit shape is the assertion that matters: **no `read` entries**. A refusal that
+/// still authorized and decrypted would mean the structural checks had moved rather than
+/// been moved *in front of* the work.
+///
+/// Not "no entries at all", which is what this asserted until F12 landed. A refused
+/// request now writes exactly one `request-refused` entry, because an authenticated
+/// caller making a request this server will not serve should not be invisible. The two
+/// findings do not disagree: F5 is about the work not happening, F12 about the caller not
+/// being silent, and one entry that names neither a path nor a decision is both.
 #[test]
-fn an_export_is_bounded_and_a_refusal_writes_nothing() {
+fn an_export_is_bounded_and_a_refusal_costs_no_work() {
     let harness = Harness::new();
     let request = Harness::build(
         "PUT",
@@ -1806,7 +1966,11 @@ fn an_export_is_bounded_and_a_refusal_writes_nothing() {
     );
     harness.send(request);
 
-    let entries_before = harness.audit_entries().len();
+    let reads_before = harness
+        .audit_entries()
+        .iter()
+        .filter(|entry| entry["entry"]["action"] == "read")
+        .count();
 
     // Too many.
     let many: Vec<String> = (0..257).map(|n| format!("infra/bulk/P{n}")).collect();
@@ -1859,10 +2023,35 @@ fn an_export_is_bounded_and_a_refusal_writes_nothing() {
     ));
     assert_eq!(status, StatusCode::BAD_REQUEST, "got {body}");
 
+    let entries = harness.audit_entries();
     assert_eq!(
-        harness.audit_entries().len(),
-        entries_before,
-        "a structurally invalid export writes no audit entry at all"
+        entries
+            .iter()
+            .filter(|entry| entry["entry"]["action"] == "read")
+            .count(),
+        reads_before,
+        "a structurally invalid export authorizes nothing and decrypts nothing"
+    );
+    assert_eq!(
+        entries
+            .iter()
+            .filter(|entry| entry["entry"]["action"] == "request-refused")
+            .count(),
+        3,
+        "one per refused call, and no more -- the caller is visible, the work is not done"
+    );
+
+    // The bytes that were malformed do not reach the trail. F11 made that argument about
+    // a parse error on the way out; the same holds for the one artefact this project
+    // keeps tamper-evident.
+    let rendered = entries
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        !rendered.contains("not a valid path!!"),
+        "the refused input must not be echoed into the trail"
     );
 }
 

@@ -79,6 +79,27 @@ pub enum Action {
     /// the trail explains its own gaps instead of leaving whoever finds one to guess,
     /// and guessing wrong means treating a disk hiccup as an unlogged access.
     AuditDeviceFailed,
+    /// An authenticated caller was refused before any handler could record a decision.
+    ///
+    /// Finding F12 of the review of 2026-08-24, and its own action rather than a
+    /// [`Action::Read`] or a denial for a reason worth stating: **nothing was authorized
+    /// and nothing was attempted against a path.** A denial says the evaluator considered
+    /// a request and said no. This says the request never got that far — it named a path
+    /// that is not a path, a route that does not exist, or a method that route does not
+    /// have.
+    ///
+    /// It exists because the trail had an inversion in it. An *invalid* credential was
+    /// recorded, by [`Entry::denied`] on the rejection path, because that is how a
+    /// brute-force attempt becomes visible at all. A *valid* credential doing something
+    /// malformed was recorded nowhere: somebody holding a stolen token and probing paths,
+    /// parsers or routes worked in silence, while the failed guess from outside did not.
+    ///
+    /// **What it deliberately does not carry is the input.** The path is the thing that
+    /// was malformed, and putting unparseable bytes into the one artefact this project
+    /// keeps tamper-evident is how a trail becomes an injection surface. The entry names
+    /// who, what they were attempting, and that it was refused — which is what the
+    /// question afterwards is about.
+    RequestRefused,
     /// What optional surface this process started with.
     ///
     /// One entry at startup, naming the active entries of ADR-20's surface list, or
@@ -144,6 +165,7 @@ impl Action {
             Self::IssueToken => "issue-token",
             Self::RevokeToken => "revoke-token",
             Self::AuditDeviceFailed => "audit-device-failed",
+            Self::RequestRefused => "request-refused",
             Self::SurfaceActive => "surface-active",
             Self::HoneypotTriggered => "honeypot-triggered",
             Self::HoneypotMarked => "honeypot-marked",

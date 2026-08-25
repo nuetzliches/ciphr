@@ -150,11 +150,84 @@ pub fn router(state: AppState) -> Router {
         router = router.route("/v1/honeypots", get(read_honeypots));
     }
 
-    // One response-header layer, over everything above: see `no_store`. Applied after
-    // the routes rather than per route, so a route added later cannot forget it.
+    // The two ways a request reaches no handler at all: a path no route matches, and a
+    // method a matched route does not have. Both answered here rather than by axum's
+    // silent defaults, so that an authenticated caller probing them leaves a trace
+    // (finding F12). See `refused_request`.
     router
+        .fallback(unmatched_route)
+        .method_not_allowed_fallback(unmatched_method)
+        // One response-header layer, over everything above: see `no_store`. Applied after
+        // the routes rather than per route, so a route added later cannot forget it.
         .layer(axum::middleware::map_response(no_store))
         .with_state(state)
+}
+
+/// A path no route matches.
+async fn unmatched_route(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    origin: Origin,
+) -> ApiError {
+    refused_request(&state, &headers, origin, "unmatched-route")
+}
+
+/// A method the matched route does not have.
+async fn unmatched_method(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    origin: Origin,
+) -> ApiError {
+    refused_request(&state, &headers, origin, "unmatched-method")
+}
+
+/// Answer a request that reached no handler, and record it if it carried a valid token.
+///
+/// Finding F12 of the review of 2026-08-24. Route and method probing produced no entry
+/// whatsoever, so somebody with a stolen credential mapping this API's shape did it in
+/// silence — while a *failed* authentication attempt was recorded, which is the wrong way
+/// round.
+///
+/// **Only an authenticated caller is recorded, and that is a decision rather than an
+/// oversight.** The trail is fail-closed: a full audit volume takes the service down. If
+/// anonymous traffic wrote entries, anyone who can reach the listener could take the
+/// deployment down by asking for pages that do not exist — turning a `404` into an
+/// outage. An authenticated caller can already fill the trail with legitimate reads, so
+/// recording them adds no capability that a valid token did not already carry.
+///
+/// The answer is `404` either way, and identical for both. Whether the path matched a
+/// route is not something this API tells an unauthenticated caller.
+fn refused_request(
+    state: &AppState,
+    headers: &HeaderMap,
+    origin: Origin,
+    reason: &str,
+) -> ApiError {
+    let request = request_context(headers, origin);
+    let refused = ApiError::NotFound;
+
+    // A credential that does not authenticate is treated exactly as an absent one: the
+    // trail is fail-closed, so letting anybody write to it by making up a token and a URL
+    // would turn a `404` into an outage. On a route that *exists*, a failed
+    // authentication is still recorded -- that path predates this and is bounded by
+    // having to know a route.
+    //
+    // The `Err` arm returns the audit failure rather than the `404`, which is
+    // fail-closed like everywhere else: a refusal nobody could record must not be
+    // answered quietly.
+    if let Ok(caller) = state.authenticate(bearer_token(headers))
+        && let Err(error) = state.record_refusal(
+            &caller,
+            Action::Read,
+            &request,
+            refused.status().as_u16(),
+            reason,
+        )
+    {
+        return error;
+    }
+
+    refused
 }
 
 /// Put `Cache-Control: no-store` on one response.
@@ -566,7 +639,7 @@ async fn read_secret(
 ) -> Result<Json<SecretResponse>, ApiError> {
     let request = request_context(&headers, origin);
     let caller = authenticate(&state, &headers, Action::Read, &request)?;
-    let path = parse_path(&path)?;
+    let path = parse_path_recorded(&state, &caller, Action::Read, &request, &path)?;
 
     state.authorize_and_record(&caller, Action::Read, Capability::Read, &path, &request)?;
 
@@ -657,7 +730,7 @@ async fn write_secret(
 ) -> Result<Json<WriteResponse>, ApiError> {
     let request = request_context(&headers, origin);
     let caller = authenticate(&state, &headers, Action::Write, &request)?;
-    let path = parse_path(&path)?;
+    let path = parse_path_recorded(&state, &caller, Action::Write, &request, &path)?;
     reject_reserved(&path)?;
     // Parsed here, with the other request checks: an unknown class is a fault in the
     // request, and refusing it before the authorization entry keeps the trail from
@@ -756,7 +829,7 @@ async fn delete_secret(
 ) -> Result<StatusCode, ApiError> {
     let request = request_context(&headers, origin);
     let caller = authenticate(&state, &headers, Action::Delete, &request)?;
-    let path = parse_path(&path)?;
+    let path = parse_path_recorded(&state, &caller, Action::Delete, &request, &path)?;
     reject_reserved(&path)?;
 
     state.authorize_and_record(&caller, Action::Delete, Capability::Delete, &path, &request)?;
@@ -795,7 +868,7 @@ async fn list_versions(
 ) -> Result<Json<VersionsResponse>, ApiError> {
     let request = request_context(&headers, origin);
     let caller = authenticate(&state, &headers, Action::List, &request)?;
-    let path = parse_path(&path)?;
+    let path = parse_path_recorded(&state, &caller, Action::List, &request, &path)?;
 
     state.authorize_and_record(&caller, Action::List, Capability::List, &path, &request)?;
 
@@ -865,7 +938,7 @@ async fn list_paths(
 ) -> Result<Json<ListResponse>, ApiError> {
     let request = request_context(&headers, origin);
     let caller = authenticate(&state, &headers, Action::List, &request)?;
-    let prefix = parse_path(&prefix)?;
+    let prefix = parse_path_recorded(&state, &caller, Action::List, &request, &prefix)?;
     let wanted = parse_rotation(query.rotation.as_deref())?;
 
     // There is no single decision to record here: authorization runs per returned path,
@@ -942,7 +1015,22 @@ async fn export(
     // ninth path had already bought eight audit entries and eight decryptions -- and
     // then eight correcting entries on the way out. A request that this server will not
     // serve should cost it a parse and nothing else.
-    let paths = validate_export_paths(&body.paths)?;
+    // Recorded like every other refusal an authenticated caller earns (F12): the
+    // structural check is still first and still costs a parse, but the caller no longer
+    // gets to make this request in silence.
+    let paths = match validate_export_paths(&body.paths) {
+        Ok(paths) => paths,
+        Err(refused) => {
+            state.record_refusal(
+                &caller,
+                Action::Read,
+                &request,
+                refused.status().as_u16(),
+                "malformed-export",
+            )?;
+            return Err(refused);
+        }
+    };
 
     // Every path whose decision is on the trail already. Recorded before the read it
     // authorizes, so a path is in here whether or not its value was produced.
@@ -1749,6 +1837,50 @@ fn parse_path(raw: &str) -> Result<SecretPath, ApiError> {
     SecretPath::parse(raw).map_err(|error| ApiError::BadRequest {
         reason: error.to_string(),
     })
+}
+
+/// The same, for a caller who has already authenticated — and it leaves a trace.
+///
+/// Finding F12 of the review of 2026-08-24. Every handler authenticates and *then*
+/// parses, so a valid token naming a path that is not a path produced a `400` and no
+/// entry at all: the request got past authentication, did real work in the process, and
+/// left nothing behind. An invalid token in the same position produces an entry, which
+/// made the trail quieter about the credential that works than about the one that does
+/// not.
+///
+/// Deliberately not folded into [`parse_path`]: that one is also used where nobody has
+/// authenticated yet, and a function that sometimes writes to the audit trail depending
+/// on which arguments it was handed is a function whose callers stop knowing what it
+/// does.
+///
+/// # Errors
+///
+/// [`ApiError::BadRequest`] naming what was wrong with the path — the error describes the
+/// request, so it is safe to return — or [`ApiError::AuditUnavailable`] if the refusal
+/// could not be recorded, which is fail-closed like every other entry.
+fn parse_path_recorded(
+    state: &AppState,
+    caller: &Caller,
+    attempted: Action,
+    request: &RequestContext,
+    raw: &str,
+) -> Result<SecretPath, ApiError> {
+    match SecretPath::parse(raw) {
+        Ok(path) => Ok(path),
+        Err(error) => {
+            let refused = ApiError::BadRequest {
+                reason: error.to_string(),
+            };
+            state.record_refusal(
+                caller,
+                attempted,
+                request,
+                refused.status().as_u16(),
+                "malformed-path",
+            )?;
+            Err(refused)
+        }
+    }
 }
 
 /// Parse an optional rotation class from a request body or a query parameter.

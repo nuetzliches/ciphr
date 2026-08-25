@@ -8,6 +8,48 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — a valid credential doing something malformed is no longer quieter than an invalid one
+
+**F12 of [the full-repository review](docs/assurance/reviews/review-2026-08-24-full-repository.md)**,
+the last of the fourteen. The trail had an inversion in it: a credential that *failed* authentication
+produced an entry — that is how a brute-force attempt becomes visible at all — while a credential that
+*worked*, used to ask for a path that is not a path, a route that does not exist, or a method a route
+does not have, produced nothing at all. Somebody holding a stolen token and mapping this API worked in
+silence; the failed guess from outside did not.
+
+**A new action, `request-refused`**, rather than a denial or a `read`. A denial means the evaluator
+considered a request and said no; this means the request never reached it. The entry carries **no rule
+and no path** — there was no path, that is what was wrong with it — and `detail` says what the caller
+was attempting. `deny_reason` is `malformed-path`, `malformed-export`, `unmatched-route` or
+`unmatched-method`.
+
+**The input is not echoed into it.** The malformed part is exactly what a caller controls, and putting
+unparseable bytes into the one artefact this project keeps tamper-evident is how a trail becomes an
+injection surface — the same argument F11 made about a parse error on the way out.
+
+**Only an authenticated caller is recorded, and that is a decision.** The trail is fail-closed: a full
+audit volume takes the service down, so anonymous traffic writing entries would let anybody who can
+reach the listener turn a `404` into an outage. A made-up token is as cheap to produce as none, so an
+unknown route treats the two the same; on a route that *exists*, a failed authentication is still
+recorded, because that path is bounded by having to know a route.
+
+**The finding's own suggested fix would not have worked**, and the difference is worth recording.
+It asked for outer request accounting with a marker to suppress duplicates — but the case that matters
+most, a valid token naming a malformed path, happens *inside* the handler after authentication, where
+such a marker is already set. So the parse is what changed: five handlers and the export route now
+parse through a helper that records the refusal, and the router grew a fallback for the two ways a
+request reaches no handler at all.
+
+**One test changed meaning rather than breaking.** F5's export test asserted "a structurally invalid
+export writes no audit entry at all"; what it was about is that the *work* does not happen. It now
+asserts that shape directly — no `read` entries, exactly one `request-refused` per refused call — which
+is a stronger claim than the count it replaced.
+
+**Not covered, and stated rather than left to be discovered:** a malformed request *body*. Axum's JSON
+extractor rejects before any handler runs and before the fallback sees it, so a valid token sending
+broken JSON is still silent. Closing that needs a wrapper extractor on every route that takes a body;
+it is worth doing and is not done here.
+
 ### Fixed — a device that misses a record is stopped instead of writing an unverifiable copy
 
 **F6 of [the full-repository review](docs/assurance/reviews/review-2026-08-24-full-repository.md).**
