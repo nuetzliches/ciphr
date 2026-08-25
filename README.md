@@ -4,7 +4,7 @@ A small secret manager for machine identities: key/value secrets, gap-free acces
 and path-based authorization. The name contains *CI* — the primary consumer is a build and
 deploy pipeline, not a human.
 
-> **Status: v0.12.0 released.** Usable end to end: envelope encryption with master key rotation,
+> **Status: v0.12.1 released.** Usable end to end: envelope encryption with master key rotation,
 > SQLite with migrations, the policy evaluator, the fail-closed hash-chained audit trail, the HTTPS
 > API with token authentication, and the `ciphr` CLI. **v0.11.0 is the release that made the consumer
 > side reachable**: `ciphr-ci` ([ADR-25](docs/adr/0025-the-ci-side-fetch-is-its-own-binary.md)) fetches
@@ -19,8 +19,9 @@ deploy pipeline, not a human.
 > `status` can read `degraded`, a device that misses a record is stopped and says so, and a refused
 > request from an authenticated caller now leaves an entry.
 >
-> **Pin `0.12.0`.** The viewer moves separately, as `ui-v0.3.2` — `ui-v0.3.1`'s code, published
-> for arm64 as well.
+> **Pin `0.12.1`, and take `ui-v0.3.3` with it.** The viewer moves separately (ADR-11), and that tag
+> is the first one that reads the two states `0.12.0` added — `ui-v0.3.2` shows a stopped audit device
+> as `refused` and a degraded service as green, because it was tagged before that code was merged.
 >
 > **Two things broke on purpose in `v0.11.0`**, both from the same review: the server
 > refuses to start without a `sqlite` audit device, and `ciphr-run` and `ciphr-ci` refuse a secret

@@ -1,6 +1,6 @@
 # Upgrading
 
-**Status:** current as of 2026-08-25, covering every released version up to `0.12.0`.
+**Status:** current as of 2026-08-25, covering every released version up to `0.12.1`.
 
 The changelog says what changed. This says what to *do* about it, and it exists because the two are
 not the same document: a changelog entry sinks under the next release, while the person upgrading two
@@ -91,6 +91,24 @@ rather than a report somebody remembers to read:
 A review host wants to fail on `1` and `2` and to accept `3`; the host itself wants `0` and nothing
 else ([field-report-2026-08-23.md](../assurance/field-reports/field-report-2026-08-23.md), finding 1, and
 [field-report-2026-08-23-b.md](../assurance/field-reports/field-report-2026-08-23-b.md), finding 1).
+
+## 0.12.1
+
+**Nothing to do.** No route changed, no field changed meaning, the schema stays at 6, and a rollback
+to `0.12.0` needs the image tag and nothing else. Everything here answers
+[the field report of 2026-08-25](../assurance/field-reports/field-report-2026-08-25.md) and makes two
+states easier to see; none of it moves a decision a deployment already made.
+
+**One thing worth doing anyway: take `ui-v0.3.3`.** It is the first viewer that reads `degraded` and
+`quarantined_from`. `ui-v0.3.2` was tagged before that code was merged, so a deployment on it renders
+a **quarantined** device as `refused` — the word that view uses for the state which recovers on its
+own — and a **degraded** service as **green**. Neither is dangerous and neither stops the viewer
+working; both are the wrong answer on the screen a human reads. There is no ordering constraint: the
+new fields need a `0.12.0` service and are simply absent against an older one.
+
+**And expect the quarantine to be louder.** A device stopped at startup now writes an entry into the
+trail (`device-behind-at-start`) and one line to stderr, so a deploy log shows it. That is the case
+the `0.12.0` section warns about; the state is not new, the two extra channels are.
 
 ## 0.12.0
 

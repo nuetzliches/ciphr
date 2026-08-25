@@ -8,6 +8,28 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+## [0.12.1] — 2026-08-25
+
+**A point release that a deployment reported into existence.** Everything here answers
+[the field report of 2026-08-25](docs/assurance/field-reports/field-report-2026-08-25.md), written
+from the operating side during the upgrade to `0.12.0` — plus the one gap `0.12.0` itself named and
+left open.
+
+**Nothing here asks a deployment to do anything.** No route changed, no field changed meaning, the
+schema stays at 6, and a rollback to `0.12.0` needs the image tag and nothing else. What changes is
+that two states which existed in exactly one place each are now visible where somebody is actually
+looking.
+
+**The viewer is the part to take.** `ui-v0.3.3` is the first viewer that reads `degraded` and
+`quarantined_from`; `ui-v0.3.2` was tagged before that code was merged, so a deployment on it sees a
+quarantined device rendered as `refused` and a degraded service rendered green. That tag is already
+published — this release only records why.
+
+**And a quarantined device now says so three times**: in the trail, with a reason that tells a device
+stopped for good from one that refused once and will recover; on stderr at startup, which is the case
+`upgrade.md` names as the one that fires most often and the moment somebody is watching a deploy log;
+and on `/v1/health`, as before.
+
 ### Fixed — a quarantined audit device is announced in more than one place
 
 **Finding 1 of [the field report of 2026-08-25](docs/assurance/field-reports/field-report-2026-08-25.md)**,
@@ -4879,7 +4901,8 @@ first production use.
   decision.
 - `AGENTS.md` with the working rules, and `SECURITY.md` with the disclosure process and scope.
 
-[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.12.0...main
+[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.12.1...main
+[0.12.1]: https://github.com/nuetzliches/ciphr/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/nuetzliches/ciphr/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/nuetzliches/ciphr/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/nuetzliches/ciphr/compare/v0.9.0...v0.10.0
