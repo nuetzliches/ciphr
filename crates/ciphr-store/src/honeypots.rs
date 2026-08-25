@@ -361,6 +361,31 @@ impl SqliteStore {
     /// [`StoreError::Sqlite`] on a database error, or [`StoreError::Corrupt`] on an
     /// unknown stored tier.
     pub fn open_trips(&self) -> Result<Vec<Trip>, StoreError> {
+        self.open_trips_inner()
+    }
+
+    /// How many tripwires are open, without building any of them.
+    ///
+    /// What `/v1/health` asks, and the reason it is a separate query: that endpoint
+    /// wanted a boolean and a count, and got them by materializing every open trip --
+    /// seven columns and several allocations per row, on a route something polls every
+    /// few seconds, under the process-wide store mutex. Finding F9 of the review of
+    /// 2026-08-24. An aggregate answers the same question and allocates nothing.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::Sqlite`] on a database error. **Not swallowed by the caller**: an
+    /// unanswerable question is not the same answer as zero.
+    pub fn open_trip_count(&self) -> Result<usize, StoreError> {
+        let count: i64 = self.connection().query_row(
+            "SELECT COUNT(*) FROM tripwire WHERE cleared_at IS NULL",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(usize::try_from(count).unwrap_or(usize::MAX))
+    }
+
+    fn open_trips_inner(&self) -> Result<Vec<Trip>, StoreError> {
         let connection = self.connection();
         let mut statement = connection.prepare(
             "SELECT tripped_at, kind, path, token_id, identity, tier, cleared_at

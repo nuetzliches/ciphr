@@ -10,7 +10,7 @@
  * deployment moves the master key from the environment into a file — which is exactly when
  * someone needs to see which one is in effect.
  */
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 
 import { ApiError, api, type Health } from "../api";
 
@@ -27,6 +27,20 @@ async function load(): Promise<void> {
     problem.value = error instanceof ApiError ? error.text : "The service could not be reached.";
   }
 }
+
+/** What the service says it could not establish. Absent and empty mean the same thing. */
+const degradedParts = computed(() => health.value?.degraded ?? []);
+
+/**
+ * Sealed is a denial, degraded is a warning, and anything else is fine.
+ *
+ * The middle case is the one that was missing: before the service could say
+ * `degraded`, an unreadable tripwire state was reported as `ok` and rendered green.
+ */
+const statusClass = computed(() => {
+  if (health.value?.sealed) return "deny";
+  return degradedParts.value.length ? "warn" : "allow";
+});
 
 onMounted(load);
 </script>
@@ -45,9 +59,19 @@ onMounted(load);
       <tbody>
         <tr>
           <th>Status</th>
-          <td :class="health.sealed ? 'deny' : 'allow'">
+          <td :class="statusClass">
             {{ health.sealed ? "sealed — no secret can be served" : health.status }}
           </td>
+        </tr>
+        <!--
+          Only where there is something to say. `degraded` means the service is serving
+          and could not establish part of what it reports on -- which is neither a denial
+          nor a healthy answer, so it is `warn` and it names the part rather than leaving
+          a reader to guess which field is missing.
+        -->
+        <tr v-if="degradedParts.length">
+          <th>Could not be established</th>
+          <td class="warn mono">{{ degradedParts.join(", ") }}</td>
         </tr>
         <tr>
           <th>API version</th>
@@ -63,6 +87,19 @@ onMounted(load);
         </tr>
       </tbody>
     </table>
+
+    <!--
+      Only alongside the row it explains. The device table below carries its own
+      note; this row had none, and an amber word with no sentence next to it is a
+      thing an operator has to guess at -- which is the failure the row exists to
+      prevent, moved one step along.
+    -->
+    <p v-if="degradedParts.length" class="note">
+      <strong>Could not be established</strong> names what this process could not read about
+      itself. It is still serving, and this is not an outage.
+      <code>tripwires</code> means it cannot tell whether bait has been taken — a reason to look,
+      not a reason to fail over.
+    </p>
 
     <h2>Audit devices</h2>
     <table>

@@ -451,6 +451,7 @@ impl Client {
                     accepting: device.accepting,
                 })
                 .collect(),
+            degraded: wire.degraded,
             api_version: wire.api_version,
         })
     }
