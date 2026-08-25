@@ -8,6 +8,35 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed — a malformed request body no longer buys silence
+
+The gap [`0.12.0`](CHANGELOG.md) named and did not close. F12 recorded an authenticated caller refused
+for a malformed path, an unknown route or a wrong method — but **not** for a body the parser refuses,
+because that rejection is answered by the framework before any handler runs *and* before the router
+fallback sees anything. Neither of the two places that record a refused request could see it, so a
+valid token sending broken JSON was the last way to be turned away in silence.
+
+`AuditedJson` closes it: an extractor that wraps `Json`, on the two routes that take a body. The entry
+is a `request-refused` with reason `malformed-body`.
+
+**It costs nothing on the path that works.** The body is parsed once and the caller authenticated
+once, in the handler, as before — only a *failed* parse authenticates in the extractor, which is a
+second authentication for a request that was never going to be served. There is a test for the working
+path, because a test that only proved the failure case would pass against a wrapper that had quietly
+doubled the work every write does.
+
+**The body is not in the entry.** It is caller-controlled bytes, and the rejection message goes to
+whoever sent it and already knows. The trail gets the fact.
+
+**The attempted action comes from the body type**, so a malformed export records `read` and a
+malformed secret records `write`. The extractor cannot know which route it is on, and one value for
+both would put *"attempted: write"* on a read — small, and exactly the kind of thing a reader of a
+trail later has to un-learn.
+
+**An anonymous caller still writes nothing**, the same rule the router fallback follows and for the
+same reason: the trail is fail-closed, so letting anybody write to it by posting garbage would turn a
+`400` into an outage.
+
 ## [0.12.0] — 2026-08-25
 
 **The release that finishes the review.** All fourteen findings of

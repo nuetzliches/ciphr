@@ -40,7 +40,12 @@ holding a stolen token and mapping this API worked in silence, while the failed 
 not.
 
 Those now write a `request-refused` entry, with a `deny_reason` of `malformed-path`,
-`malformed-export`, `unmatched-route` or `unmatched-method`.
+`malformed-export`, `malformed-body`, `unmatched-route` or `unmatched-method`.
+
+`malformed-body` is the one that needed its own machinery: a body the parser refuses is answered by
+the framework *before* any handler runs and before the fallback below sees anything, so neither of the
+other two places could record it. It costs nothing on the path that works — only a failed parse
+authenticates a second time, for a request that was never going to be served.
 
 **It is not a denial, and the difference is the point.** A denial means the evaluator considered a
 request and said no; this means the request never reached it. So the entry carries **no rule and no

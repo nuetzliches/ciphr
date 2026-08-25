@@ -1471,7 +1471,7 @@ components:
             allowed: { type: boolean }
             deny_reason:
               type: [string, "null"]
-              enum: [unknown-identity, no-matching-rule, not-granted, tie, unauthenticated, not-found, write-failed, delete-failed, not-listed, not-served, classify-failed, revoke-failed, malformed-path, malformed-export, unmatched-route, unmatched-method, null]
+              enum: [unknown-identity, no-matching-rule, not-granted, tie, unauthenticated, not-found, write-failed, delete-failed, not-listed, not-served, classify-failed, revoke-failed, malformed-path, malformed-export, malformed-body, unmatched-route, unmatched-method, null]
               description: |
                 Stable labels, except for `audit-device-failed` entries, whose reason is
                 `device-refused: <device name>` so a later reader can tell which copy of
@@ -1484,7 +1484,8 @@ components:
                 `/v1/health` may not show it.
 
                 `request-refused` carries `malformed-path`, `malformed-export`,
-                `unmatched-route` or `unmatched-method`: an authenticated caller was
+                `malformed-body`, `unmatched-route` or `unmatched-method`: an
+                authenticated caller was
                 turned away before any decision was reached, so there is no rule and no
                 path on the entry. **The input is not echoed into it** -- the malformed
                 part is exactly what the caller controls, and the trail is the artefact
