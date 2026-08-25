@@ -4,7 +4,7 @@ A small secret manager for machine identities: key/value secrets, gap-free acces
 and path-based authorization. The name contains *CI* — the primary consumer is a build and
 deploy pipeline, not a human.
 
-> **Status: v0.11.0 released.** Usable end to end: envelope encryption with master key rotation,
+> **Status: v0.12.0 released.** Usable end to end: envelope encryption with master key rotation,
 > SQLite with migrations, the policy evaluator, the fail-closed hash-chained audit trail, the HTTPS
 > API with token authentication, and the `ciphr` CLI. **v0.11.0 is the release that made the consumer
 > side reachable**: `ciphr-ci` ([ADR-25](docs/adr/0025-the-ci-side-fetch-is-its-own-binary.md)) fetches
@@ -12,11 +12,17 @@ deploy pipeline, not a human.
 > which is the thing an SDK inside the build could not do. Images and binaries are multi-architecture,
 > one tag, one digest to pin.
 >
-> **Pin `0.11.0`.** The viewer moves separately, as `ui-v0.3.2` — `ui-v0.3.1`'s code, published
+> **v0.12.0 finishes the review that v0.11.0 started.** All fourteen findings of
+> [the full-repository review](docs/assurance/reviews/review-2026-08-24-full-repository.md) are
+> answered. Six change something a deployment can observe and **five of those are a rule to rewrite**:
+> an export takes at most 256 paths, an audit device is named by a label rather than by its path,
+> `status` can read `degraded`, a device that misses a record is stopped and says so, and a refused
+> request from an authenticated caller now leaves an entry.
+>
+> **Pin `0.12.0`.** The viewer moves separately, as `ui-v0.3.2` — `ui-v0.3.1`'s code, published
 > for arm64 as well.
 >
-> **Two things break on purpose in this release**, both from
-> [a full-repository review](docs/assurance/reviews/review-2026-08-24-full-repository.md): the server
+> **Two things broke on purpose in `v0.11.0`**, both from the same review: the server
 > refuses to start without a `sqlite` audit device, and `ciphr-run` and `ciphr-ci` refuse a secret
 > whose name is a process-control variable. Both checks are one command each, and
 > [what to do about each released version](docs/operations/upgrade.md) is the document that owns them

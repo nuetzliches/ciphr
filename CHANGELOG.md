@@ -8,6 +8,39 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-08-25
+
+**The release that finishes the review.** All fourteen findings of
+[`docs/assurance/reviews/review-2026-08-24-full-repository.md`](docs/assurance/reviews/review-2026-08-24-full-repository.md)
+are answered — the four high ones landed in `0.11.0`, and the remaining ten are here. Six of them
+change something a deployment can observe, and **five of those need a decision or a rule rewritten**.
+[`docs/operations/upgrade.md`](docs/operations/upgrade.md), section `0.12.0`, is the list.
+
+**Two of them will break something if nobody looks:**
+
+1. **An export naming more than 256 paths is refused** (F5). A job fetching a prefix wider than that
+   through `POST /v1/export` gets a `400` naming the limit and has to ask in more than one step.
+   Nothing chunks silently.
+2. **`audit_devices[].name` on `/v1/health` is a label now**, `sqlite-1` and `file-1`, not the
+   configured path (F14). An alert rule matching a device by its path matches nothing.
+
+**Three more that a monitor has to be taught:**
+
+3. **`status` can read `degraded`** (F9), with a `degraded` array naming what the process could not
+   establish. It is not a liveness signal — the service is serving — and a rule asserting
+   `status == "ok"` will fire on it.
+4. **A device that misses a committed record is stopped** and carries `quarantined_from` (F6). That is
+   the field to alert on, and it does not clear itself: it needs a human and a procedure.
+5. **A new audit action, `request-refused`** (F12). Anything counting entries by action, or asserting
+   which actions exist, sees a new one.
+
+**One that only matters where it fails:** `ciphr backup` writes an owner-only file and **fails** on a
+filesystem that cannot carry the mode (F10) — a backup this code silently failed to protect would be
+worse than one nobody promised anything about.
+
+**Nothing migrates.** The schema stays at 6, no capability changed, and no default moved. A rollback to
+`0.11.0` needs the image tag and nothing else.
+
 ### Fixed — a valid credential doing something malformed is no longer quieter than an invalid one
 
 **F12 of [the full-repository review](docs/assurance/reviews/review-2026-08-24-full-repository.md)**,
@@ -4742,7 +4775,8 @@ first production use.
   decision.
 - `AGENTS.md` with the working rules, and `SECURITY.md` with the disclosure process and scope.
 
-[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.11.0...main
+[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.12.0...main
+[0.12.0]: https://github.com/nuetzliches/ciphr/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/nuetzliches/ciphr/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/nuetzliches/ciphr/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/nuetzliches/ciphr/compare/v0.8.0...v0.9.0

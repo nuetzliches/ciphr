@@ -1,6 +1,6 @@
 # Upgrading
 
-**Status:** current as of 2026-08-24, covering every released version up to `0.11.0`.
+**Status:** current as of 2026-08-25, covering every released version up to `0.12.0`.
 
 The changelog says what changed. This says what to *do* about it, and it exists because the two are
 not the same document: a changelog entry sinks under the next release, while the person upgrading two
@@ -91,6 +91,122 @@ rather than a report somebody remembers to read:
 A review host wants to fail on `1` and `2` and to accept `3`; the host itself wants `0` and nothing
 else ([field-report-2026-08-23.md](../assurance/field-reports/field-report-2026-08-23.md), finding 1, and
 [field-report-2026-08-23-b.md](../assurance/field-reports/field-report-2026-08-23-b.md), finding 1).
+
+## 0.12.0
+
+**Nothing migrates.** The schema stays at 6, no route changed, no capability changed, no default
+moved. What changes is what a monitor is told and what one route will accept, and **five of the six
+items below are a rule to rewrite rather than a command to run**. All of them come from
+[the full-repository review of 2026-08-24](../assurance/reviews/review-2026-08-24-full-repository.md);
+the four high findings landed in `0.11.0` and the rest are here.
+
+### 1. An export naming more than 256 paths is refused
+
+**Check this if anything fetches by prefix.** `POST /v1/export` takes at most **256 paths**, each named
+once, and returns at most a mebibyte of values. A job asking for more gets a `400` naming the limit and
+has to ask in more than one step.
+
+```sh
+# how many secrets does the widest prefix a job fetches actually hold
+ciphr list <prefix> | wc -l
+```
+
+`Client::read_all` and `ciphr-ci` **do not chunk around this**, deliberately: a fetch split behind the
+caller's back is a fetch whose audit trail the caller cannot predict, and the argument for the bulk
+route is that its trail is identical to the per-path one. The per-path fallback has no such bound.
+
+**Why.** The list had no bound at all, so one authenticated request could name a path ten thousand
+times and buy an authorization, a durable audit write, a store read and a decryption for each
+occurrence — then a correcting audit write per path already processed if anything failed late (F5).
+
+### 2. `audit_devices[].name` is a label, not a path
+
+**Rewrite any alert rule that matches an audit device by its path.** The field now carries
+`sqlite-1`, `file-1`, `file-2` — the device kind, numbered within its kind in configuration order, and
+numbered even when there is one of that kind so that a rule keyed on `file-1` does not break the day a
+second file device is configured.
+
+```
+"audit_devices": [{ "name": "sqlite:/var/lib/ciphr/store.db" }]   before
+"audit_devices": [{ "name": "sqlite-1" }]                          after
+```
+
+**Why.** `/v1/health` is unauthenticated, and the location of the database and the audit file is free
+reconnaissance for anyone who can reach the port — while the field beside it withholds a device's
+*failure reason* for exactly that argument (F14).
+
+### 3. `status` can read `degraded`
+
+**A rule asserting `status == "ok"` will fire.** `degraded` means the process could not establish part
+of what it reports on, and a new `degraded` array names which part — `tripwires` is the one it can
+currently carry.
+
+**It is not a liveness signal.** The service is serving; a load balancer must not pull it out of
+rotation for it. Alert a human, not a proxy.
+
+**Why.** A store failure used to be reported as `status: "ok"`, `tripped: false`, `open_tripwires: 0` —
+an affirmative *nothing has been taken* from a process that could establish nothing of the kind, during
+the one event where the answer matters (F9). `tripped` and `open_tripwires` are now **absent** in that
+case rather than `false`.
+
+### 4. A stopped audit device, and the rule to write for it
+
+**Alert on `audit_devices[].quarantined_from` being present.** A device that misses a committed record
+is no longer written to, and that field carries the first sequence number it missed.
+
+The difference from `accepting: false` matters when writing the rule. `accepting: false` can be
+transient — a volume that fills and is freed recovers on its own, because a record *no* device stored
+is a record no device missed. **`quarantined_from` never clears while the process runs.** It needs a
+human, and [audit-trail.md](audit-trail.md) has the procedure: note where it stopped, archive what it
+holds, fix the volume, restart.
+
+**One thing to expect on the first start after upgrading.** Each device is now compared with the chain
+at startup, so a deployment whose audit file has *already* fallen behind — a volume that filled at some
+point in the past — will find it quarantined on the next restart rather than continuing to append. That
+is the finding rather than a new fault: everything that device accepted after the gap already carried a
+`prev_hash` naming a record it does not hold, and that file has not verified since.
+
+**Why.** The chain is shared and the devices are not. It advanced as soon as any device stored a
+record, so a device that failed one write kept being written to and produced a file that stops
+verifying at that point — which is what a trail somebody edited looks like, produced by a volume that
+was briefly full (F6).
+
+### 5. A new audit action: `request-refused`
+
+**Only if something reads the trail programmatically.** An authenticated caller turned away before any
+decision was reached — a malformed path, an unknown route, a method a route does not have — now writes
+one entry with this action. Anything that enumerates actions, or asserts which ones exist, sees a new
+one.
+
+Expect a small increase in trail volume proportional to how much malformed traffic authenticated
+callers send, which for a working deployment is none.
+
+**Why.** A credential that *failed* authentication produced an entry; one that *worked* and then asked
+for something malformed produced nothing. Somebody holding a stolen token and mapping this API worked
+in silence while the failed guess from outside did not (F12).
+
+### 6. `ciphr backup` refuses a filesystem that cannot hold a mode
+
+**Only where backups go somewhere unusual.** The command now writes an owner-only file and **fails** if
+the mode cannot be set or does not stick — a filesystem carrying no Unix modes, such as some network
+mounts, is the case this catches.
+
+Nothing to do on an ordinary Linux host beyond the standing advice, which
+[backup.md](backup.md) now states outright: **keep backups in a directory the service user owns.**
+
+**Why.** `VACUUM INTO` creates the destination, so its mode came from the umask — `022` produced a
+`0644` backup. The values in a store file stay encrypted; the secret inventory, the rotation classes,
+the writer identities, the token metadata and the whole audit trail do not (F10).
+
+### Two that ask nothing
+
+**Revocation answers more precisely.** `revoked_now` is derived from the write rather than from a read
+taken before it, so two responders revoking the same credential can no longer both be told they were
+the one who stopped it. The route's contract is unchanged (F7, F8).
+
+**A write carrying a rotation class is one transaction.** It can no longer store the value and leave
+the class unset while answering with an error, so a retry no longer writes a second version of the
+same value. Nothing on the wire changes (F13).
 
 ## 0.11.0
 
