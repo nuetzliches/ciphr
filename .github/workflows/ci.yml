@@ -212,6 +212,13 @@ jobs:
       - name: Dependency budget
         run: sh ci/check-ui-budget.sh
 
+      # Here rather than in the `build` job because it needs node to read the
+      # lockfile, and this is the job that has it. It reads the lockfile only --
+      # not node_modules -- so the closure it checks is the one the image will
+      # contain rather than whatever happens to be installed.
+      - name: Third-party notices cover the viewer
+        run: sh ci/check-ui-attribution.sh
+
       # Type check and build in one step, the same script the image build runs,
       # so an image cannot be produced from code that does not type check.
       - name: Type check and build
@@ -390,6 +397,16 @@ jobs:
       # this one fails on a stale or unreachable database rather than skipping.
       - name: cargo audit
         run: cargo audit --deny warnings
+
+      # The other half of the licence question, and the half nothing checked until
+      # 2026-08-25. `cargo deny` decides which licences may *enter* the tree; this
+      # decides whether their conditions are met on the way out. MIT, BSD-2-Clause,
+      # BSD-3-Clause and ISC each require their copyright notice to accompany a
+      # copy of the software, a compiled binary is a copy, and every image and
+      # release asset published before this carried two OCI labels and not one
+      # line of anybody's notice.
+      - name: Third-party notices cover what is published
+        run: sh ci/check-attribution.sh
 
   # ── The two static binaries, once per architecture ───────────────────────────
   #

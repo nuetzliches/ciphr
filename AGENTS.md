@@ -178,6 +178,8 @@ sh ci/check-ui-image-files.sh    # every tracked path in ui/ reaches a stage of 
 sh ci/check-workflow-interpolation.sh # no workflow expression reaches a shell script
 sh ci/check-surface-entries.sh   # the CLI knows every surface entry the server does
 sh ci/check-sdk-reexports.sh     # a ciphr-sdk consumer needs no dependency on ciphr-core
+sh ci/check-attribution.sh       # every crate in a published artefact carries its notice
+sh ci/check-ui-attribution.sh    # the same for the viewer, and its licence copies have not drifted
 sh ci/check-docs.sh              # every doc under docs/ carries a date
 sh ci/check-doc-commands.sh      # a command a document tells you to run exists
 sh ci/check-doc-index.sh         # every doc is in an index, and the ADR count matches
@@ -192,6 +194,20 @@ sh ci/build-ci-binary.sh         # ciphr-ci: the same two properties, its own bu
 linker, so neither runs on Windows. CI runs both, and runs `cargo test -p ciphr-run --target
 x86_64-unknown-linux-musl` and the same for `ciphr-ci` next to them — the tests execute *as* static binaries rather than merely being built as them, because static
 musl is where name resolution breaks and a build-only gate would not notice.
+
+`THIRD-PARTY-LICENSES.md` and `ui/THIRD-PARTY-LICENSES.md` are generated rather than written. The two
+gates above are deliberately cheap — they read a lockfile and compare crate sets — while regenerating
+reads every dependency's own licence file and so needs the crates unpacked and `ui/node_modules`
+present:
+
+```sh
+sh ci/generate-attribution.sh     # needs `cargo build --locked` to have run first
+sh ci/generate-ui-attribution.sh  # needs `npm ci` in ui/
+```
+
+A dependency change lands with the regenerated file in the same commit, for the same reason it lands
+with a changelog entry: the notice a published artefact owes is decided by the dependency, and a
+notice that trails the change it describes is a release that did not carry it.
 
 The viewer has its own CI job, its own pinned Node version, and its own budget, because it is its own
 package (ADR-11). Locally:

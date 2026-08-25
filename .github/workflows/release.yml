@@ -357,6 +357,25 @@ jobs:
             gh release create "$TAG" --title "$TAG" --generate-notes
           fi
 
+      # The notices a downloaded binary owes. Both images carry them -- under
+      # /usr/share/licenses in the server image and /licenses in the wrapper's --
+      # but `ciphr-run` and `ciphr-ci` are also published as bare executables, and
+      # MIT, BSD-2-Clause, BSD-3-Clause and ISC each require their copyright
+      # notice to accompany a copy of the software. Here rather than in the two
+      # asset jobs because those run per architecture and would upload the same
+      # three files twice, racing each other for no reason.
+      - name: Attach the licences and the third-party notices
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" \
+            LICENSE-MIT \
+            LICENSE-APACHE \
+            THIRD-PARTY-LICENSES.md \
+            --clobber
+
   # Both wrapper binaries, taken out of the images that were just published.
   #
   # By digest and by platform, pulled back rather than read out of a local build:

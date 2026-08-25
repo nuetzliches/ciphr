@@ -1,4 +1,5 @@
-# Packages `ciphr-run` as an image whose entire filesystem is that one binary.
+# Packages `ciphr-run` as an image whose filesystem is that one binary and the
+# notices its dependencies' licences require to travel with it.
 #
 # ── Why an image for a single file ───────────────────────────────────────────
 # `ciphr-run` is bind-mounted into images this project does not own (ADR-14), so
@@ -14,7 +15,12 @@
 # ── Why `scratch` ────────────────────────────────────────────────────────────
 # There is nothing else this image should be able to do. It is a transport, not
 # a runtime: no shell, no libc, no package manager, so a container built from it
-# can execute nothing but the wrapper. That is also why the binary has to be
+# can execute nothing but the wrapper. Three text files under `/licenses` are the
+# only other contents and change none of that -- they are the notices MIT, BSD
+# and ISC require to accompany a copy of their code, and this image is the only
+# channel that carries the wrapper to a host that cannot authenticate to GitHub.
+# Leaving them out would have made this the one artefact whose licence conditions
+# were unmet. That is also why the binary has to be
 # statically linked — a dynamically linked one would work here and fail in the
 # foreign image it is mounted into, which is the deployment that finds out.
 # `ci/build-wrapper.sh` verifies the linkage rather than trusting the target
@@ -94,6 +100,11 @@ RUN set -eu; \
 FROM scratch
 
 COPY --from=builder /out/ciphr-run /ciphr-run
+
+# Under `/licenses` rather than beside the binary at `/`, so that the documented
+# retrieval path -- `docker cp <container>:/ciphr-run` -- still names one file and
+# nothing has to change in `release.yml` or in `docs/operations/wrapper.md`.
+COPY LICENSE-MIT LICENSE-APACHE THIRD-PARTY-LICENSES.md /licenses/
 
 # An entrypoint for two reasons, neither of them "so this can be a service".
 # `docker create` refuses an image that names no command, and that is the

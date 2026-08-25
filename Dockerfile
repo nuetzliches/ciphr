@@ -90,6 +90,15 @@ RUN set -eu; \
 COPY --from=builder /build/target/release/ciphr-server /usr/local/bin/ciphr-server
 COPY --from=builder /build/target/release/ciphr /usr/local/bin/ciphr
 
+# The notices the two binaries above owe. Almost every dependency in this tree is
+# under MIT, BSD or ISC, and each of those requires its copyright notice to
+# travel with a *copy* of the software -- which a binary is, and so is this image.
+# `org.opencontainers.image.licenses` on the published image names a licence to a
+# registry; it does not hand the person who pulled the image the text the licence
+# says they must receive. `ci/check-attribution.sh` fails the build if
+# THIRD-PARTY-LICENSES.md stops matching what is linked in.
+COPY LICENSE-MIT LICENSE-APACHE THIRD-PARTY-LICENSES.md /usr/share/licenses/ciphr/
+
 # Owned before VOLUME, so a named volume inherits the ownership rather than
 # arriving as root and forcing the entrypoint to chown a database it should not
 # be touching.

@@ -158,9 +158,18 @@ The complete set of blocking checks, including the supply-chain and source-rule 
 
 ## License
 
-Licensed under either of [Apache License 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT) at
-your option.
+Copyright © 2026 nuetzliche.IT. Licensed under either of
+[Apache License 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT) at your option.
 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion
 in this project by you, as defined in the Apache-2.0 license, shall be dual licensed as above,
 without any additional terms or conditions.
+
+The dependencies are a separate question, and their notices are part of the product rather than of
+this file: [`THIRD-PARTY-LICENSES.md`](THIRD-PARTY-LICENSES.md) carries the notice of every crate
+linked into a published binary, and [`ui/THIRD-PARTY-LICENSES.md`](ui/THIRD-PARTY-LICENSES.md) does
+the same for the viewer. Both ship inside the images — `/usr/share/licenses/` in the server and
+viewer images, `/licenses/` in the wrapper's — and are attached to every release beside the binaries,
+because MIT, BSD and ISC each require their copyright notice to travel with a copy of the software
+and a compiled binary is a copy. `ci/check-attribution.sh` fails the build if either file stops
+matching what is published.
