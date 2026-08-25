@@ -25,7 +25,9 @@
 
 use std::net::{IpAddr, SocketAddr};
 
-use axum::extract::{ConnectInfo, FromRequestParts, Path, Query, State};
+use axum::extract::{
+    ConnectInfo, FromRef, FromRequest, FromRequestParts, Path, Query, Request, State,
+};
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::Response;
@@ -726,7 +728,7 @@ async fn write_secret(
     headers: HeaderMap,
     origin: Origin,
     Path(path): Path<String>,
-    Json(body): Json<SecretBody>,
+    AuditedJson(body): AuditedJson<SecretBody>,
 ) -> Result<Json<WriteResponse>, ApiError> {
     let request = request_context(&headers, origin);
     let caller = authenticate(&state, &headers, Action::Write, &request)?;
@@ -1004,7 +1006,7 @@ async fn export(
     State(state): State<AppState>,
     headers: HeaderMap,
     origin: Origin,
-    Json(body): Json<ExportRequest>,
+    AuditedJson(body): AuditedJson<ExportRequest>,
 ) -> Result<Json<ExportResponse>, ApiError> {
     let request = request_context(&headers, origin);
     let caller = authenticate(&state, &headers, Action::Read, &request)?;
@@ -1763,6 +1765,101 @@ where
                 .get::<ConnectInfo<SocketAddr>>()
                 .map(|ConnectInfo(address)| *address),
         ))
+    }
+}
+
+/// `Json`, and an authenticated caller who sends a body it cannot parse leaves a trace.
+///
+/// The last gap F12 left open, and it was left open because it is the one refusal that
+/// happens **outside** the handler entirely: axum runs the body extractor before the
+/// handler and answers its rejection before the router fallback sees anything, so
+/// neither of the two places that record a refused request could see it. A valid token
+/// sending broken JSON was the last way to be turned away in silence.
+///
+/// # What it costs, and who pays
+///
+/// **Nothing on the path that works.** The body is parsed exactly once and the caller is
+/// authenticated exactly once — in the handler, as before. Only a *failed* parse
+/// authenticates here, which is a second authentication for a request that was never
+/// going to be served.
+///
+/// **An anonymous caller still writes nothing**, the same rule the router fallback
+/// follows and for the same reason: the trail is fail-closed, so letting anybody write to
+/// it by posting garbage would turn a `400` into an outage.
+///
+/// # What the entry says
+///
+/// `request-refused`, reason `malformed-body`, and **not** what was in the body. That is
+/// the whole point of the reason label: a body is caller-controlled bytes, and this is
+/// the one artefact the project keeps tamper-evident. The rejection message still goes to
+/// the caller, who sent it and already knows.
+pub(crate) struct AuditedJson<T>(pub(crate) T);
+
+/// What a request carrying this body was trying to do.
+///
+/// The extractor cannot know which route it is on, and the entry has to say `read` for a
+/// malformed export and `write` for a malformed secret. Guessing one for both would put a
+/// small untruth in the one artefact this project keeps tamper-evident -- and "attempted:
+/// write" on a read is exactly the kind of thing a reader would later have to un-learn.
+pub(crate) trait Attempted {
+    /// The action the caller was attempting.
+    const ACTION: Action;
+}
+
+impl Attempted for SecretBody {
+    const ACTION: Action = Action::Write;
+}
+
+impl Attempted for ExportRequest {
+    const ACTION: Action = Action::Read;
+}
+
+impl<T, S> FromRequest<S> for AuditedJson<T>
+where
+    T: serde::de::DeserializeOwned + Attempted,
+    AppState: FromRef<S>,
+    S: Send + Sync,
+{
+    type Rejection = ApiError;
+
+    async fn from_request(request: Request, state: &S) -> Result<Self, Self::Rejection> {
+        // Kept before the body is consumed: the rejection path needs the headers to
+        // authenticate and to build the request context, and `Json` takes the request
+        // whole.
+        let (mut parts, body) = request.into_parts();
+        let origin = Origin::from_request_parts(&mut parts, state)
+            .await
+            .unwrap_or(Origin(None));
+        let headers = parts.headers.clone();
+        let request = Request::from_parts(parts, body);
+
+        match Json::<T>::from_request(request, state).await {
+            Ok(Json(value)) => Ok(Self(value)),
+            Err(rejection) => {
+                let refused = ApiError::BadRequest {
+                    reason: rejection.body_text(),
+                };
+                let state = AppState::from_ref(state);
+                let context = request_context(&headers, origin);
+
+                // As the router fallback: a credential that authenticates nobody is
+                // treated as an absent one, and an audit failure is answered rather than
+                // swallowed.
+                if let Ok(caller) = state.authenticate(bearer_token(&headers))
+                    && let Err(error) = state.record_refusal(
+                        &caller,
+                        T::ACTION,
+                        &context,
+                        refused.status().as_u16(),
+                        "malformed-body",
+                    )
+                {
+                    return Err(error);
+                }
+
+                Err(refused)
+            }
+        }
     }
 }
 

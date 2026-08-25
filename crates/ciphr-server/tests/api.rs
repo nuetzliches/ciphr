@@ -326,6 +326,29 @@ impl Harness {
         }
     }
 
+    /// The same, with a body that is not required to be valid JSON.
+    ///
+    /// `build` takes a `serde_json::Value`, which cannot express the thing under test:
+    /// a body the parser refuses. This one takes the bytes.
+    fn build_raw(
+        method: &str,
+        uri: &str,
+        token: Option<&str>,
+        body: Option<&str>,
+    ) -> Request<Body> {
+        let mut builder = Request::builder().method(method).uri(uri);
+        if let Some(token) = token {
+            builder = builder.header(header::AUTHORIZATION, format!("Bearer {token}"));
+        }
+        match body {
+            None => builder.body(Body::empty()).expect("request"),
+            Some(raw) => builder
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(raw.to_owned()))
+                .expect("request"),
+        }
+    }
+
     /// Mark an existing secret as bait, the way `ciphr honeypot add` will.
     ///
     /// Through the store rather than through the API, because marking bait is not an API
@@ -536,6 +559,122 @@ fn a_rejected_credential_on_an_unknown_route_writes_nothing() {
         harness.audit_entries().len(),
         before,
         "a token that authenticates nobody is as cheap to make up as none at all"
+    );
+}
+
+/// A body the parser refuses, from a caller whose token works, is recorded.
+///
+/// The last gap F12 left open. Axum answers a body-extractor rejection before the handler
+/// runs *and* before the router fallback sees anything, so neither of the two places that
+/// record a refused request could see it: a valid token sending broken JSON was the last
+/// way to be turned away in silence.
+#[test]
+fn an_authenticated_caller_sending_a_malformed_body_is_recorded() {
+    let harness = Harness::new();
+    let before = harness.audit_entries().len();
+
+    let (status, _) = harness.send(Harness::build_raw(
+        "PUT",
+        "/v1/secrets/infra/service-a/DB_PASSWORD",
+        Some(&harness.deploy_token),
+        Some("{\"value\": not json at all}"),
+    ));
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let entries = harness.audit_entries();
+    assert_eq!(entries.len(), before + 1, "one entry, and not none");
+
+    let refused = entries.last().expect("an entry");
+    assert_eq!(refused["entry"]["action"], "request-refused");
+    assert_eq!(refused["entry"]["deny_reason"], "malformed-body");
+    assert_eq!(refused["entry"]["principal"]["name"], "deploy");
+    assert_eq!(
+        refused["entry"]["detail"], "attempted: write",
+        "a PUT is a write, and the export below is a read"
+    );
+
+    // The body is caller-controlled bytes. The rejection message goes to whoever sent it
+    // and already knows; the trail gets the fact and not the input.
+    assert!(
+        !refused.to_string().contains("not json at all"),
+        "the body must not be echoed into the trail, got {refused}"
+    );
+}
+
+/// The same on the export route, and the entry says `read` rather than `write`.
+///
+/// The extractor cannot know which route it is on, so the body type carries the action.
+/// One value for both would put "attempted: write" on a read — small, and exactly the
+/// kind of thing a reader of a trail later has to un-learn.
+#[test]
+fn a_malformed_export_body_is_recorded_as_a_read() {
+    let harness = Harness::new();
+    let before = harness.audit_entries().len();
+
+    let (status, _) = harness.send(Harness::build_raw(
+        "POST",
+        "/v1/export",
+        Some(&harness.deploy_token),
+        Some("{\"paths\": [,]}"),
+    ));
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let entries = harness.audit_entries();
+    assert_eq!(entries.len(), before + 1);
+    let refused = entries.last().expect("an entry");
+    assert_eq!(refused["entry"]["action"], "request-refused");
+    assert_eq!(refused["entry"]["deny_reason"], "malformed-body");
+    assert_eq!(refused["entry"]["detail"], "attempted: read");
+}
+
+/// An anonymous caller sending a malformed body writes nothing.
+///
+/// The same rule the router fallback follows, for the same reason: the trail is
+/// fail-closed, so letting anybody write to it by posting garbage would turn a `400` into
+/// an outage.
+#[test]
+fn an_anonymous_malformed_body_writes_nothing() {
+    let harness = Harness::new();
+    let before = harness.audit_entries().len();
+
+    let (status, _) = harness.send(Harness::build_raw(
+        "PUT",
+        "/v1/secrets/infra/service-a/DB_PASSWORD",
+        None,
+        Some("{ broken"),
+    ));
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    assert_eq!(
+        harness.audit_entries().len(),
+        before,
+        "an unauthenticated caller must not be able to write to the trail"
+    );
+}
+
+/// A body that parses still costs one authentication and one parse, as before.
+///
+/// The extractor authenticates only on the *failing* path. A test that only proved the
+/// failure case would pass against a wrapper that had quietly doubled the work every
+/// write does.
+#[test]
+fn a_well_formed_body_is_unaffected() {
+    let harness = Harness::new();
+
+    let (status, body) = harness.send(Harness::build(
+        "PUT",
+        "/v1/secrets/infra/service-a/DB_PASSWORD",
+        Some(&harness.deploy_token),
+        Some(serde_json::json!({ "value": "still works" })),
+    ));
+    assert_eq!(status, StatusCode::OK, "got {body}");
+
+    let entries = harness.audit_entries();
+    assert!(
+        !entries
+            .iter()
+            .any(|entry| entry["entry"]["action"] == "request-refused"),
+        "a body that parses refuses nothing"
     );
 }
 
