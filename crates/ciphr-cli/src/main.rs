@@ -1756,13 +1756,17 @@ const KNOWN: &[Known] = &[
     Known {
         name: "bulk_export",
         kind: "runtime",
-        cost: "`ciphr-run` cannot fetch at all: both `--prefix` and `--path` read through \
-               this route, so route B refuses with exit code 125 rather than starting a \
-               service without its secrets. Route C reads one path per request instead -- \
-               the same coverage, the same one audit entry per secret, more round trips. \
-               It does not decide whether this deployment has fetched prefixes for bait \
-               to stay out of (ADR-15): covering a prefix is a property of the code that \
-               fetches, and `GET /v1/list/{prefix}` is not an entry.",
+        cost: "One request per path instead of one for all of them, at container start, \
+               and since ADR-25 that is the whole cost. `ciphr-sdk`'s `read_all` reads \
+               through this route where it exists and falls back to \
+               `GET /v1/secrets/{path}` per path where it does not, so route B and \
+               `ciphr-ci` both work on a deployment that named no entry at all. This \
+               sentence used to say `ciphr-run` could not fetch and refused with exit \
+               code 125; that stopped being true on 2026-08-24. The trail does not notice \
+               either way: this route writes one entry per secret served, never one per \
+               call. It does not decide whether this deployment has fetched prefixes for \
+               bait to stay out of (ADR-15): covering a prefix is a property of the code \
+               that fetches, and `GET /v1/list/{prefix}` is not an entry.",
     },
     Known {
         name: "token_status",
