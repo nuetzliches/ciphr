@@ -1,6 +1,6 @@
 # Operations
 
-**Status:** current as of 2026-08-26. Thirteen documents: twelve procedures for a system that
+**Status:** current as of 2026-08-26, `v0.13.0` released. Thirteen documents: twelve procedures for a system that
 exists, and one design for a tier that does not. The two newest were added the day the decisions
 behind them were taken, and both are about what a deployment has to *know* rather than what it
 runs — federation, and what depends on the vault being reachable.

@@ -8,6 +8,36 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-08-26
+
+**The release that closes ADR-6's open item.** *"Authentication methods sit behind a trait so that
+OIDC federation can be added"* was written in v1, and `openapi.yaml` has reserved
+`POST /v1/auth/oidc/login` since phase 3 with the reason next to it. This is that route. A workload
+presents an ID token its forge issued and receives a ciphr token that lives minutes, so the
+long-lived bearer token in a file on each consuming host stops being the only way in.
+
+**Nothing here asks a deployment to do anything.** No route changed meaning, no field changed
+meaning, the schema stays at 6, and a rollback to `0.12.1` needs the image tag and nothing else.
+Everything new is off until a deployment names it: federation is the `oidc_login` surface entry, and a
+configuration that does not mention it is byte-for-byte as valid as it was.
+
+**Two pages to read before turning federation on, in this order.**
+[`docs/operations/federation.md`](docs/operations/federation.md) — and specifically its
+key-rotation section, because the provider's signing keys are configuration rather than a fetch, so a
+rotation on their side is an edit here and it is the failure this feature adds. Then
+[`docs/operations/availability.md`](docs/operations/availability.md), which is new and is not about
+federation: it writes down the requirement `ciphr-run` has always implied, and a consumer that
+federates needs the vault reachable to authenticate as well as to fetch.
+
+**The viewer moves with this one.** `ui-v0.4.0` is the first viewer that can sign a person in through
+an identity provider; against a deployment that mounts no `/sso.json` it is `ui-v0.3.3` with no
+visible difference. There is no ordering constraint in either direction — the route it uses is off
+unless the service names the entry, and a viewer that finds it absent says so and offers token paste.
+
+**This is the largest new surface on the authentication path since the external review**, and
+[`docs/security-review.md`](docs/security-review.md) says so with the order to attack it in. The
+acceptance of 2026-08-21 does not stretch to cover it, by its own terms.
+
 ### Added
 
 - **OIDC federation: a workload can authenticate without a stored token.**
@@ -5007,7 +5037,8 @@ first production use.
   decision.
 - `AGENTS.md` with the working rules, and `SECURITY.md` with the disclosure process and scope.
 
-[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.12.1...main
+[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.13.0...main
+[0.13.0]: https://github.com/nuetzliches/ciphr/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/nuetzliches/ciphr/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/nuetzliches/ciphr/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/nuetzliches/ciphr/compare/v0.10.0...v0.11.0

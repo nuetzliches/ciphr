@@ -49,21 +49,23 @@ openapi: 3.1.0
 info:
   title: ciphr
   # Tracks the release, not the path prefix. The paths are `/v1/…` and that prefix is
-  # stable; the product is 0.12.1, and calling this document 1.0.0 would claim a
+  # stable; the product is 0.13.0, and calling this document 1.0.0 would claim a
   # stability guarantee that has not been earned. Two reasons now, the second of them
   # since `0.7.0`: the external review of the crypto and authorization crates
   # happened on 2026-08-21 and read three crates rather than this API — the server,
   # its configuration and its TLS setup are on that record's own list of what it did
   # not read — and the honeypot surface added afterwards is newer than that review's
   # acceptance, which `docs/security-review.md` marks where it stands.
-  version: "0.12.1"
+  version: "0.13.0"
   summary: A secret manager for machine identities.
   description: |
     Key/value secrets, gap-free access auditing, and path-based authorization.
 
-    **Every route except `/v1/health` requires a bearer token.** Authentication
-    failures are always `401` with the same body, whatever was wrong with the
-    credential; authorization failures are `403` and say nothing about the rule that
+    **Every route requires a bearer token, with two named exceptions.** `/v1/health`,
+    and — where a deployment turned the `oidc_login` entry on — `POST /v1/auth/oidc/login`,
+    which is the request a caller makes *because* it holds no credential yet (ADR-26).
+    Authentication failures are always `401` with the same body, whatever was wrong with
+    the credential; authorization failures are `403` and say nothing about the rule that
     refused. The rule is in the audit trail, where the operator can see it and the
     caller cannot.
 

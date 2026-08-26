@@ -1,7 +1,7 @@
 # OIDC federation: letting a job authenticate without a stored token
 
-**Status:** implemented as of 2026-08-26 ([ADR-26](../adr/0026-oidc-federation.md)); on `main` and
-not yet in a release. Off in every deployment that has not named the `oidc_login` surface entry. The
+**Status:** implemented as of 2026-08-26 ([ADR-26](../adr/0026-oidc-federation.md)), released in
+`v0.13.0`. Off in every deployment that has not named the `oidc_login` surface entry. The
 key-rotation procedure below is the part of this page to read *before* turning it on, because it is
 the one that will page somebody.
 

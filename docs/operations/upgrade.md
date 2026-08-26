@@ -1,6 +1,6 @@
 # Upgrading
 
-**Status:** current as of 2026-08-25, covering every released version up to `0.12.1`.
+**Status:** current as of 2026-08-26, covering every released version up to `0.13.0`.
 
 The changelog says what changed. This says what to *do* about it, and it exists because the two are
 not the same document: a changelog entry sinks under the next release, while the person upgrading two
@@ -97,6 +97,47 @@ rather than a report somebody remembers to read:
 A review host wants to fail on `1` and `2` and to accept `3`; the host itself wants `0` and nothing
 else ([field-report-2026-08-23.md](../assurance/field-reports/field-report-2026-08-23.md), finding 1, and
 [field-report-2026-08-23-b.md](../assurance/field-reports/field-report-2026-08-23-b.md), finding 1).
+
+## 0.13.0
+
+**Nothing to do.** No route changed meaning, no field changed meaning, the schema stays at 6, and a
+rollback to `0.12.1` needs the image tag and nothing else. Everything this release adds is off until a
+deployment names it, so a configuration that says nothing new is as valid as it was.
+
+**What it adds is a second way for a workload to authenticate**, and it is a decision rather than an
+upgrade step: `POST /v1/auth/oidc/login` exchanges an ID token a configured provider issued for a
+ciphr token that lives minutes ([ADR-26](../adr/0026-oidc-federation.md)). Turning it on means naming
+the `oidc_login` surface entry *and* configuring a provider — the server refuses to start with only
+one of the two, in either direction.
+
+**Read [federation.md](federation.md) before turning it on, and its key-rotation section first.** The
+provider's signing keys are configuration rather than something the service fetches, so a rotation on
+their side is an edit here — and until that edit lands, every exchange is refused. It fails closed:
+tokens already issued keep working, bootstrap credentials keep working, and the deployment is in the
+state it is in today. But the failure has no monitoring behind it in this repository, and the trail
+does not record it either, because a signature that does not verify is not recorded at all. That is
+the one new thing worth a monitoring rule.
+
+**Then read [availability.md](availability.md), which is new and is not about federation.** It writes
+down the requirement `ciphr-run` has always implied — what depends on the vault being reachable, at
+which moment, and what must therefore not be co-located with it or restarted alongside it. Nothing
+changed to make that true; it was simply never written down, and issue #52 asked for a cache instead
+([ADR-27](../adr/0027-the-vault-is-a-startup-dependency.md) says why there is none). One sentence in
+it is new information for a deployment adopting federation: a consumer that federates needs the vault
+reachable to *authenticate* as well as to fetch.
+
+**Take `ui-v0.4.0`, and there is no ordering constraint.** It is the first viewer that can sign a
+person in through a provider. Against a deployment that mounts no `/sso.json` it behaves exactly like
+`ui-v0.3.3` — no button, token paste, no visible difference — and against a service that has not
+named `oidc_login` it says so and offers token paste. So this tag can be taken before, with, or after
+the service.
+
+**One correction that changes what an operator reads, not what the service does.** The cost sentence
+for the `bulk_export` entry — printed by `ciphr surface` and by `--check-config` — said `ciphr-run`
+"cannot fetch at all" without that entry and "refuses with exit code 125". ADR-25 made that false on
+2026-08-24 and only the layer diagram was corrected. If a decision about `bulk_export` was taken on
+the strength of that sentence, it was taken on wrong information: the entry costs round trips, not
+route B.
 
 ## 0.12.1
 

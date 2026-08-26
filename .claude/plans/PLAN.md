@@ -5,7 +5,7 @@
 | **Written** | 2026-08-18 |
 | **Background** | Evaluated OpenBao, Vault Community, Infisical CE, Conjur OSS. Result: OpenBao meets the requirement completely. Building this is a product decision, not a workaround. |
 
-**Status:** current as of 2026-08-25, with `v0.12.1` released and section 14's job-side fetch in it
+**Status:** current as of 2026-08-26, with `v0.13.0` released and section 14's OIDC federation in it
 (`ciphr-ci`, ADR-25).
 
 This paragraph deliberately carries **one** date and no other. `ci/check-doc-dates.sh` takes the
