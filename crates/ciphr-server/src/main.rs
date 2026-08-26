@@ -499,7 +499,7 @@ mod tests {
         assert!(report.contains("  on   viewer_api"), "{report}");
         assert!(report.contains("  off  bulk_export"), "{report}");
         assert!(
-            report.contains("`ciphr-run` cannot fetch at all"),
+            report.contains("One request per path instead of one for all of them"),
             "the cost of the off entry: {report}"
         );
         assert!(

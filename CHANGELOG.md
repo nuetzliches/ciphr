@@ -10,6 +10,15 @@ This file is updated in the same commit as the change it describes.
 
 ### Changed
 
+- **The `bulk_export` entry's cost sentence had been wrong since 2026-08-24.** It said `ciphr-run`
+  *"cannot fetch at all"* without this entry and *"refuses with exit code 125"*, which ADR-25 made
+  false the day it landed: `ciphr-sdk`'s `read_all` falls back to one `GET /v1/secrets/{path}` per
+  path, so route B and `ciphr-ci` both work on a deployment that named nothing. The layer diagram had
+  been corrected and the two places an operator actually reads — `ciphr surface` and
+  `--check-config` — had not, because `ci/check-surface-entries.sh` compares the diagram by *name*
+  only. **The sentence now carries its own correction**, so somebody who read the old one finds out
+  rather than wondering which version was right.
+
 - **The startup warning for a quarantined device reads as a sentence.** It carried two runs of
   fourteen spaces into the output — a continuation literal indented to match the surrounding code —
   found by [the field report of 2026-08-25 (b)](docs/assurance/field-reports/field-report-2026-08-25-b.md).
