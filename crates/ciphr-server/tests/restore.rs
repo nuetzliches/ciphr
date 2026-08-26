@@ -221,7 +221,9 @@ fn serve(database: &Path) -> axum::Router {
         root,
         "static".to_owned(),
         "supplied".to_owned(),
-        ciphr_server::surface::only(&[]).expect("an empty surface"),
+        ciphr_server::surface::only(&[])
+            .expect("an empty surface")
+            .into(),
     ))
 }
 

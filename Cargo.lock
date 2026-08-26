@@ -414,6 +414,7 @@ dependencies = [
  "ciphr-policy",
  "ciphr-store",
  "rcgen",
+ "ring",
  "rusqlite",
  "rustls",
  "serde",

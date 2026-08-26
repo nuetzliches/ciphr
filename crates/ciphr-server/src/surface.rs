@@ -162,8 +162,28 @@ pub const ENTRIES: &[Entry] = &[
                order to invalidate one token, at the one moment that cannot be \
                scheduled. `docs/operations/honeypots.md` fires exactly then. On, this \
                is the single write the API may do (ADR-24): one token per request, \
-               authorized as `revoke` on `sys/tokens`, no master key involved. Issuing \
-               stays on the host either way.",
+               authorized as `revoke` on `sys/tokens`, no master key involved. Issuing a \
+               token an operator asked for stays on the host either way; the one \
+               exception is a federated exchange, which mints one without being asked \
+               (`oidc_login`, ADR-26).",
+        compiled_in: true,
+    },
+    Entry {
+        name: "oidc_login",
+        kind: Kind::Runtime,
+        cost: "Every consuming host keeps a long-lived bearer token in a file. Where one \
+               collection point fetches for everything that is one credential in one \
+               place; where a CI runner runs on each host, the credential count grows \
+               with the host count -- each one long-lived, each one on the machine that \
+               also runs the workload, and rotating them is one operation per host. On, a \
+               workload presents an ID token its forge issued and receives a ciphr token \
+               that lives minutes: `POST /v1/auth/oidc/login`, unauthenticated because \
+               the caller holds no ciphr credential yet, and the second write this API \
+               may do (ADR-26). It cannot widen an authority -- the identity, its \
+               policies and the lifetime ceiling all come from configuration -- and the \
+               provider's signing keys are configuration too, so a key rotation on their \
+               side is an edit here rather than a fetch from the process that holds \
+               plaintext secrets.",
         compiled_in: true,
     },
     Entry {

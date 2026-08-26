@@ -55,6 +55,29 @@ pub enum Action {
     /// store detects. A chain can prove nothing was removed. It cannot show
     /// something that was never written into it.
     IssueToken,
+    /// A provider-issued ID token was exchanged for a ciphr token (ADR-26).
+    ///
+    /// **Its own action rather than an [`Action::IssueToken`], because the question it
+    /// answers is different.** An issuance says an operator created a credential. This
+    /// says a provider vouched for a claim set and a configured binding turned it into
+    /// an identity — so the entry has to name the provider and the verified `sub`
+    /// alongside the identity, which `issue-token` has nowhere to put. Folding the two
+    /// together would make "who decided this workload may read these values" answerable
+    /// only from a configuration file that may since have changed.
+    ///
+    /// The consequence is worth stating rather than discovering: **counting credentials
+    /// created means counting both actions.** `issue-token` plus the allowed
+    /// `federate-token` entries; a federated mint is not recorded twice.
+    ///
+    /// A refused exchange carries the reason as its deny reason — an expired token, a
+    /// wrong audience and an unmapped claim set are different findings and the trail
+    /// keeps them apart. What it never carries is the presented token. And there is one
+    /// class it does not carry at all: an exchange whose signature did not verify
+    /// against any configured provider is refused without an entry, because the route is
+    /// unauthenticated and an entry per attempt would be an anonymous write into a
+    /// fail-closed trail. ADR-26 records that line and `docs/operations/federation.md`
+    /// says it out loud, so a reader does not mistake silence for absence of attempts.
+    FederateToken,
     /// Revoke a token.
     ///
     /// One entry per token, including when a whole identity is revoked at once:
@@ -177,6 +200,7 @@ impl Action {
             Self::Destroy => "destroy",
             Self::Classify => "classify",
             Self::IssueToken => "issue-token",
+            Self::FederateToken => "federate-token",
             Self::RevokeToken => "revoke-token",
             Self::AuditDeviceFailed => "audit-device-failed",
             Self::RequestRefused => "request-refused",
@@ -475,6 +499,24 @@ mod tests {
             assert!(!action.as_str().is_empty());
             assert!(Capability::parse(action.as_str()).is_err());
         }
+    }
+
+    /// A federated mint is its own word, and counting credentials means counting both.
+    ///
+    /// The assertion that matters is the inequality: if these two ever collapsed into
+    /// one label, "who decided this workload may read these values" would be
+    /// answerable only from a configuration file that may since have changed.
+    #[test]
+    fn a_federated_exchange_is_not_spelled_like_an_issuance() {
+        assert_eq!(Action::FederateToken.as_str(), "federate-token");
+        assert_ne!(
+            Action::FederateToken.as_str(),
+            Action::IssueToken.as_str(),
+            "an operator creating a credential and a provider vouching for one are \
+             different facts about how it came to exist"
+        );
+        // And neither is a capability: no grant is spelled `federate`.
+        assert!(Capability::parse(Action::FederateToken.as_str()).is_err());
     }
 
     #[test]

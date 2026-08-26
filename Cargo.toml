@@ -79,6 +79,15 @@ tokio  = { version = "1.53.1", default-features = false, features = ["rt-multi-t
 # TLS terminates at the listener, not at the reverse proxy (ADR-8).
 axum-server    = { version = "0.8.0", default-features = false, features = ["tls-rustls-no-provider"] }
 rustls         = { version = "0.23.43", default-features = false, features = ["ring", "std", "tls12"] }
+# Signature verification for OIDC federation (ADR-26): RSASSA-PKCS1-v1_5 and ECDSA
+# P-256, both with SHA-256. **This adds a direct dependency and no new code** — it is
+# already in the graph because `rustls` above uses it as its provider, which is the
+# whole reason it was chosen over a JWT library. A crate like `jsonwebtoken` would have
+# brought a second signature implementation, a second base64 implementation and its own
+# claim-validation logic into the authentication path; what is needed here is two verify
+# calls, and the claim rules are this project's own. `RsaPublicKeyComponents` takes the
+# `n` and `e` a JWKS is written in, so no DER encoder is needed either.
+ring           = "0.17.14"
 
 # Argument parsing for the CLI. Hand-rolled parsing in a tool that handles secrets
 # is the same class of mistake as hand-rolled routing: it is the boring code where an

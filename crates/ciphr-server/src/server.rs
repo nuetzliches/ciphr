@@ -40,7 +40,7 @@ impl Server {
     pub fn prepare(config: Config) -> Result<Self, StartupError> {
         // The two files first, in [`from_files`]: they are the cheapest to check and the
         // most likely to have a typo in them, and neither needs a key or a lock.
-        let (policies, surface) = from_files(&config)?;
+        let (policies, composition) = from_files(&config)?;
 
         // One writer per store, taken before anything else and held for the life of
         // the process. Without it a `ciphr` command run against this store while the
@@ -74,7 +74,15 @@ impl Server {
 
         let seal_id = seal_state.seal_id.clone();
         let key_source = seal.source().kind().to_owned();
-        let state = AppState::new(store, sink, policies, root, seal_id, key_source, surface);
+        let state = AppState::new(
+            store,
+            sink,
+            policies,
+            root,
+            seal_id,
+            key_source,
+            composition,
+        );
 
         // One entry naming the active surface, before the listener is bound. A
         // deployment that changes its own shape otherwise leaves no record the trail
@@ -149,13 +157,19 @@ impl Server {
     /// Everything that depends on this host is in [`Check::store`] instead, so a
     /// missing store cannot suppress the report about the file.
     pub fn check(config: &Config) -> Result<Check, StartupError> {
-        let (policies, surface) = from_files(config)?;
+        let (policies, composition) = from_files(config)?;
 
         Ok(Check {
             identities: policies.identities().count(),
             rules: policies.policies().map(|policy| policy.rules().len()).sum(),
-            unreachable: unreachable_entries(&policies, &surface),
-            surface,
+            unreachable: unreachable_entries(&policies, &composition.surface),
+            providers: composition
+                .federation
+                .names()
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            surface: composition.surface,
             store: store_state(config),
         })
     }
@@ -272,6 +286,13 @@ pub struct Check {
     pub unreachable: Vec<Unreachable>,
     /// The surface this configuration resolves to, against this binary.
     pub surface: crate::surface::Active,
+    /// The OIDC providers this configuration federates through (ADR-26), by name.
+    ///
+    /// A function of the configuration file alone, so it belongs in the half of the
+    /// report that holds in review -- which is where it matters most: these are
+    /// somebody else's signing keys, and a review is the place to notice one that
+    /// should not be there.
+    pub providers: Vec<String>,
     /// This host's store, seal and audit devices — or the reason they are not ready.
     pub store: Result<StoreReady, StartupError>,
 }
@@ -368,7 +389,7 @@ fn anyone_may(policies: &PolicySet, path: &str, capability: Capability) -> bool 
 /// all. Written twice, the store-free half of the check would drift from the store-free
 /// half of startup, and the drift would be invisible until a file passed the check and
 /// refused to start.
-fn from_files(config: &Config) -> Result<(PolicySet, crate::surface::Active), StartupError> {
+fn from_files(config: &Config) -> Result<(PolicySet, crate::state::Composition), StartupError> {
     // The policy file first: it is the cheapest to check and the most likely to have a
     // typo in it, and getting it wrong is the failure with the worst consequences.
     let policy_text =
@@ -382,7 +403,33 @@ fn from_files(config: &Config) -> Result<(PolicySet, crate::surface::Active), St
     // a stanza this build cannot honour finds out without a key, a store or a lock.
     let surface = crate::surface::resolve(&config.surface)?;
 
-    Ok((policies, surface))
+    // Federation last, and checked against the policy file rather than only against
+    // itself. A binding names an identity, the identity and its policies come from the
+    // policy file (ADR-3), and a binding that names one the file does not have can only
+    // ever mint a credential with no rules behind it.
+    //
+    // **A refusal rather than a note, and the precedent is `ciphr token issue`**, which
+    // refuses an unknown identity outright. An exchange is an issuance, so it refuses on
+    // the same terms. `unreachable_entries` reports rather than refuses for a different
+    // situation: there the entry is on and the *grant* is missing, which is a legitimate
+    // half-done order of work. A binding is the line that names the identity, so a name
+    // the file does not have is a typo far more often than a plan.
+    let federation = crate::oidc::Federation::resolve(&config.auth.oidc)?;
+    for identity in federation.bound_identities() {
+        if policies.identity(identity).is_none() {
+            return Err(StartupError::Config(ConfigError::OidcUnknownIdentity {
+                identity: identity.to_owned(),
+            }));
+        }
+    }
+
+    Ok((
+        policies,
+        crate::state::Composition {
+            surface,
+            federation,
+        },
+    ))
 }
 
 /// Whether this host's store is one the configuration could serve from.

@@ -1,6 +1,7 @@
 # External review: scope, claims, and what would falsify them
 
-**Status:** prepared 2026-08-18, last revised 2026-08-24. **This repository was made public on
+**Status:** prepared 2026-08-18, last revised 2026-08-26 with the coverage debt OIDC federation
+adds (ADR-26). **This repository was made public on
 2026-08-24 without the human review this document asks for**, which is a decision against one of the
 conditions recorded below rather than a condition that was met — see *Published without a human
 review* immediately after the acceptance. **A commissioned review took place on
@@ -98,6 +99,31 @@ tier lookup and a latch in `ciphr-server`, two audit actions, and two routes. Wh
 `ciphr-crypto`, `ciphr-policy`, and the path, pattern and secret code in `ciphr-core` — enforced by
 `ci/check-core-no-features.sh` rather than asserted here.
 
+**Added 2026-08-26, after the acceptance: OIDC federation** ([ADR-26](adr/0026-oidc-federation.md)).
+The same rule applies for the same reason, and this is the largest piece of new surface **on the
+authentication path** since the acceptance — so it is the one a reviewer with limited time should
+take first.
+
+What changed: a verifier for a signed token presented by a caller who holds no credential of this
+system, in `crates/ciphr-server/src/oidc.rs`; an unauthenticated route that mints a credential; one
+audit action; and a direct dependency on `ring`'s signature verification, which was already in the
+graph as `rustls`'s provider. What did **not** change: `ciphr-crypto`, `ciphr-policy`, and the path,
+pattern and secret code in `ciphr-core`, enforced by the same script as above — and the token
+verification path itself, which a federated token reaches as an ordinary bearer token once the row
+exists.
+
+**What to attack, in order.** (1) The verification order in `Federation::exchange`: the key is
+selected by `kid` *and* algorithm from the configured set, and the header's `alg` never chooses a
+key — a reviewer should try to find an input where it does. The `none` and `HS256` cases have tests;
+the question is whether the set is complete. (2) `split`, which decides what bytes a signature
+covers: it returns a slice of the original input rather than a re-encoding, and a token where those
+differ would be a signature over something other than what was parsed. (3) The claim comparisons —
+`aud` accepts a string or an array and compares by equality, and a binding matches every claim it
+lists; a partial or case-insensitive match anywhere there is an authorization bypass. (4) The line
+between `Unverifiable` and `Refused`, which is what decides whether an anonymous caller can write to
+the trail. The RS256 known-answer test against RFC 7515 is the smallest place to start, because it is
+the one assertion that the cryptography is wired up at all rather than merely called.
+
 **What it is not.** A review by a human practitioner. The reviewer was an AI model, a different one
 from the model that co-authored the code — which is why it falsified two claims the same-model pass
 of 2026-08-18 had recorded as holding, and why it is still not the independent pair of human eyes
@@ -148,8 +174,9 @@ met. That is more than nothing and it is not an independent security assessment.
 
 - **Unreviewed by anyone**: `ciphr-audit`, most of `ciphr-store`, the server's configuration and TLS
   code, and `ui/`.
-- **Newer than the acceptance**: the `honeypot_alert` surface (claims C11, C12, D10), and
-  `ciphr-export` and `ciphr-ci` (ADR-25).
+- **Newer than the acceptance**: the `honeypot_alert` surface (claims C11, C12, D10),
+  `ciphr-export` and `ciphr-ci` (ADR-25), and **OIDC federation** (ADR-26) — the last of which is on
+  the authentication path, which the acceptance names as the case that does not inherit it.
 - **Never claimed**: that any of this was checked by somebody whose living depends on being right
   about it.
 

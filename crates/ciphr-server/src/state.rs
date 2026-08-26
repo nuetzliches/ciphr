@@ -65,6 +65,10 @@ struct Inner {
     /// the point rather than an optimization. ADR-20 rejects a route that flips an
     /// entry, and interior mutability here is what such a route would need.
     surface: crate::surface::Active,
+    /// Resolved at startup for the same reason, and immutable for a stronger one: these
+    /// are somebody else's signing keys, and a process that could add one at runtime
+    /// would be a process that can be told who to trust.
+    federation: crate::oidc::Federation,
     devices: Mutex<Vec<DeviceHealth>>,
     /// Which bait already has a latch pending or open, so that one piece of bait
     /// schedules one write and not one per touch (finding F5). Present only with the
@@ -255,6 +259,63 @@ impl Caller {
     }
 }
 
+/// What a verified federated exchange came to.
+///
+/// Only two outcomes reach the trail, and the type says which: a credential exists, or
+/// it does not and there is a reason. An exchange whose signature never verified is
+/// neither, and has no variant here on purpose.
+#[derive(Debug)]
+pub enum Federated<'a> {
+    /// A credential was minted, for this identity, with this non-secret identifier.
+    Minted {
+        /// The identity the binding named.
+        identity: &'a str,
+        /// The token's eight-character identifier, as every later access will carry it.
+        token_id: &'a str,
+    },
+    /// The provider's token verified and earned nothing. The label says why.
+    Refused(&'a str),
+}
+
+/// The virtual path a federated exchange is recorded against.
+///
+/// `sys/tokens`, the same one revocation and the token inventory use: what an exchange
+/// touches is the credential inventory. No capability is evaluated against it — the
+/// caller has no ciphr identity to evaluate — and the path is here so that "everything
+/// that happened to the tokens" is one query rather than two.
+///
+/// # Panics
+///
+/// Cannot: the input is a literal that satisfies the path rules.
+fn reserved_tokens_path() -> SecretPath {
+    SecretPath::parse("sys/tokens").expect("the reserved paths are valid by construction")
+}
+
+/// What a deployment composed before the first request.
+///
+/// One argument rather than two, and it will be one rather than three when the next
+/// optional thing arrives: everything in here is resolved from the configuration file
+/// at startup, immutable afterwards, and about *what this process offers* rather than
+/// about how it works.
+#[derive(Default)]
+pub struct Composition {
+    /// The optional surface entries this deployment named (ADR-20).
+    pub surface: crate::surface::Active,
+    /// The OIDC providers a workload may federate through (ADR-26). Empty unless the
+    /// `oidc_login` entry above is on — `Config::validate` refuses either half alone.
+    pub federation: crate::oidc::Federation,
+}
+
+impl From<crate::surface::Active> for Composition {
+    /// For a caller that composes a router in-process and federates nothing.
+    fn from(surface: crate::surface::Active) -> Self {
+        Self {
+            surface,
+            federation: crate::oidc::Federation::default(),
+        }
+    }
+}
+
 impl AppState {
     /// Assemble the state. The root key and pepper are held for the process lifetime;
     /// there is no re-seal in v1.
@@ -265,7 +326,7 @@ impl AppState {
         root: RootKey,
         seal_id: String,
         key_source: String,
-        surface: crate::surface::Active,
+        composition: Composition,
     ) -> Self {
         let pepper = TokenPepper::derive(&root);
         // Both asked before the sink is moved. The quarantine list matters at startup
@@ -304,7 +365,8 @@ impl AppState {
                 pepper,
                 seal_id,
                 key_source,
-                surface,
+                surface: composition.surface,
+                federation: composition.federation,
                 devices: Mutex::new(devices),
                 #[cfg(feature = "honeypot_alert")]
                 latching: LatchClaims::default(),
@@ -345,6 +407,50 @@ impl AppState {
     /// whose surface an adversary can change.
     pub fn surface(&self) -> &crate::surface::Active {
         &self.inner.surface
+    }
+
+    /// The configured OIDC providers (ADR-26).
+    ///
+    /// Empty unless the `oidc_login` entry is on, which the configuration loader
+    /// enforces in both directions rather than leaving to whoever reads this.
+    pub fn federation(&self) -> &crate::oidc::Federation {
+        &self.inner.federation
+    }
+
+    /// Write the row for a token a federated exchange resolved to.
+    ///
+    /// Separate from generating it, and the order is the fail-closed rule rather than a
+    /// preference: the caller generates the token, records the entry that names its
+    /// non-secret identifier, and only then calls this. A row that exists before the
+    /// entry does is a credential the trail cannot account for.
+    ///
+    /// `created_by` is `oidc:<provider>`, which is the same shape the CLI's `cli` is —
+    /// a column that says which path minted the row, readable by
+    /// `ciphr token list` without joining anything.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the store said, as an [`ApiError`].
+    pub fn store_federated_token(
+        &self,
+        identity: &str,
+        token: &ciphr_crypto::Token,
+        provider: &str,
+        expires_at: i64,
+    ) -> Result<(), ApiError> {
+        let created_by = format!("oidc:{provider}");
+        self.with_store(|store| {
+            store
+                .issue_token(
+                    identity,
+                    token,
+                    &self.inner.pepper,
+                    &created_by,
+                    Some(expires_at),
+                    ciphr_store::TokenPurpose::Credential,
+                )
+                .map_err(ApiError::from)
+        })
     }
 
     /// What each audit device did with the most recent record, for the health endpoint.
@@ -1040,6 +1146,68 @@ impl AppState {
     pub fn record_surface(&self) -> Result<(), ApiError> {
         let entry = Entry::allowed(Action::SurfaceActive).with_detail(self.surface().summary());
         self.record(&entry)
+    }
+
+    /// Record what a verified federated exchange came to (ADR-26).
+    ///
+    /// **The principal is the provider, not an identity**, and that is the honest shape:
+    /// no ciphr credential was presented, so there is nobody of this system's own to
+    /// name as the actor. What acted is a signing key a deployment wrote into its
+    /// configuration, so the entry names it as `oidc:<provider>` — the same string the
+    /// `created_by` column gets. The identity is the *subject*, beside the non-secret
+    /// identifier of the credential that was minted for it, which is what lets a reader
+    /// join this entry to every later access made with that token.
+    ///
+    /// The verified `sub` goes in the detail, because plan section 14 requires it in the
+    /// entry and it is the only field that says *which* workload of that provider
+    /// this was. It is a claim a provider signed, not a secret.
+    ///
+    /// **Nothing calls this for an unverifiable token, and that is deliberate.** See
+    /// [`crate::oidc::Exchange`] for the reasoning: the route is unauthenticated, so an
+    /// entry per attempt would be an anonymous write into a fail-closed trail.
+    ///
+    /// # Errors
+    ///
+    /// [`ApiError::AuditUnavailable`] if no device accepted the record. Fail-closed:
+    /// an exchange this service could not record is an exchange it does not perform.
+    pub fn record_federation(
+        &self,
+        provider: &str,
+        subject: Option<&str>,
+        outcome: &Federated<'_>,
+        status: u16,
+        request: &RequestContext,
+    ) -> Result<(), ApiError> {
+        let mut entry = match outcome {
+            Federated::Minted { identity, token_id } => Entry::allowed(Action::FederateToken)
+                .with_subject(Principal {
+                    name: (*identity).to_owned(),
+                    kind: self
+                        .inner
+                        .policies
+                        .identity(identity)
+                        .map(|identity| identity.kind().as_str().to_owned()),
+                    token_id: Some((*token_id).to_owned()),
+                }),
+            Federated::Refused(reason) => Entry::denied(Action::FederateToken, *reason),
+        };
+
+        entry = entry
+            .with_principal(Principal {
+                name: format!("oidc:{provider}"),
+                kind: Some("oidc".to_owned()),
+                token_id: None,
+            })
+            .with_path(&reserved_tokens_path());
+
+        if let Some(subject) = subject {
+            entry = entry.with_detail(format!("sub: {subject}"));
+        }
+
+        self.record(&entry.with_request(RequestContext {
+            http_status: Some(status),
+            ..request.clone()
+        }))
     }
 
     /// Record an attempt that failed before any identity was established.
