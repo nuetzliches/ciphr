@@ -1,8 +1,8 @@
 # The viewer
 
-**Status:** current as of 2026-08-26, phase 5. **Sign-in through an identity provider is built and
-not yet released** — ADR-12's second half, on ADR-26's machinery, with the flow decision in ADR-28;
-the sections below describe it as it is on `main`. The newest tag is `ui-v0.3.3`, the first viewer that reads the two states `0.12.0` added; the capability its token needs changed on 2026-08-23 (ADR-23), and `ui-v0.3.1` closes finding F4 — the viewer now refuses to mount while a service worker controls its document. Built and running: the five
+**Status:** current as of 2026-08-26, phase 5. **Sign-in through an identity provider is released in
+`ui-v0.4.0`** — ADR-12's second half, on ADR-26's machinery, with the flow decision in ADR-28; it
+needs a service at `0.13.0` or newer, and only where a deployment mounts an `/sso.json`. `ui-v0.3.3`, the first viewer that reads the two states `0.12.0` added; the capability its token needs changed on 2026-08-23 (ADR-23), and `ui-v0.3.1` closes finding F4 — the viewer now refuses to mount while a service worker controls its document. Built and running: the five
 views below, the strict Content-Security-Policy, and the container that serves them. Sign-in is a
 provider where a deployment configures one, and a pasted token otherwise (ADR-12, ADR-28). **This viewer requires a service at `0.3.0` or newer** — it
 reads the rotation class from `GET /v1/versions/{path}`, which returned a bare array before that.
