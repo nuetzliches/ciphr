@@ -10,7 +10,13 @@
 //!
 //! Consequences that shape the code here:
 //!
-//! - Every route except `/v1/health` requires an authenticated identity.
+//! - Every route requires an authenticated identity, with two exceptions and both are
+//!   named: `/v1/health`, and — where a deployment turned the `oidc_login` entry on —
+//!   `POST /v1/auth/oidc/login`, which is the request a caller makes *because* it holds
+//!   no credential of this system yet (ADR-26). What stands in for authentication there
+//!   is a signature from a provider the configuration names, and until that verifies
+//!   the request is treated exactly like an anonymous one — including writing nothing
+//!   to the trail.
 //! - Administrative reads are authorized through the same evaluator as secret reads,
 //!   as the virtual paths `sys/audit`, `sys/identities`, and `sys/policies`. There is
 //!   no second authorization mechanism and no `admin` capability.
@@ -37,14 +43,15 @@
 pub mod api;
 pub mod config;
 pub mod error;
+pub mod oidc;
 pub mod server;
 pub mod state;
 pub mod surface;
 pub mod tls;
 
-pub use config::{AuditConfig, Config, SealConfig, StorageBackend, StorageConfig};
+pub use config::{AuditConfig, AuthConfig, Config, SealConfig, StorageBackend, StorageConfig};
 pub use error::{ApiError, ConfigError, StartupError};
 pub use server::{Check, Server, StoreReady, Unreachable};
 pub use state::DeviceHealth;
-pub use state::{AppState, Caller};
+pub use state::{AppState, Caller, Composition};
 pub use surface::{Active as ActiveSurface, ENTRIES as SURFACE_ENTRIES};

@@ -584,3 +584,145 @@ fn a_check_does_not_migrate_the_store() {
         "a check must not be the step that spends the rollback"
     );
 }
+
+// ---------------------------------------------------------------------------
+// OIDC federation (ADR-26)
+// ---------------------------------------------------------------------------
+
+/// The `oidc_login` stanza, and a provider that binds the policy file's `deploy`.
+///
+/// Written out rather than built from parts because the nesting is the thing most likely
+/// to be got wrong by hand: `[[auth.oidc.key]]` belongs to the last `[[auth.oidc]]`, and
+/// a file that gets that wrong parses into a provider with no keys.
+const FEDERATION: &str = r#"
+[[surface]]
+entry    = "oidc_login"
+accepted = "2026-08-26"
+reason   = "one runner per host, so a token per host was the standing credential count"
+
+[[auth.oidc]]
+name     = "forge"
+issuer   = "https://forge.example/api/actions"
+audience = "ciphr"
+
+  [[auth.oidc.key]]
+  alg = "ES256"
+  kid = "k1"
+  x   = "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU"
+  y   = "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0"
+
+  [[auth.oidc.binding]]
+  identity = "deploy"
+  claims   = { sub = "repo:acme/widget:ref:refs/heads/main" }
+"#;
+
+/// The two halves are checked against each other, in both directions.
+///
+/// Each one alone is a configuration that does not mean what it says: the entry with no
+/// provider is a route that refuses every exchange, and providers with the entry off are
+/// somebody else's signing keys that nothing can reach -- which reads, to whoever wrote
+/// them, exactly like federation being on. Same reasoning as `surface::resolve` checking a
+/// build entry both ways.
+#[test]
+fn federation_needs_both_its_halves() {
+    let complete = Config::parse(&config_text(
+        std::path::Path::new("/tmp/unused"),
+        "CIPHR_UNUSED",
+        FEDERATION,
+    ));
+    assert!(complete.is_ok(), "both halves together must load");
+
+    let entry_only = FEDERATION
+        .split("[[auth.oidc]]")
+        .next()
+        .expect("there is a prefix");
+    let message = Config::parse(&config_text(
+        std::path::Path::new("/tmp/unused"),
+        "CIPHR_UNUSED",
+        entry_only,
+    ))
+    .expect_err("an entry with no provider is refused")
+    .to_string();
+    assert!(message.contains("oidc_login"), "{message}");
+
+    // The whole stanza removed, not just its `entry` line: a `[[surface]]` table with no
+    // `entry` is a parse error rather than the refusal under test.
+    let providers_only = format!(
+        "[[auth.oidc]]{}",
+        FEDERATION
+            .split_once("[[auth.oidc]]")
+            .expect("the fixture has a provider")
+            .1
+    );
+    let message = Config::parse(&config_text(
+        std::path::Path::new("/tmp/unused"),
+        "CIPHR_UNUSED",
+        &providers_only,
+    ))
+    .expect_err("providers with the entry off are refused")
+    .to_string();
+    assert!(message.contains("oidc_login"), "{message}");
+}
+
+/// A binding naming an identity the policy file does not have refuses at startup.
+///
+/// A refusal rather than a note, and the precedent is `ciphr token issue`, which refuses
+/// an unknown identity outright. An exchange is an issuance, so it refuses on the same
+/// terms -- and this is the half of the check that needs the *policy* file, so it belongs
+/// in the file report rather than in the store one.
+#[test]
+fn a_binding_must_name_an_identity_the_policy_file_has() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    write_policies(directory.path());
+
+    let unknown = FEDERATION.replace("identity = \"deploy\"", "identity = \"ci-widget\"");
+    let config = Config::parse(&config_text(
+        directory.path(),
+        "CIPHR_UNKNOWN_BINDING_KEY",
+        &unknown,
+    ))
+    .expect("the configuration file itself is well formed");
+
+    let message = Server::check(&config)
+        .err()
+        .expect("a binding to an identity that does not exist is refused")
+        .to_string();
+    assert!(message.contains("ci-widget"), "{message}");
+    assert!(
+        message.contains("policy file"),
+        "the refusal has to say where to add it: {message}"
+    );
+}
+
+/// The providers are in the half of the report that holds without this host.
+///
+/// Where it matters most: these are somebody else's signing keys, and review is the place
+/// to notice one that should not be there. So it prints with no store present.
+#[test]
+fn the_report_names_the_providers_without_a_store() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    write_policies(directory.path());
+
+    let config = directory.path().join("config.toml");
+    std::fs::write(
+        &config,
+        config_text(directory.path(), "CIPHR_FEDERATION_REPORT_KEY", FEDERATION),
+    )
+    .expect("write the configuration");
+
+    let output = check_config(&config, None);
+    let report = String::from_utf8_lossy(&output.stdout);
+
+    assert!(report.contains("federation: 1 provider"), "{report}");
+    assert!(report.contains("forge"), "{report}");
+    // Anchored on the section heading. A bare `store` matches the word inside
+    // `token_revoke`'s cost sentence, which is printed above this.
+    assert!(
+        report.find("federation:")
+            < report.find(
+                "
+store: "
+            ),
+        "the file half comes before the host half: {report}"
+    );
+}

@@ -179,6 +179,31 @@ fn check_report(config_path: &str, check: &Check) -> Vec<String> {
 
     lines.extend(surface_report(&check.surface, &check.unreachable));
 
+    // Named where the file half of the report is, because that is what it is a fact
+    // about -- and printed at all because these are somebody else's signing keys. A
+    // review that reads this file should see the list of parties whose signature is
+    // accepted in place of a credential, without having to count TOML stanzas.
+    if !check.providers.is_empty() {
+        lines.push(String::new());
+        lines.push(format!(
+            "federation: {}",
+            counted(check.providers.len(), "provider", "providers")
+        ));
+        for provider in &check.providers {
+            lines.push(format!("  {provider}"));
+        }
+        lines.extend(
+            wrap(
+                "a signature from one of these is accepted in place of a credential, so \
+                 the keys above are trusted exactly as far as the configuration says. \
+                 There is no fetch: a rotation on their side is an edit here.",
+                68,
+            )
+            .into_iter()
+            .map(|line| format!("  {line}")),
+        );
+    }
+
     // Its own labelled section, because it answers a different question from everything
     // above it: not *is this the file I meant* but *is this host ready to run it*. A
     // caller that only has the file reads the sections above and stops here.
@@ -415,6 +440,7 @@ mod tests {
                 identities: 4,
                 rules: 7,
                 unreachable: Vec::new(),
+                providers: Vec::new(),
                 surface: ActiveSurface::default(),
                 store: Err(StartupError::Store(ciphr_store::StoreError::NotInitialized)),
             },
@@ -447,6 +473,7 @@ mod tests {
                 identities: 1,
                 rules: 1,
                 unreachable: Vec::new(),
+                providers: Vec::new(),
                 surface: ActiveSurface::default(),
                 store: Ok(ciphr_server::StoreReady {
                     schema_version: 6,

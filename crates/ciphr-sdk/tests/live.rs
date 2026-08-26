@@ -150,7 +150,9 @@ impl Live {
             // requires does not apply. Which entries are on is the caller's choice,
             // because both answers are a real deployment and this client has to work
             // against each of them.
-            ciphr_server::surface::only(surface).expect("a known entry"),
+            ciphr_server::surface::only(surface)
+                .expect("a known entry")
+                .into(),
         );
 
         // The certificate covers both spellings of the loopback address; the client

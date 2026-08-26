@@ -155,7 +155,9 @@ impl Live {
             // Which optional routes exist is the caller's choice here, because both
             // answers are a real deployment: a job has to work against one that named
             // `bulk_export` and against one that named nothing.
-            ciphr_server::surface::only(surface).expect("a known entry"),
+            ciphr_server::surface::only(surface)
+                .expect("a known entry")
+                .into(),
         );
 
         let generated = rcgen::generate_simple_self_signed(vec![

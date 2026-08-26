@@ -220,9 +220,108 @@ pub enum ConfigError {
         /// Which entry.
         name: String,
     },
+    /// An `[[auth.oidc]]` stanza has no name.
+    OidcName,
+    /// An `[[auth.oidc]]` stanza has no issuer.
+    OidcIssuer {
+        /// Which provider.
+        name: String,
+    },
+    /// An `[[auth.oidc]]` stanza has no audience.
+    OidcAudience {
+        /// Which provider.
+        name: String,
+    },
+    /// Two providers claim the same issuer and audience.
+    OidcDuplicateProvider {
+        /// The issuer both name.
+        issuer: String,
+        /// The audience both name.
+        audience: String,
+    },
+    /// A provider's `ttl` is not a duration.
+    OidcTtl {
+        /// Which provider.
+        name: String,
+        /// What was written.
+        found: String,
+    },
+    /// A provider has no signing key.
+    OidcNoKeys {
+        /// Which provider.
+        name: String,
+    },
+    /// A key field is not unpadded base64url.
+    OidcKeyEncoding {
+        /// Which provider.
+        name: String,
+        /// Which key.
+        kid: String,
+        /// Which field.
+        field: &'static str,
+    },
+    /// A key is the wrong size for its algorithm.
+    OidcKeySize {
+        /// Which provider.
+        name: String,
+        /// Which key.
+        kid: String,
+        /// What was supplied.
+        bits: usize,
+    },
+    /// Two keys of one provider share a `kid`.
+    OidcDuplicateKey {
+        /// Which provider.
+        name: String,
+        /// The identifier both use.
+        kid: String,
+    },
+    /// A provider has no binding, so nothing it signs could name an identity.
+    OidcNoBindings {
+        /// Which provider.
+        name: String,
+    },
+    /// A binding names no identity.
+    OidcBindingIdentity {
+        /// Which provider.
+        name: String,
+    },
+    /// A binding matches on no claim, so it would match every token.
+    OidcBindingNoClaims {
+        /// Which provider.
+        name: String,
+        /// Which identity it names.
+        identity: String,
+    },
+    /// A binding matches on a claim that is verified rather than matched.
+    OidcBindingVerifiedClaim {
+        /// Which provider.
+        name: String,
+        /// Which claim.
+        claim: String,
+    },
+    /// Two bindings of one provider match on the same claims.
+    OidcDuplicateBinding {
+        /// Which provider.
+        name: String,
+    },
+    /// A binding names an identity the policy file does not have.
+    OidcUnknownIdentity {
+        /// Which identity.
+        identity: String,
+    },
+    /// The `oidc_login` entry is on and no provider is configured.
+    OidcEntryWithoutProvider,
+    /// Providers are configured and the `oidc_login` entry is off.
+    OidcProviderWithoutEntry,
 }
 
 impl core::fmt::Display for ConfigError {
+    // One arm per variant, and each arm is the sentence an operator reads instead of
+    // reverse-engineering the check. Splitting it would put half the refusals somewhere
+    // a reader has to find, which is the opposite of what these messages are for --
+    // `clippy::too_many_lines` is measuring the wrong thing on a `Display` impl.
+    #[allow(clippy::too_many_lines)]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Read { path, source } => write!(f, "cannot read {path}: {source}"),
@@ -277,6 +376,110 @@ impl core::fmt::Display for ConfigError {
                 "this binary was built with `{name}` and the configuration does not \
                  say since when or why; add a [[surface]] stanza with entry, accepted \
                  and reason, or use a build without the feature"
+            ),
+            Self::OidcName => f.write_str(
+                "an [[auth.oidc]] stanza has no name; the name is what the audit trail \
+                 says vouched for a federated token, so it cannot be blank",
+            ),
+            Self::OidcIssuer { name } => write!(
+                f,
+                "[[auth.oidc]] provider `{name}` has no issuer; it is compared byte for \
+                 byte against the token's `iss` and there is nothing to compare against"
+            ),
+            Self::OidcAudience { name } => write!(
+                f,
+                "[[auth.oidc]] provider `{name}` has no audience. It is the one field \
+                 with no defensible default: without it, a token the provider issued for \
+                 somebody else's service would be valid here, which is the confused-deputy \
+                 case this check exists for"
+            ),
+            Self::OidcDuplicateProvider { issuer, audience } => write!(
+                f,
+                "two [[auth.oidc]] providers name issuer `{issuer}` with audience \
+                 `{audience}`; which one's keys, TTL and bindings apply would be whichever \
+                 stanza came first, which is not a property a deployment should have to know"
+            ),
+            Self::OidcTtl { name, found } => write!(
+                f,
+                "[[auth.oidc]] provider `{name}` has ttl = '{found}', which is not a \
+                 duration; write it as 15m, 900s or 1h -- a bare number is refused rather \
+                 than assumed to be seconds"
+            ),
+            Self::OidcNoKeys { name } => write!(
+                f,
+                "[[auth.oidc]] provider `{name}` has no [[auth.oidc.key]]. The keys are \
+                 configuration here on purpose: fetching a JWKS would be the first \
+                 outbound call from the process that holds plaintext secrets (ADR-17), \
+                 and this build links no public root certificates, so it could not make \
+                 one. Copy the provider's JWKS entries in"
+            ),
+            Self::OidcKeyEncoding { name, kid, field } => write!(
+                f,
+                "[[auth.oidc]] provider `{name}` key `{kid}` has a `{field}` that is not \
+                 unpadded base64url; a JWKS value is copied verbatim, and standard base64 \
+                 `+` and `/` are not the same alphabet"
+            ),
+            Self::OidcKeySize { name, kid, bits } => write!(
+                f,
+                "[[auth.oidc]] provider `{name}` key `{kid}` is {bits} bits, which is not \
+                 a size its algorithm accepts; RSA is 2048 bits at the least and a P-256 \
+                 coordinate is exactly 256, so a shorter one is usually a value that lost \
+                 its leading zero"
+            ),
+            Self::OidcDuplicateKey { name, kid } => write!(
+                f,
+                "[[auth.oidc]] provider `{name}` has two keys with kid `{kid}`; a token \
+                 naming it would be verified against whichever came first"
+            ),
+            Self::OidcNoBindings { name } => write!(
+                f,
+                "[[auth.oidc]] provider `{name}` has no [[auth.oidc.binding]], so nothing \
+                 it signs could name an identity; a provider that can verify and never \
+                 resolve is a route that refuses everything"
+            ),
+            Self::OidcBindingIdentity { name } => write!(
+                f,
+                "[[auth.oidc]] provider `{name}` has a binding with no identity; the \
+                 identity comes from the policy file (ADR-3) and the binding is what \
+                 names it"
+            ),
+            Self::OidcBindingNoClaims { name, identity } => write!(
+                f,
+                "[[auth.oidc]] provider `{name}` binds `{identity}` on no claim at all, \
+                 which would match every token that provider ever issues"
+            ),
+            Self::OidcBindingVerifiedClaim { name, claim } => write!(
+                f,
+                "[[auth.oidc]] provider `{name}` binds on `{claim}`, which is verified \
+                 rather than matched: `iss` selects the provider, `aud` is compared \
+                 against the configured audience, and the times decide validity. A \
+                 binding on one would state the same rule twice, in two places that can \
+                 disagree"
+            ),
+            Self::OidcDuplicateBinding { name } => write!(
+                f,
+                "[[auth.oidc]] provider `{name}` has two bindings with the same claims; \
+                 which identity a job gets would be whichever line came first"
+            ),
+            Self::OidcUnknownIdentity { identity } => write!(
+                f,
+                "an [[auth.oidc.binding]] names identity `{identity}`, which the policy \
+                 file does not have. An exchange mints a credential, and `ciphr token \
+                 issue` refuses an unknown identity for the same reason: a token with no \
+                 rules behind it is a credential that reads as working and authorizes \
+                 nothing"
+            ),
+            Self::OidcEntryWithoutProvider => f.write_str(
+                "[[surface]] enables `oidc_login` and no [[auth.oidc]] provider is \
+                 configured; the route would exist and refuse every exchange, which is a \
+                 worse answer than not offering it",
+            ),
+            Self::OidcProviderWithoutEntry => f.write_str(
+                "[[auth.oidc]] providers are configured and the `oidc_login` surface \
+                 entry is not named, so nothing can reach them. Federation is a second \
+                 authentication path and it is off until a deployment records the date \
+                 and the reason (ADR-20); add the [[surface]] stanza, or remove the \
+                 providers",
             ),
         }
     }

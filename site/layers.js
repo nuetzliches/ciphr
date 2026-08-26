@@ -482,7 +482,7 @@ const ENTRIES = [
     lead: 'The single write this API may do (ADR-24), and the only one in the document that is not about a secret: revoking one leaked credential without an outage.',
     cost: 'Revoking means stopping the service. <code>ciphr token revoke</code> opens a session and takes the store lock the running server holds, so the only route is stop, revoke, start — taking down every consumer in order to invalidate one token, at the one moment that cannot be scheduled. <code>docs/operations/honeypots.md</code> fires exactly then.',
     extra: [
-      'On, it is one token per request, authorized as <code>revoke</code> on <code>sys/tokens</code>, with no master key in reach. <strong>Issuing stays on the host either way</strong> — that one is routine, and a planned window is a defensible answer for it.',
+      'On, it is one token per request, authorized as <code>revoke</code> on <code>sys/tokens</code>, with no master key in reach. <strong>Issuing a token somebody asked for stays on the host either way</strong> — that one is routine, and a planned window is a defensible answer for it. Since 2026-08-26 there is one exception, and it is not an issuance route: <code>oidc_login</code> mints a short-lived token nobody asked for, from claims a provider signed (ADR-26).',
       '<strong>A named exception to ADR-3, not a repeal of it.</strong> Administration comes from configuration under version control; this is the one operation that cannot wait for a commit and a restart.',
       '<strong>Turning it on costs the outage once, and that belongs in the runbook before the incident.</strong> The revoking identity needs a token, and issuing one needs the service stopped — so a deployment that names this entry during an incident pays exactly the outage it was trying to avoid.'
     ],
@@ -490,6 +490,27 @@ const ENTRIES = [
       src('docs/adr/0024-revocation-is-the-one-write-the-api-may-do.md', 'ADR-24'),
       src('docs/adr/0003-policies-from-configuration.md', 'ADR-3'),
       src('docs/operations/honeypots.md'),
+      src('openapi.yaml')
+    ]
+  },
+  {
+    id: 'oidc_login', kind: 'runtime', ring: 'surface', angle: 32, span: 12,
+    chip: '+1 route · the second write',
+    routes: ['POST /v1/auth/oidc/login'],
+    activates: [],
+    title: 'oidc_login',
+    lead: 'A workload presents an ID token its forge issued and receives a ciphr token that lives minutes. The long-lived bootstrap credential on the consuming host disappears.',
+    cost: 'Every consuming host keeps a long-lived bearer token in a file. Where one collection point fetches for everything that is one credential in one place, rotated in one operation. <strong>Where a CI runner runs on each host it stops being fine:</strong> the credential count grows with the host count, each one is long-lived, each one sits on the machine that also runs the workload, and rotating them is N operations.',
+    extra: [
+      '<strong>The second write this API may do, and ADR-24 is amended rather than repealed.</strong> The rule it was reaching for is not "one route" but <em>the writes the API may do are the ones that cannot widen an authority</em>: the identity, its policies and the lifetime ceiling all come from configuration (ADR-3), so an exchange can bind a credential to an identity that already exists and can create neither.',
+      '<strong>The provider\'s signing keys are configuration, not a JWKS fetch.</strong> That would be the first outbound call from the process holding plaintext secrets, which ADR-17 refused for the ACME client — and this build links no public roots, so it could not make one. The cost is real: a key rotation on the provider\'s side is an operator\'s edit here, and federation refuses until it lands.',
+      '<strong>A refusal is recorded only once a signature verified.</strong> The route is unauthenticated, so an entry per attempt would be an anonymous write into a fail-closed trail — the cost ADR-16 deferred a whole phase over. Expiry, audience and an unmapped claim set are four distinct findings in the trail; a forged or unknown-issuer token leaves none.'
+    ],
+    sources: [
+      src('docs/adr/0026-oidc-federation.md', 'ADR-26'),
+      src('docs/adr/0024-revocation-is-the-one-write-the-api-may-do.md', 'ADR-24'),
+      src('docs/adr/0017-certificate-provenance.md', 'ADR-17'),
+      src('docs/operations/federation.md'),
       src('openapi.yaml')
     ]
   },
@@ -555,6 +576,7 @@ const state = {
     bulk_export: false,
     token_status: false,
     token_revoke: false,
+    oidc_login: false,
     honeypot_alert: false
   },
   lensP4: false,

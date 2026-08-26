@@ -42,7 +42,8 @@ use ciphr_store::{AuditFilter, Store};
 use serde::{Deserialize, Serialize};
 
 use crate::error::ApiError;
-use crate::state::{AppState, Caller, DeviceHealth};
+use crate::oidc::Exchange;
+use crate::state::{AppState, Caller, DeviceHealth, Federated};
 
 /// The most paths one `POST /v1/export` request may name.
 ///
@@ -136,6 +137,19 @@ pub fn router(state: AppState) -> Router {
     // the entry's cost sentence says and what `honeypots.md` step 3 describes.
     if state.surface().has("token_revoke") {
         router = router.route("/v1/tokens/{token_id}/revoke", post(revoke_token));
+    }
+
+    // `oidc_login` -- the second write this API may do (ADR-26), and the second route
+    // that does not require a credential. It is an entry because a deployment that does
+    // not federate should not have a route where an outsider's signature is the whole of
+    // the authentication, and because the keys it verifies against belong to somebody
+    // else. Off, the path answers `404` from the fallback, which is what `openapi.yaml`
+    // has documented for it since phase 3.
+    //
+    // `Config::validate` refuses this entry with no provider behind it, so a registered
+    // route always has something to verify against.
+    if state.surface().has(crate::oidc::SURFACE_ENTRY) {
+        router = router.route("/v1/auth/oidc/login", post(oidc_login));
     }
 
     // `honeypot_alert` is a *build* entry, so the route hangs on the `cfg` and not on the
@@ -575,6 +589,37 @@ struct TokenResponse {
 /// is whose credential that was. `revoked_now` distinguishes the call that revoked from a
 /// retry that found it already revoked — the store's `COALESCE` makes both succeed, and a
 /// caller logging the difference can tell a repeat from a first attempt.
+/// What `POST /v1/auth/oidc/login` accepts.
+///
+/// `id_token` is the compact JWS a provider issued for this deployment's audience. It is
+/// a credential for the length of its own validity, which is why it arrives in a body
+/// and not in a query string: a query string lands in a proxy log.
+#[derive(Debug, Deserialize)]
+struct OidcLoginRequest {
+    id_token: String,
+    /// A shorter lifetime than the provider's configured ceiling, in seconds.
+    ///
+    /// Optional, and it can only reduce. A job that knows it will finish in two minutes
+    /// asking for two minutes is the cheapest improvement available on this route.
+    #[serde(default)]
+    ttl_seconds: Option<u32>,
+}
+
+/// What `POST /v1/auth/oidc/login` returns.
+///
+/// The identity is in it because the caller presented claims and the interesting
+/// question is which identity they resolved to — a workflow that federates into the
+/// wrong identity would otherwise discover it as a `403` on the next request. `token_id`
+/// is the non-secret half, and it is here so a job can print it: it is what the audit
+/// trail names, so a build log and the trail can be joined without the token.
+#[derive(Debug, Serialize)]
+struct OidcLoginResponse {
+    token: String,
+    token_id: String,
+    identity: String,
+    expires_at: i64,
+}
+
 #[derive(Debug, Serialize)]
 struct RevokeResponse {
     token_id: String,
@@ -1710,6 +1755,126 @@ async fn revoke_token(
     }))
 }
 
+/// `POST /v1/auth/oidc/login` — exchange a provider-issued ID token for a ciphr token.
+///
+/// **The second write this API may do, and the first route where the credential is
+/// somebody else's** (ADR-26). Unauthenticated, because a caller makes this request
+/// precisely because it holds nothing of this system's; what stands in for a bearer
+/// token is a signature from a provider the configuration names.
+///
+/// # The order, and what each step is protecting
+///
+/// 1. **Request shape first**, before anything is verified or recorded — the same
+///    reason [`write_secret`] parses its rotation class before its authorization entry.
+///    A `ttl_seconds` this route will not honour is a fact about the request, and
+///    `ApiError::BadRequest` is documented as safe to hand back for exactly that.
+/// 2. **The exchange.** An unverifiable token gets a `401` and no entry: see
+///    [`crate::oidc::Exchange`] for why that line is where it is, and note that the
+///    router fallback and [`AuditedJson`] already draw it in the same place.
+/// 3. **Refusals of a verified token are recorded, then answered `401`.** Four
+///    distinct reasons, kept apart in the trail and identical on the wire — the module
+///    documentation of [`crate::error`] says why authentication failures do not explain
+///    themselves.
+/// 4. **The token is generated, then recorded, then stored.** The entry has to name the
+///    credential's identifier, and the row must not exist before the entry does. If the
+///    row cannot be written the entry is corrected, which is what
+///    [`crate::state::AppState::complete_or_record`] does for the writes that have a
+///    caller to name.
+///
+/// It cannot widen an authority, which is the property that lets it exist at all: the
+/// identity comes from a binding in the configuration, its policies come from the
+/// policy file (ADR-3), and the lifetime is the provider's configured ceiling or less.
+async fn oidc_login(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    origin: Origin,
+    AuditedJson(body): AuditedJson<OidcLoginRequest>,
+) -> Result<Json<OidcLoginResponse>, ApiError> {
+    let request = request_context(&headers, origin);
+    let now = crate::state::now_millis();
+
+    let asked_ms = match body.ttl_seconds {
+        None => None,
+        Some(seconds) => {
+            let asked = i64::from(seconds).saturating_mul(1000);
+            if asked < 1000 {
+                return Err(ApiError::BadRequest {
+                    reason: "ttl_seconds must be at least 1; omit it for the configured \
+                             lifetime"
+                        .to_owned(),
+                });
+            }
+            Some(asked)
+        }
+    };
+
+    let accepted = match state.federation().exchange(&body.id_token, now) {
+        Exchange::Unverifiable(_) => return Err(ApiError::Unauthenticated),
+        Exchange::Refused {
+            provider,
+            subject,
+            reason,
+        } => {
+            state.record_federation(
+                &provider,
+                subject.as_deref(),
+                &Federated::Refused(reason.as_str()),
+                StatusCode::UNAUTHORIZED.as_u16(),
+                &request,
+            )?;
+            return Err(ApiError::Unauthenticated);
+        }
+        Exchange::Accepted(accepted) => accepted,
+    };
+
+    // Less on request, never more. The ceiling is the provider's `ttl`, and a caller
+    // that wants a token for the length of one job should say so.
+    let ttl_ms = asked_ms.map_or(accepted.ttl_ms, |asked| asked.min(accepted.ttl_ms));
+    let expires_at = now.saturating_add(ttl_ms);
+
+    let token = ciphr_crypto::Token::generate().map_err(|_| ApiError::Internal {
+        detail: "the operating system provided no randomness for a federated token".to_owned(),
+    })?;
+    let token_id = token.id().as_text();
+
+    state.record_federation(
+        &accepted.provider,
+        Some(&accepted.subject),
+        &Federated::Minted {
+            identity: &accepted.identity,
+            token_id: &token_id,
+        },
+        StatusCode::OK.as_u16(),
+        &request,
+    )?;
+
+    if let Err(error) =
+        state.store_federated_token(&accepted.identity, &token, &accepted.provider, expires_at)
+    {
+        // The trail now says a credential was minted and it was not. Correcting it
+        // matters more than the status the caller gets, which is why a failure to record
+        // the correction replaces the error — the same trade `complete_or_record` makes.
+        state.record_federation(
+            &accepted.provider,
+            Some(&accepted.subject),
+            &Federated::Refused("mint-failed"),
+            error.status().as_u16(),
+            &request,
+        )?;
+        return Err(error);
+    }
+
+    Ok(Json(OidcLoginResponse {
+        // The one place this token exists as text. It leaves the process in this
+        // response and nowhere else -- the store holds a verifier -- which is the same
+        // arrangement `GET /v1/secrets/{path}` has with a plaintext value.
+        token: token.expose_text().as_str().to_owned(),
+        token_id,
+        identity: accepted.identity,
+        expires_at,
+    }))
+}
+
 // ---------------------------------------------------------------------------
 // Shared request handling
 // ---------------------------------------------------------------------------
@@ -1843,6 +2008,10 @@ impl Attempted for SecretBody {
 
 impl Attempted for ExportRequest {
     const ACTION: Action = Action::Read;
+}
+
+impl Attempted for OidcLoginRequest {
+    const ACTION: Action = Action::FederateToken;
 }
 
 impl<T, S> FromRequest<S> for AuditedJson<T>

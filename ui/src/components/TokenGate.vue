@@ -1,28 +1,77 @@
 <script setup lang="ts">
 /**
- * Sign-in: paste a token (ADR-12).
+ * Sign-in: a provider, or a pasted token (ADR-12).
+ *
+ * **Paste is not the fallback and does not become one.** ADR-12 scheduled SSO from the
+ * start, and the same record makes the viewer's optionality real (ADR-11) — so a
+ * deployment with no provider has to keep working, and it does: no `/sso.json`, no
+ * button, the form below unchanged. The panels are ordered so the provider comes first
+ * where there is one, because that is the path that removes a human's long-lived token.
  *
  * The unauthenticated health route is shown here on purpose. It reveals nothing — no
  * counts, no path names, no indication that any secret exists — and it answers the
- * question a person actually has when a paste fails: is the service even up, and is it
+ * question a person actually has when a sign-in fails: is the service even up, and is it
  * sealed.
  */
 import { onMounted, ref } from "vue";
 
 import { ApiError, api, type Health } from "../api";
 import { looksLikeToken, signIn } from "../session";
+import {
+  begin as beginSso,
+  complaint as ssoComplaint,
+  idTokenFromFragment,
+  load as loadSso,
+  provider,
+} from "../sso";
 
 const pasted = ref("");
 const complaint = ref<string | null>(null);
 const health = ref<Health | null>(null);
 const healthProblem = ref<string | null>(null);
+const exchanging = ref(false);
 
 onMounted(async () => {
-  try {
-    health.value = await api.health();
-  } catch (error) {
-    healthProblem.value = error instanceof ApiError ? error.text : "The service could not be reached.";
+  // The return leg first, before anything else can be waited on: the fragment is read and
+  // cleared synchronously, so the token spends no time in the address bar while a network
+  // request is outstanding.
+  const idToken = idTokenFromFragment();
+
+  const asked = api.health().then(
+    (answer) => {
+      health.value = answer;
+    },
+    (error: unknown) => {
+      healthProblem.value =
+        error instanceof ApiError ? error.text : "The service could not be reached.";
+    },
+  );
+
+  // Before the exchange rather than after it, so a refused sign-in leaves a page with the
+  // button still on it. The fragment was already cleared above, so this delay costs
+  // nothing that was at risk.
+  await loadSso();
+
+  if (idToken !== null) {
+    exchanging.value = true;
+    try {
+      const federated = await api.federate(idToken);
+      // Straight into the session. The value is not put in a ref, held in a field, or
+      // logged: `signIn` is the only thing that keeps a token, and it keeps it where
+      // `authorization()` is the only reader.
+      signIn(federated.token);
+      return;
+    } catch (error) {
+      ssoComplaint.value =
+        error instanceof ApiError && error.status === 404
+          ? "This deployment does not accept a provider sign-in. Paste a token instead."
+          : "The service did not accept that sign-in. Paste a token, or try again.";
+    } finally {
+      exchanging.value = false;
+    }
   }
+
+  await asked;
 });
 
 function submit(): void {
@@ -47,6 +96,22 @@ function submit(): void {
       writes: no secret is created or deleted, no policy or identity changed, no token issued or
       revoked. Those stay with the CLI.
     </p>
+
+    <div v-if="provider" class="panel">
+      <h2>Sign in with {{ provider.name }}</h2>
+      <p class="note">
+        The provider vouches for who you are; this deployment decides what that identity may
+        read. What comes back is a ciphr token that lives minutes and is gone when the tab
+        closes — nothing long-lived is written down anywhere.
+      </p>
+
+      <button type="button" class="primary" :disabled="exchanging" @click="beginSso()">
+        <template v-if="exchanging">Signing in…</template>
+        <template v-else>Continue to {{ provider.name }}</template>
+      </button>
+
+      <p v-if="ssoComplaint" class="error">{{ ssoComplaint }}</p>
+    </div>
 
     <div class="panel">
       <h2>Sign in with a token</h2>

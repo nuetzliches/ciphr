@@ -86,7 +86,7 @@ The parts where a mistake is expensive, and where to read before making one.
 
 | Document | What it is for |
 |---|---|
-| [adr/](adr/README.md) | The twenty-five records, one file each — one accepted in part, one deferred, one proposed — including what was rejected and why |
+| [adr/](adr/README.md) | The twenty-eight records, one file each — one accepted in part, one deferred, one proposed — including what was rejected and why |
 | [threat-model.md](threat-model.md) | Adversaries A1–A9, the boundaries deliberately not defended, and the availability trade |
 | [crypto.md](crypto.md) | The implemented key hierarchy and wire format, and what the known-answer tests pin |
 | [authorization.md](authorization.md) | The policy file, the pattern language, and the four rules of the decision |

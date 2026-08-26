@@ -73,6 +73,34 @@ new surface in the reviewed crates or the authentication path needs its own pass
 inheriting this one. A deployment still records its own risk decision where the deployment is
 documented, and that does not change a line here.
 
+**OIDC federation is implemented** (ADR-26, accepted 2026-08-26) and is the post-v1 item ADR-6 named
+in v1. `POST /v1/auth/oidc/login` exchanges a provider-issued ID token for a short-lived ciphr token,
+behind the `oidc_login` surface entry. Four things about it are not obvious from its code:
+
+- **It is the second write the API may do, and ADR-24's "one route" sentence is amended.** The rule
+  is now *the writes the API may do are the ones that cannot widen an authority*. Anything added to
+  this route that could create an identity, a rule, or a lifetime above the configured ceiling breaks
+  the argument the route exists on — not a style rule, the whole justification.
+- **There is no JWKS fetch and there must not be one.** The provider's keys are configuration.
+  Adding a fetch would put outbound network access into the process that holds plaintext secrets,
+  which ADR-17 refused for the ACME client, and it cannot be built here anyway: nothing in this
+  workspace can be pointed at the WebPKI.
+- **The recording line is at the signature, not at the request.** A token that does not verify
+  against a configured provider is refused with no audit entry, because the route is unauthenticated
+  and the trail is fail-closed — the same rule the router fallback and `AuditedJson` follow. Moving
+  that line earlier makes a `401` into a `503` for anyone who can reach the port.
+- **The verifier reads the algorithm from the *key*, never from the token's header.** The header only
+  has to agree. A change that looks up a key by `alg` is the shape every algorithm-confusion attack is
+  written against.
+
+**The vault is a startup dependency and there is deliberately no cache** (ADR-27, accepted
+2026-08-26, the answer to issue #52). `ciphr-run` fetches at exec time, so every container start needs
+the service reachable; a cached value would be served without a fetch and therefore without an audit
+entry, which is the one thing ADR-22 does not trade. The requirement lives in
+`docs/operations/availability.md` rather than in code, and that page is the deliverable — a proposal
+for a cache, a lease or a holding agent is answered there and in ADR-27, including which of the three
+was closest.
+
 Two phases are planned and not built, and as of 2026-08-20 they are in different states.
 
 **Phase 8**, honeypots and tripwires, is **released in `v0.5.0`**, in the `alert`

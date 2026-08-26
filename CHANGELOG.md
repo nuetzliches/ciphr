@@ -8,6 +8,67 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added
+
+- **OIDC federation: a workload can authenticate without a stored token.**
+  `POST /v1/auth/oidc/login` takes an ID token a configured provider issued and hands back a ciphr
+  token that lives minutes ([ADR-26](docs/adr/0026-oidc-federation.md), issue #50). The path has been
+  reserved in `openapi.yaml` since phase 3 and answered `404`; it now answers `404` for a different
+  reason — it is behind the **`oidc_login`** surface entry and off until a deployment names it.
+  `docs/operations/federation.md` is the runbook, and **its key-rotation section is the part to read
+  before turning this on.**
+
+  Five things about it that are decisions rather than details:
+
+  - **The provider's signing keys are configuration, not a JWKS fetch.** A fetch would be the first
+    outbound request from the process that holds plaintext secrets, which ADR-17 refused for the ACME
+    client — and this build links no public root certificates, so it could not make one. The cost is
+    that a key rotation on the provider's side is an edit here; it fails **closed**, and every token
+    already issued and every bootstrap credential keeps working while it does.
+  - **It is the second write this API may do, and ADR-24's sentence is amended rather than bent.**
+    "One route, and it is the only write" becomes *the writes the API may do are the ones that cannot
+    widen an authority*. An exchange binds a credential to an identity the configuration already
+    authorized; it can create no identity, no rule, and no lifetime above the configured ceiling.
+    ADR-3 is untouched.
+  - **Claims are matched by exact equality and there is no wildcard.** Plan section 14 sketched globs
+    reusing the policy evaluator's matcher; that matcher rejects partial wildcards by design, so the
+    plan's own example does not parse — and a claim value is not a path. Several branches means
+    several bindings, in a file with a diff and a reviewer.
+  - **A refusal is recorded once a signature verifies, and not before.** Expiry, audience, an
+    unmapped claim set and an ambiguous one are four findings in the trail and one `401` on the wire.
+    A forged or unknown-issuer token leaves **no entry at all**: the route is unauthenticated and the
+    trail is fail-closed, so an entry per attempt would let anyone turn a `401` into a `503`.
+  - **A federated mint is recorded as `federate-token`, not `issue-token`.** Counting credentials
+    created means counting both actions.
+
+- **`docs/operations/availability.md`: what depends on the vault being up, and at which moments.**
+  The answer to issue #52 ([ADR-27](docs/adr/0027-the-vault-is-a-startup-dependency.md)), and it is a
+  document rather than a feature: **there is no client-side cache and no lease.** A cached value is
+  served without a fetch, so it carries no audit entry, and "who read this" is the first job the trail
+  is given. What the page adds is the requirement `ciphr-run` has always implied — what must not be
+  co-located with the vault, what must not be restarted alongside it, and why the fix for "the vault
+  was not up yet" is a dependency ordering. `wrapper.md` points at it from the exit-code section,
+  because a boot order is the most common cause of a `125`.
+
+- **The viewer signs people in through an identity provider** — ADR-12's second half, built on the
+  machinery above ([ADR-28](docs/adr/0028-the-viewer-asks-for-an-id-token-directly.md), issue #53).
+  ADR-12 predicted the shape and was right: the server side needed **nothing**, because a human
+  identity is one whose `kind` is `human` in the policy file and the exchange route cannot tell the
+  difference. No long-lived human token is distributed by hand where this is used.
+
+  Two things about it are decisions rather than details:
+
+  - **The viewer asks for the ID token directly** (`response_type=id_token`, bound by a nonce)
+    instead of running authorization code with PKCE. The exchange leg of that flow is a cross-origin
+    request, and this page is served under `connect-src 'self'` — so PKCE would cost either the
+    strictest line in the viewer's own policy or an outbound HTTP client in the process that holds
+    plaintext secrets. The token passes briefly through the URL fragment, is never transmitted to a
+    server, and the fragment is cleared before the exchange request is made. OAuth 2.1 discourages
+    that response type and ADR-28 says so rather than arguing otherwise.
+  - **The provider's details are the viewer's own configuration**, read from a `/sso.json` a
+    deployment mounts. **No file means no button** and token paste unchanged, which is the ordinary
+    case: ADR-11 makes the viewer optional, and a mandatory provider would have made it less so.
+
 ### Changed
 
 - **The `bulk_export` entry's cost sentence had been wrong since 2026-08-24.** It said `ciphr-run`
@@ -18,6 +79,18 @@ This file is updated in the same commit as the change it describes.
   `--check-config` — had not, because `ci/check-surface-entries.sh` compares the diagram by *name*
   only. **The sentence now carries its own correction**, so somebody who read the old one finds out
   rather than wondering which version was right.
+
+- **The `token_revoke` entry's cost sentence no longer says "Issuing stays on the host either way".**
+  It is true of an issuance somebody asked for and not of a federated exchange. Corrected in the
+  server, in the CLI's mirror of the list, and on the layer diagram.
+
+- **`docs/ui.md` gave one reason for three different refusals.** It said the viewer cannot write
+  because *"a policy-write API is the most dangerous API this project could have (ADR-3)"* — an
+  argument about policies, applied to secrets, where it implied an ADR that does not exist (issue
+  #53). Policies and identities are refused by ADR-3, tokens belong to that lifecycle's own records,
+  and **not writing a secret value is now a recorded decision with its three costs written next to
+  it** rather than a shape that was inherited. Nothing about the viewer changed; what changed is that
+  a reader who checks the claim finds it holds.
 
 - **The startup warning for a quarantined device reads as a sentence.** It carried two runs of
   fourteen spaces into the output — a continuation literal indented to match the surrounding code —

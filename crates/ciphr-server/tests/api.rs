@@ -98,7 +98,7 @@ impl Harness {
     }
 
     fn with_audit(kind: AuditKind) -> Self {
-        Self::build_harness(kind, Self::runtime_entries())
+        Self::build_harness(kind, Self::runtime_entries().into())
     }
 
     /// The two runtime entries a deployment with a viewer and prefix-fetching consumers
@@ -125,10 +125,38 @@ impl Harness {
 
     /// A harness whose surface is exactly the entries named, and nothing else.
     fn with_surface(entries: &[&str]) -> Self {
-        Self::build_harness(AuditKind::Working, Self::resolve(entries))
+        Self::build_harness(AuditKind::Working, Self::resolve(entries).into())
     }
 
-    fn build_harness(kind: AuditKind, surface: ciphr_server::ActiveSurface) -> Self {
+    /// A harness that federates, with the providers written as they would be in a
+    /// configuration file.
+    ///
+    /// The TOML rather than a builder, because what these tests are about is a
+    /// deployment's configuration reaching the verifier -- and `[[oidc.key]]` nested
+    /// under `[[oidc]]` is the part of that path most likely to be got wrong.
+    fn with_federation(oidc: &str) -> Self {
+        #[derive(serde::Deserialize)]
+        struct Providers {
+            oidc: Vec<ciphr_server::oidc::ProviderConfig>,
+        }
+
+        let parsed: Providers = toml::from_str(oidc).expect("the provider fixture parses");
+        let federation =
+            ciphr_server::oidc::Federation::resolve(&parsed.oidc).expect("the fixture resolves");
+
+        Self::build_harness(
+            AuditKind::Working,
+            ciphr_server::Composition {
+                // `token_status` beside it so a test can ask what the exchange put in
+                // the inventory through the documented route rather than by opening the
+                // database. A deployment that federates has a reason to want both.
+                surface: Self::resolve(&["oidc_login", "token_status"]),
+                federation,
+            },
+        )
+    }
+
+    fn build_harness(kind: AuditKind, composition: ciphr_server::Composition) -> Self {
         let directory = tempfile::tempdir().expect("temp dir");
         let database = directory.path().join("store.db");
 
@@ -231,7 +259,7 @@ impl Harness {
             "supplied".to_owned(),
             // Nothing unless a test asked for something, so no test inherits a shape it
             // did not choose.
-            surface,
+            composition,
         );
 
         // What `Server::prepare` does, so a harness is not a shape production never
@@ -933,6 +961,19 @@ fn an_entry_that_is_not_named_has_no_route() {
     );
     let (status, _) = harness.send(export);
     assert_eq!(status, StatusCode::NOT_FOUND, "export without bulk_export");
+
+    // The federated exchange, which is the one optional route a caller reaches without
+    // a credential -- so its off state has to be the fallback's `404` and not a handler
+    // that decides to refuse. `openapi.yaml` has documented that status for this path
+    // since phase 3, when it was a reservation rather than an entry.
+    let login = Harness::build(
+        "POST",
+        "/v1/auth/oidc/login",
+        None,
+        Some(serde_json::json!({ "id_token": "a.b.c" })),
+    );
+    let (status, _) = harness.send(login);
+    assert_eq!(status, StatusCode::NOT_FOUND, "login without oidc_login");
 
     // What every deployment keeps: health, the value path, listing, and the surface
     // endpoint itself.
@@ -3288,4 +3329,374 @@ fn a_revoked_token_reads_as_revoked() {
         entry["revoked_at"].is_i64(),
         "and the timestamp it was revoked at is there: {entry}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// OIDC federation (ADR-26)
+// ---------------------------------------------------------------------------
+
+/// A P-256 key pair, and the JWK halves a configuration would carry.
+///
+/// Generated per test rather than checked in. `AGENTS.md` rules out test fixtures that
+/// look like real key material, which is also why `rcgen` produces the TLS certificates
+/// for the end-to-end tests. ES256 rather than RS256 because `ring` cannot generate an
+/// RSA key at all -- the RSA verification path has its own known-answer test in
+/// `crates/ciphr-server/src/oidc.rs`, against the vector in RFC 7515.
+struct Signer {
+    pair: ring::signature::EcdsaKeyPair,
+    random: ring::rand::SystemRandom,
+    x: String,
+    y: String,
+}
+
+impl Signer {
+    fn new() -> Self {
+        let random = ring::rand::SystemRandom::new();
+        let pkcs8 = ring::signature::EcdsaKeyPair::generate_pkcs8(
+            &ring::signature::ECDSA_P256_SHA256_FIXED_SIGNING,
+            &random,
+        )
+        .expect("a P-256 key");
+        let pair = ring::signature::EcdsaKeyPair::from_pkcs8(
+            &ring::signature::ECDSA_P256_SHA256_FIXED_SIGNING,
+            pkcs8.as_ref(),
+            &random,
+        )
+        .expect("the key parses");
+
+        let point = ring::signature::KeyPair::public_key(&pair)
+            .as_ref()
+            .to_vec();
+        Self {
+            pair,
+            random,
+            x: ciphr_core::base64url::encode(&point[1..33]),
+            y: ciphr_core::base64url::encode(&point[33..65]),
+        }
+    }
+
+    /// The provider stanzas a deployment would write for this key.
+    fn providers(&self, bindings: &str) -> String {
+        format!(
+            "[[oidc]]\n\
+             name = \"forge\"\n\
+             issuer = \"https://forge.example/api/actions\"\n\
+             audience = \"ciphr\"\n\
+             ttl = \"15m\"\n\
+             [[oidc.key]]\n\
+             alg = \"ES256\"\n\
+             kid = \"k1\"\n\
+             x = \"{}\"\n\
+             y = \"{}\"\n\
+             {bindings}",
+            self.x, self.y
+        )
+    }
+
+    /// A signed ID token carrying exactly these claims.
+    fn token(&self, claims: &serde_json::Value) -> String {
+        let header = ciphr_core::base64url::encode(br#"{"alg":"ES256","kid":"k1"}"#);
+        let payload = ciphr_core::base64url::encode(claims.to_string().as_bytes());
+        let signed = format!("{header}.{payload}");
+        let signature = self
+            .pair
+            .sign(&self.random, signed.as_bytes())
+            .expect("signing succeeds");
+        format!(
+            "{signed}.{}",
+            ciphr_core::base64url::encode(signature.as_ref())
+        )
+    }
+}
+
+/// Claims a forge would issue for a job, valid far enough into the future.
+fn job_claims() -> serde_json::Value {
+    serde_json::json!({
+        "iss": "https://forge.example/api/actions",
+        "aud": "ciphr",
+        "sub": "repo:acme/widget:ref:refs/heads/main",
+        "exp": 4_000_000_000_i64,
+    })
+}
+
+/// The binding that turns those claims into the `deploy` identity of `POLICIES`.
+fn deploy_binding() -> String {
+    concat!(
+        "[[oidc.binding]]\n",
+        "identity = \"deploy\"\n",
+        "claims = { sub = \"repo:acme/widget:ref:refs/heads/main\" }\n"
+    )
+    .to_owned()
+}
+
+fn login(harness: &Harness, id_token: &str) -> (StatusCode, serde_json::Value) {
+    let request = Harness::build(
+        "POST",
+        "/v1/auth/oidc/login",
+        None,
+        Some(serde_json::json!({ "id_token": id_token })),
+    );
+    harness.send(request)
+}
+
+/// The whole point of the route: what comes back is a credential that works.
+///
+/// Asserted by *using* it rather than by reading the body. A response carrying a
+/// well-formed token the store cannot verify would satisfy any test that only inspected
+/// the JSON, and that is exactly the failure this route could have.
+#[test]
+fn a_federated_exchange_hands_back_a_token_that_authenticates() {
+    let signer = Signer::new();
+    let harness = Harness::with_federation(&signer.providers(&deploy_binding()));
+
+    let (status, body) = login(&harness, &signer.token(&job_claims()));
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["identity"], "deploy");
+
+    let token = body["token"].as_str().expect("a token").to_owned();
+    assert!(token.starts_with("cph_"), "the ordinary token format");
+    assert_eq!(
+        body["token_id"].as_str().expect("an identifier"),
+        &token[4..12],
+        "the identifier in the response is the token's own, which is what the trail names"
+    );
+
+    // The credential the exchange minted, used on an ordinary route.
+    let (status, secret) = harness.get("/v1/secrets/infra/service-a/DB_PASSWORD", Some(&token));
+    assert_eq!(status, StatusCode::OK, "{secret}");
+    assert_eq!(secret["value"], "seeded");
+
+    // And it expires, which is the property the long-lived bootstrap token did not have.
+    assert!(
+        body["expires_at"].as_i64().unwrap_or_default() > 0,
+        "a federated token without an expiry would be the credential this route removes"
+    );
+}
+
+/// The trail names the identity, the provider and the verified claim.
+#[test]
+fn the_trail_says_which_provider_vouched_and_for_which_claim() {
+    let signer = Signer::new();
+    let harness = Harness::with_federation(&signer.providers(&deploy_binding()));
+
+    let (status, _) = login(&harness, &signer.token(&job_claims()));
+    assert_eq!(status, StatusCode::OK);
+
+    let entries = harness.audit_entries();
+    let entry = entries
+        .iter()
+        .find(|record| record["entry"]["action"] == "federate-token")
+        .expect("a federated exchange is recorded");
+
+    assert_eq!(entry["entry"]["allowed"], true);
+    assert_eq!(
+        entry["entry"]["principal"]["name"], "oidc:forge",
+        "the actor is the provider: no credential of this system was presented"
+    );
+    assert_eq!(entry["entry"]["subject"]["name"], "deploy");
+    assert_eq!(entry["entry"]["subject"]["kind"], "machine");
+    assert!(
+        entry["entry"]["subject"]["token_id"].is_string(),
+        "the entry names the credential it minted: {entry}"
+    );
+    assert_eq!(
+        entry["entry"]["detail"], "sub: repo:acme/widget:ref:refs/heads/main",
+        "the verified claim, which is the only field that says which job this was"
+    );
+    assert_eq!(entry["entry"]["path"], "sys/tokens");
+
+    // What it must never carry. Every JWT this test can produce starts its header with
+    // `eyJ`, so this catches the presented token in any field.
+    let text = entry.to_string();
+    assert!(
+        !text.contains("eyJ"),
+        "the presented token must not reach the trail: {text}"
+    );
+}
+
+/// Four refusals of a verified token, four findings, one status code.
+#[test]
+fn a_verified_token_that_is_refused_says_why_in_the_trail_and_not_on_the_wire() {
+    let signer = Signer::new();
+    let harness = Harness::with_federation(&signer.providers(&deploy_binding()));
+
+    let cases: &[(&str, serde_json::Value)] = &[
+        (
+            "expired",
+            serde_json::json!({
+                "iss": "https://forge.example/api/actions",
+                "aud": "ciphr",
+                "sub": "repo:acme/widget:ref:refs/heads/main",
+                "exp": 1_000_000_000_i64,
+            }),
+        ),
+        (
+            "audience-mismatch",
+            serde_json::json!({
+                "iss": "https://forge.example/api/actions",
+                "aud": "some-other-service",
+                "sub": "repo:acme/widget:ref:refs/heads/main",
+                "exp": 4_000_000_000_i64,
+            }),
+        ),
+        (
+            "no-binding",
+            serde_json::json!({
+                "iss": "https://forge.example/api/actions",
+                "aud": "ciphr",
+                "sub": "repo:acme/widget:ref:refs/heads/other",
+                "exp": 4_000_000_000_i64,
+            }),
+        ),
+        (
+            "missing-expiry",
+            serde_json::json!({
+                "iss": "https://forge.example/api/actions",
+                "aud": "ciphr",
+                "sub": "repo:acme/widget:ref:refs/heads/main",
+            }),
+        ),
+    ];
+
+    for (expected, claims) in cases {
+        let before = harness.audit_entries().len();
+        let (status, body) = login(&harness, &signer.token(claims));
+
+        // Identical on the wire, whichever of the four it was. The module documentation
+        // of `crate::error` is the rule this keeps: a caller that learns why it was
+        // refused learns something about the configuration.
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{expected}");
+        assert_eq!(body["error"], "unauthenticated", "{expected}");
+        assert!(
+            body.get("detail").is_none(),
+            "a 401 explains nothing: {body}"
+        );
+
+        let entries = harness.audit_entries();
+        assert_eq!(
+            entries.len(),
+            before + 1,
+            "a verified token that was refused is worth exactly one line ({expected})"
+        );
+        let entry = entries.last().expect("the entry just written");
+        assert_eq!(entry["entry"]["action"], "federate-token", "{expected}");
+        assert_eq!(entry["entry"]["allowed"], false, "{expected}");
+        assert_eq!(
+            entry["entry"]["deny_reason"], *expected,
+            "the four refusals do not collapse into one: {entry}"
+        );
+    }
+}
+
+/// An unverifiable token is refused and *not* recorded, and that is the decision.
+///
+/// The route is unauthenticated, so an entry per attempt would be an anonymous write
+/// into a fail-closed trail: fill it and every later request is a `503`. The router
+/// fallback and `AuditedJson` draw the line in the same place, and ADR-16 deferred a
+/// whole phase over the same cost. The consequence is asserted here rather than only
+/// argued in prose: a flood of forged tokens leaves no trail, and
+/// `docs/operations/federation.md` says so out loud.
+#[test]
+fn an_unverifiable_token_writes_nothing_at_all() {
+    let signer = Signer::new();
+    let harness = Harness::with_federation(&signer.providers(&deploy_binding()));
+
+    // Correct claims, somebody else's key.
+    let forged = Signer::new().token(&job_claims());
+    let unknown_issuer = signer.token(&serde_json::json!({
+        "iss": "https://somebody-else/api/actions",
+        "aud": "ciphr",
+        "sub": "repo:acme/widget:ref:refs/heads/main",
+        "exp": 4_000_000_000_i64,
+    }));
+
+    for id_token in [forged.as_str(), unknown_issuer.as_str(), "not-a-token", ""] {
+        let before = harness.audit_entries().len();
+        let (status, _) = login(&harness, id_token);
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            harness.audit_entries().len(),
+            before,
+            "an anonymous caller writes nothing to a fail-closed trail"
+        );
+    }
+}
+
+/// A caller may ask for less than the configured lifetime, and never for more.
+#[test]
+fn the_lifetime_is_a_ceiling_a_caller_can_only_lower() {
+    let signer = Signer::new();
+    let harness = Harness::with_federation(&signer.providers(&deploy_binding()));
+
+    let ask = |seconds: i64| {
+        let request = Harness::build(
+            "POST",
+            "/v1/auth/oidc/login",
+            None,
+            Some(serde_json::json!({
+                "id_token": signer.token(&job_claims()),
+                "ttl_seconds": seconds,
+            })),
+        );
+        harness.send(request)
+    };
+
+    // The configured ceiling is fifteen minutes. A shorter ask is honoured; a longer one
+    // is reduced rather than refused, because the caller asked for convenience and the
+    // deployment's answer is the only direction this route may move in.
+    let (status, shorter) = ask(120);
+    assert_eq!(status, StatusCode::OK, "{shorter}");
+    let (status, longer) = ask(86_400);
+    assert_eq!(status, StatusCode::OK, "{longer}");
+
+    let shorter_expiry = shorter["expires_at"].as_i64().expect("an expiry");
+    let longer_expiry = longer["expires_at"].as_i64().expect("an expiry");
+    assert!(
+        longer_expiry - shorter_expiry < 15 * 60 * 1000,
+        "a day was asked for and at most the configured fifteen minutes was given: \
+         {shorter_expiry} then {longer_expiry}"
+    );
+
+    // Zero is a request shape this route will not honour, and it says so -- before
+    // anything is verified, because it is a fact about the request rather than about the
+    // configuration.
+    let (status, body) = ask(0);
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        body["detail"].as_str().unwrap_or_default().contains("ttl"),
+        "{body}"
+    );
+}
+
+/// The credential an exchange minted is in the inventory, and says where it came from.
+#[test]
+fn a_federated_token_is_visible_in_the_inventory_as_one() {
+    let signer = Signer::new();
+    let harness = Harness::with_federation(&signer.providers(&deploy_binding()));
+
+    let (status, body) = login(&harness, &signer.token(&job_claims()));
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let token_id = body["token_id"].as_str().expect("an identifier").to_owned();
+
+    let (status, inventory) = harness.get("/v1/tokens", Some(&harness.auditor_token.clone()));
+    assert_eq!(status, StatusCode::OK, "{inventory}");
+
+    let record = inventory["tokens"]
+        .as_array()
+        .expect("an array")
+        .iter()
+        .find(|entry| entry["token_id"] == token_id)
+        .expect("the minted credential is in the inventory")
+        .clone();
+
+    assert_eq!(record["identity"], "deploy");
+    assert_eq!(
+        record["created_by"], "oidc:forge",
+        "which path minted the row, readable without joining the trail"
+    );
+    assert!(
+        record["expires_at"].is_i64(),
+        "a federated credential always expires: {record}"
+    );
+    assert_eq!(record["state"], "valid");
 }

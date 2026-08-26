@@ -1,7 +1,9 @@
 # Operations
 
-**Status:** current as of 2026-08-25, `v0.12.1` released. Eleven documents: ten procedures for a
-system that exists, and one design for a tier that does not.
+**Status:** current as of 2026-08-26. Thirteen documents: twelve procedures for a system that
+exists, and one design for a tier that does not. The two newest were added the day the decisions
+behind them were taken, and both are about what a deployment has to *know* rather than what it
+runs — federation, and what depends on the vault being reachable.
 
 Ordered by what you are trying to do, not by subsystem. The index one level up
 ([`../README.md`](../README.md)) is ordered by *risk* — what goes wrong and what to read before it
@@ -24,6 +26,7 @@ either impossible or itself an outage. Those are marked below.
 
 | Document | What it answers |
 |---|---|
+| [availability.md](availability.md) | **What depends on the vault being up, and at which moments.** There is no client-side cache and no lease ([ADR-27](../adr/0027-the-vault-is-a-startup-dependency.md)), so a container start, a CI job and a federated exchange all need this service answering. Names what must not be co-located with it, and what must not be restarted alongside it. |
 | [monitoring.md](monitoring.md) | **What to poll, and the three ways to read it wrong.** Every field on `/v1/health`, which of them are hardcoded constants — an alert written against those watches nothing — and why backup freshness is deliberately not there. |
 | [audit-trail.md](audit-trail.md) | The chain, `tail`, `verify`, `anchor` and `cut`. **A full audit volume is a total outage, not a logging gap**, which is intended and is the one condition `/v1/health` cannot answer for you. |
 
@@ -43,6 +46,7 @@ and in the ADRs; these say how to operate the result.
 | Document | What it answers |
 |---|---|
 | [ci.md](ci.md) | **Route A — a CI job.** `ciphr-ci` and the composite action: the workflow step, where the binary comes from, the token's shape, and what is *measured* about masking versus what is only claimed. **No forge masks a value fetched at runtime**, which is why this is a program and not a documented `curl` line. |
+| [federation.md](federation.md) | **Letting a job authenticate without a stored token.** `POST /v1/auth/oidc/login` ([ADR-26](../adr/0026-oidc-federation.md)): a workload presents an ID token its forge issued and gets one that lives minutes. **Read the key-rotation section before turning it on** — the provider's signing keys are configuration, not a fetch, so a rotation on their side is an edit here. Requires the `oidc_login` surface entry. |
 | [wrapper.md](wrapper.md) | **Route B — a third-party image.** `ciphr-run`: where the file comes from, what its exit codes mean (`125` is the wrapper, `126`/`127` are the shell convention), and what route B does not solve. |
 
 Route C — an application fetching its own secrets — is `ciphr-sdk`, documented in its rustdoc

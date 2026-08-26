@@ -1,8 +1,9 @@
 # `ciphr-run`: getting the wrapper, and mounting it
 
-**Status:** implemented and tested as of 2026-08-24. Built 2026-08-20, scope guidance added
+**Status:** implemented and tested as of 2026-08-26. Built 2026-08-20, scope guidance added
 2026-08-21, release asset renamed to carry its target triple 2026-08-21, the token file's trust
-requirement written down 2026-08-23, and the `bulk_export` dependency removed 2026-08-24 (phase 7,
+requirement written down 2026-08-23, the `bulk_export` dependency removed 2026-08-24, and the
+availability requirement behind a `125` at boot written down 2026-08-26 (phase 7,
 [ADR-14](../adr/0014-ciphr-run-injects-into-a-child-process.md)).
 The wrapper works and ships; where a deployment keeps the token file and which entrypoint it pins
 are decisions this document does not make for it.
@@ -127,6 +128,13 @@ unreachable service, a certificate the CA does not sign, an empty listing, a sec
 cannot become a variable name. The service did not start and did not crash, and a restart policy
 can tell the difference — that is what 125 is for. **126** is a command that exists and cannot be
 executed, **127** one that was not found; anything else is the child's own exit code.
+
+**The most common cause of a `125` is not a misconfiguration — it is a boot order.** The wrapper
+fetches at exec time, so a host that brings its services up before the vault is ready produces a
+`125` from every wrapped container at once, and a restart policy then makes it look intermittent.
+There is deliberately no client-side cache ([ADR-27](../adr/0027-the-vault-is-a-startup-dependency.md));
+what to express instead, and what must not be co-located or restarted together, is
+[availability.md](availability.md).
 
 **The service starts with no secrets and fails later, obscurely.** This should not happen and is
 worth recognizing if it does: an empty listing is treated as a refusal, not as an empty

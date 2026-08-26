@@ -1735,7 +1735,7 @@ struct Known {
 /// rustls and a tokio runtime and none of those belong in a host tool.
 ///
 /// **The duplication can drift, and `ci/check-surface-entries.sh` is what bounds it.**
-/// An earlier note here said the bound was that the list was one row long; it is three
+/// An earlier note here said the bound was that the list was one row long; it is six
 /// now, and a missing row is not cosmetic -- it is an entry `show` would silently leave
 /// out of the off list below, which is the whole point of that list. The gate compares
 /// all three fields: the name because it is a contract a deployment writes, the `kind`
@@ -1791,8 +1791,27 @@ const KNOWN: &[Known] = &[
                invalidate one token, at the one moment that cannot be scheduled. \
                `docs/operations/honeypots.md` fires exactly then. On, this is the single \
                write the API may do (ADR-24): one token per request, authorized as \
-               `revoke` on `sys/tokens`, no master key involved. Issuing stays on the \
-               host either way.",
+               `revoke` on `sys/tokens`, no master key involved. Issuing a token an \
+               operator asked for stays on the host either way; the one exception is a \
+               federated exchange, which mints one without being asked (`oidc_login`, \
+               ADR-26).",
+    },
+    Known {
+        name: "oidc_login",
+        kind: "runtime",
+        cost: "Every consuming host keeps a long-lived bearer token in a file. Where one \
+               collection point fetches for everything that is one credential in one \
+               place; where a CI runner runs on each host, the credential count grows \
+               with the host count -- each one long-lived, each one on the machine that \
+               also runs the workload, and rotating them is one operation per host. On, a \
+               workload presents an ID token its forge issued and receives a ciphr token \
+               that lives minutes: `POST /v1/auth/oidc/login`, unauthenticated because \
+               the caller holds no ciphr credential yet, and the second write this API \
+               may do (ADR-26). It cannot widen an authority -- the identity, its \
+               policies and the lifetime ceiling all come from configuration -- and the \
+               provider's signing keys are configuration too, so a key rotation on their \
+               side is an edit here rather than a fetch from the process that holds \
+               plaintext secrets.",
     },
     Known {
         name: "honeypot_alert",

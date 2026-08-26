@@ -1,8 +1,10 @@
 # The viewer
 
-**Status:** current as of 2026-08-25, phase 5, released as `ui-v0.3.3`, the first viewer that reads the two states `0.12.0` added; the capability its token needs changed on 2026-08-23 (ADR-23), and `ui-v0.3.1` closes finding F4 — the viewer now refuses to mount while a service worker controls its document. Built and running: the five
+**Status:** current as of 2026-08-26, phase 5. **Sign-in through an identity provider is built and
+not yet released** — ADR-12's second half, on ADR-26's machinery, with the flow decision in ADR-28;
+the sections below describe it as it is on `main`. The newest tag is `ui-v0.3.3`, the first viewer that reads the two states `0.12.0` added; the capability its token needs changed on 2026-08-23 (ADR-23), and `ui-v0.3.1` closes finding F4 — the viewer now refuses to mount while a service worker controls its document. Built and running: the five
 views below, the strict Content-Security-Policy, and the container that serves them. Sign-in is a
-pasted token; SSO is post-v1 (ADR-12). **This viewer requires a service at `0.3.0` or newer** — it
+provider where a deployment configures one, and a pasted token otherwise (ADR-12, ADR-28). **This viewer requires a service at `0.3.0` or newer** — it
 reads the rotation class from `GET /v1/versions/{path}`, which returned a bare array before that.
 
 **Against a `0.3.0` service it is complete, not degraded.** The audit table's last column is
@@ -37,9 +39,51 @@ which is the point of the project rather than a convenience.
 ## What it is not
 
 It cannot write. No secret is created, updated, or deleted; no policy or identity is changed; no
-token is issued or revoked. That is not a stopgap — a policy-write API is the most dangerous API this
-project could have (ADR-3), and refusing to have one is what keeps the blast radius of an XSS finding
-at "read what the signed-in human is allowed to read anyway".
+token is issued or revoked. Refusing all of that is what keeps the blast radius of an XSS finding at
+"read what the signed-in human is allowed to read anyway".
+
+**Three refusals, three different reasons, and until 2026-08-26 this page gave one reason for all
+three.** It said the rule was not a stopgap because *"a policy-write API is the most dangerous API
+this project could have (ADR-3)"* — which is true, and is an argument about policies. Applied to
+secrets it implied an ADR that does not exist. Issue #53 filed exactly that, and the correction is
+worth more than the tidiness: a reader who checks the claim and finds it overstated has reason to
+doubt the ones that hold.
+
+- **Policies and identities: refused, and not a decision this page takes.** ADR-3 —
+  *"There is no policy-write API in v1. Identities and policies are administered through
+  configuration and the CLI on the host."* That is version control as the source of truth for who may
+  read what, and a UI that edited it would remove the review a commit provides. There is no such API
+  to call, so this is not a viewer restriction at all.
+- **Tokens: refused here, and it belongs elsewhere.** Revocation *is* reachable over the API where a
+  deployment named `token_revoke` ([ADR-24](adr/0024-revocation-is-the-one-write-the-api-may-do.md)),
+  and federation mints ([ADR-26](adr/0026-oidc-federation.md)). Whether the viewer should offer
+  revocation is a real question and it is that lifecycle's, not this page's.
+- **A secret value: refused, and this is the one that is a decision.** `PUT /v1/secrets/{path}`
+  exists, is authorized by `write`, always creates a new version and is audited before the store
+  changes — so a viewer that wrote a value would use an existing route with existing authorization,
+  and **no ADR forbids it.** The reasons it is still refused are below, because a refusal with no
+  reason written next to it is the thing this section just had to correct.
+
+### Why the viewer does not write a secret value
+
+Decided 2026-08-26, on issue #53, and it is a decision rather than an inherited shape. Three costs,
+none of which is about the route:
+
+- **It needs a human identity with `write`, and that is a policy decision with a price.** The same
+  reasoning already in `policies.toml` for reading applies: a person who may write every value makes
+  the trail a list of their own changes. It would have to be scoped, not `**` — and a scoped human
+  write grant is a thing a deployment can create today, for the CLI, without a viewer that uses it.
+- **Reveal-then-edit is a longer exposure than reveal.** The current view renders one value and it is
+  gone. An edit form holds plaintext in a DOM node for as long as the form is open, which is more
+  time and more ways to leak it — in a tab that also holds the bearer token, against adversary A7,
+  which is the browser context itself.
+- **What is genuinely gained is small.** `PUT` never overwrites, so a mistaken write is recoverable
+  by version, which is the property that would make this survivable at all. But the person who needs
+  to change a secret usually needs the shell for the other half of the change anyway.
+
+**What this costs, said plainly:** a person who must change a secret needs a shell on the host, and
+the read-only view is a window onto a system they cannot operate from it. That is the trade, and it
+is now a recorded one.
 
 It is also not part of the service. The viewer is a separate container serving static files (ADR-11).
 The server has no `serve-ui` mode, no embedded assets, and no template engine, so a bug in asset
@@ -47,6 +91,53 @@ handling cannot be a bug in the process that holds plaintext secrets. Not deploy
 nothing but the viewer.
 
 ## Signing in
+
+Two ways since 2026-08-26, and a deployment can offer either or both.
+
+### With an identity provider
+
+Scheduled by [ADR-12](adr/0012-ui-auth-token-paste.md) from the beginning and built on
+[ADR-26](adr/0026-oidc-federation.md)'s machinery — *one OIDC validation, two callers*, which is what
+that record predicted and what happened. A person signs in at the provider, the viewer exchanges what
+comes back for a ciphr token that lives minutes, and no long-lived human token is distributed by hand.
+
+**The provider's details are the viewer's own configuration**, not the service's. Mount a
+`/sso.json` into the viewer container's document root:
+
+```json
+{
+  "name": "Forge",
+  "authorization_endpoint": "https://forge.example/login/oauth/authorize",
+  "client_id": "ciphr-viewer",
+  "scope": "openid"
+}
+```
+
+No client secret, and there is nowhere one could go: this is a public client, and what binds the
+response to the request is a nonce the viewer generates. **No file means no button** — token paste,
+exactly as before — which is the ordinary case and the reason ADR-11's optionality survives this.
+
+The service side is one ordinary `[[auth.oidc]]` provider and one binding per person, in
+[federation.md](operations/federation.md)'s terms. Two details decide whether it works:
+
+- **`audience` must be the viewer's `client_id`.** A provider sets an ID token's `aud` to the client
+  it issued it for. A mismatch is a `401`, and the trail says `audience-mismatch`.
+- **The binding names a human identity, and its claim is whatever identifies the person** — usually
+  `sub`. Claims are matched by exact equality, so this is one binding per person, in a file with a
+  diff and a reviewer. That identity's policy still needs `inspect` on the control-plane paths below.
+
+**What it costs, which is a decision rather than a detail.** The viewer asks for the ID token
+directly (`response_type=id_token`) rather than running authorization code with PKCE, because the
+exchange leg of that flow is a cross-origin request and this page is served under
+`connect-src 'self'`. So the token passes briefly through the URL fragment — never transmitted to a
+server, cleared with `history.replaceState` before the exchange request is made, and bound to a nonce
+this tab generated. [ADR-28](adr/0028-the-viewer-asks-for-an-id-token-directly.md) is the full
+argument, including the two alternatives and what each of them would have cost.
+
+**A provider that will not issue `response_type=id_token` to this client cannot be used**, and such a
+deployment uses token paste.
+
+### With a pasted token
 
 A personal token for an identity of kind `human`, issued with the CLI:
 
@@ -136,7 +227,9 @@ The full check is `ciphr audit verify`. The one that survives a forward rewrite 
 | No `v-html`, no `innerHTML` | `ci/check-no-v-html.sh`, a blocking CI gate |
 | No inline styles | `style-src 'self'` refuses them; the build emits one stylesheet and the code uses classes, never `:style` |
 | No service worker, no offline cache | None is registered. `main.ts` removes any registration it finds, **waits for that to finish, and refuses to mount while this document is still controlled by one** — unregistering does not end a worker's control of a page already loaded, so a controlled page gets a refusal and a reload instead of the viewer. The container refuses every registration attempt (`Service-Worker: script` on the script fetch, whatever the script is called) and the two conventional filenames; neither can stop a worker that is already installed, which is why the client fails closed. **The strongest form of this is an origin that has never hosted an application registering one** — see below. A cached response to a secret read is a secret without an expiry date. Since 2026-08-22 the *server* says so too: every `/v1` response carries `Cache-Control: no-store`, so this property no longer rests on one client asking politely (findings F3 and F4) |
-| Only documented v1 endpoints | ADR-11's consequent rule: an endpoint existing for the viewer alone would mean the CLI could not do something the viewer can |
+| Only documented v1 endpoints | ADR-11's consequent rule: an endpoint existing for the viewer alone would mean the CLI could not do something the viewer can. Two calls are not to `/v1` and both are to this container's own origin: the bundle itself, and `/sso.json`, which is the viewer's configuration rather than the service's |
+| The provider's ID token is spent, not kept | It exists in `location.hash` for the length of one function — the fragment is cleared with `history.replaceState` before the exchange request is made — and is handed to `api.federate` without being stored in a ref, a field, or `sessionStorage`. What is kept is the ciphr token that comes back, in the same place a pasted one goes ([ADR-28](adr/0028-the-viewer-asks-for-an-id-token-directly.md)) |
+| The sign-in response is checked against the request | A `nonce` and a `state` from `crypto.getRandomValues`, kept in `sessionStorage` and removed as soon as the response is compared. Neither is a secret; what they answer is *was this token minted for the request this tab made*, which only this tab can answer. A browser that refuses storage gets a refusal to start the flow rather than a flow that cannot check itself |
 | Its own dependency budget | `ci/check-ui-budget.sh`: exactly one runtime dependency (`vue`), a ceiling on the whole tree, no install scripts, every package resolved from the public registry with an integrity hash |
 
 `frame-ancestors` is in the header only, deliberately: browsers ignore it in a `<meta>` element and

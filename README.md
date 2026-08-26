@@ -127,7 +127,7 @@ the software.
 |---|---|
 | [the site](https://nuetzliches.github.io/ciphr/) | Overview, integration examples, security notes, and the layer diagram |
 | [`docs/`](docs/README.md) | The documentation index, including a table of risk areas |
-| [`docs/adr/`](docs/adr/) | The 25 architecture records, one file each, with what was rejected and why |
+| [`docs/adr/`](docs/adr/) | The 28 architecture records, one file each, with what was rejected and why |
 | [`docs/crypto.md`](docs/crypto.md) | The implemented key hierarchy and wire format, and what the tests establish |
 | [`docs/authorization.md`](docs/authorization.md) | The policy file, the pattern language, and the four rules of the decision |
 | [`docs/security-review.md`](docs/security-review.md) | What an external reviewer should attack, and what would falsify each claim |

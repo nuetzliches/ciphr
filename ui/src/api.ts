@@ -42,7 +42,16 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, authenticated = true): Promise<T> {
+/**
+ * One request, one place that turns a failure into an [`ApiError`].
+ *
+ * `body` is the exception to the rule in this module's documentation that every call is a
+ * read, and there is exactly one caller: the OIDC exchange (ADR-26). It is a `POST`
+ * because it is the request a caller makes in order to *obtain* a credential — so it is
+ * also the one call here that is not authenticated and does not become one when a token
+ * is held.
+ */
+async function request<T>(path: string, authenticated = true, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json" };
 
   if (authenticated) {
@@ -53,10 +62,18 @@ async function request<T>(path: string, authenticated = true): Promise<T> {
     headers["Authorization"] = header;
   }
 
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+
   let response: Response;
   try {
     response = await fetch(path, {
-      method: "GET",
+      method: body === undefined ? "GET" : "POST",
+      // `null` rather than `undefined`: `exactOptionalPropertyTypes` is on, so a
+      // `RequestInit` field that is present-and-undefined is not the same type as an
+      // absent one. `null` is what `fetch` documents for a request with no body.
+      body: body === undefined ? null : JSON.stringify(body),
       headers,
       // No cookies exist for this origin and none should be sent if one ever does.
       credentials: "omit",
@@ -335,4 +352,31 @@ export const api = {
   policies(): Promise<{ policies: Policy[] }> {
     return request<{ policies: Policy[] }>("/v1/policies");
   },
+
+  /**
+   * `POST /v1/auth/oidc/login` — exchange a provider-issued ID token for a ciphr token.
+   *
+   * The one call in this module that is not a read, and the one that is unauthenticated:
+   * a caller reaches it precisely because it holds no token yet (ADR-26). Everything that
+   * decides whether the presented token is acceptable is on the server, which is the
+   * whole point — the browser holds none of the provider's keys and none of the
+   * deployment's bindings.
+   *
+   * A `404` here means the deployment did not name the `oidc_login` surface entry, which
+   * is the same thing as it not offering federation. A `401` says nothing about why; the
+   * audit trail says, for the operator.
+   */
+  federate(idToken: string): Promise<Federated> {
+    return request<Federated>("/v1/auth/oidc/login", false, { id_token: idToken });
+  },
 };
+
+/** What the exchange hands back. */
+export interface Federated {
+  token: string;
+  /** The non-secret identifier — what the audit trail names. */
+  token_id: string;
+  /** Which identity the claims resolved to. */
+  identity: string;
+  expires_at: number;
+}

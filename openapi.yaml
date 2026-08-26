@@ -5,13 +5,14 @@
 # action, and the MCP server, which is derived from this file rather than written
 # alongside it (ADR-13).
 #
-# Three paths are listed as reserved. None of them exists in v1 and all of them return
-# 404; they are here so the names are not claimed for something else by accident when
-# the features arrive: `POST /v1/auth/oidc/login` for OIDC federation (section 14 of
-# the plan), and `POST /v1/report` with `GET /v1/leaks` for leak reports (section 23,
-# ADR-16).
+# Two paths are listed as reserved. Neither exists and both return 404; they are here so
+# the names are not claimed for something else by accident when the features arrive:
+# `POST /v1/report` and `GET /v1/leaks` for leak reports (section 23, ADR-16). A third,
+# `POST /v1/auth/oidc/login`, was reserved here from phase 3 until 2026-08-26 and is now
+# built -- as an optional route, so the status an unconfigured deployment sees is the one
+# the reservation gave.
 #
-# **Seven routes are optional**, which is a third state beside "exists" and "reserved" and
+# **Eight routes are optional**, which is a third state beside "exists" and "reserved" and
 # one this document could not express before 2026-08-21. Each belongs to a surface entry
 # (ADR-20) and answers 404 where a deployment did not turn that entry on -- the same status
 # a reserved path gives, for a different reason. `GET /v1/health` lists the entries a given
@@ -21,11 +22,18 @@
 #   `bulk_export`     POST /v1/export
 #   `token_status`    GET /v1/tokens
 #   `token_revoke`    POST /v1/tokens/{token_id}/revoke
+#   `oidc_login`      POST /v1/auth/oidc/login
 #   `honeypot_alert`  GET /v1/honeypots
 #
-# `token_revoke` is the only one of them that *writes*, and the only write in this
-# document that is not about a secret: ADR-3 keeps administration off the API, and ADR-24
-# narrows that to one named exception rather than repealing it.
+# **Two of them write, and neither is about a secret.** ADR-3 keeps administration off the
+# API; ADR-24 narrowed that to one named exception rather than repealing it, and ADR-26
+# replaced its "one route" with the rule it was reaching for -- the writes the API may do
+# are the ones that cannot widen an authority. `token_revoke` removes an authority;
+# `oidc_login` binds a credential to an identity the configuration already authorized.
+#
+# `oidc_login` is also the only optional route that is **unauthenticated**, because a
+# caller reaches it precisely to obtain a credential. `/v1/health` is the other
+# unauthenticated route and is not optional.
 #
 # The first two were unconditional until 2026-08-21 and are a **breaking change** for a
 # deployment that does not name them: see `docs/operations/upgrade.md`. They became entries
@@ -649,23 +657,126 @@ paths:
 
   /v1/auth/oidc/login:
     post:
+      x-surface-entry: oidc_login
       tags: [administration]
-      summary: Reserved. Not implemented in v1.
+      summary: Exchange a provider-issued ID token for a ciphr token.
       description: |
-        Reserved for OIDC federation, which is first on the post-v1 list: a CI job
-        exchanges a forge-issued ID token for a short-lived ciphr token, and the
-        long-lived bootstrap secret disappears.
+        **Optional route**, belonging to the `oidc_login` surface entry (ADR-20), and
+        **the second write this API may do** (ADR-26). It answers `404` from the router's
+        fallback where a deployment did not name that entry — the same status this path
+        answered while it was only a reservation — and `GET /v1/health` lists the entries
+        a given instance has.
 
-        Listed here so the path is not claimed for something else by accident. It
-        returns `404` in v1.
+        **Unauthenticated, and it is one of two routes that are** — the other being
+        `GET /v1/health`. A caller makes this request precisely because it holds no
+        credential of this system yet. What stands in for a bearer token is a signature
+        from a provider the deployment's configuration names.
+
+        **What it cannot do.** The identity, its policies and the lifetime ceiling all
+        come from configuration (ADR-3), so an exchange binds a new credential to an
+        identity that already exists and can create neither an identity nor a rule. That
+        is the property that lets it exist beside ADR-24's rule, which this record
+        amends: the writes the API may do are the ones that cannot widen an authority.
+
+        **The provider's signing keys are configuration, not a JWKS fetch.** A fetch
+        would be the first outbound request from the process that holds plaintext secrets
+        (ADR-17), and this build links no public root certificates, so it could not make
+        one. The operational cost is a key rotation on the provider's side becoming an
+        edit here; `docs/operations/federation.md` leads with it.
+
+        **Claims are matched by exact equality and there is no wildcard.** A deployment
+        that federates several branches configures several bindings.
+
+        The audit entry names the provider as the principal, the resolved identity and
+        the minted credential's non-secret identifier as the subject, and the verified
+        `sub` in its detail — as `federate-token`, which is **not** also recorded as
+        `issue-token`. **A token whose signature does not verify is refused without an
+        entry**: this route is unauthenticated and the trail is fail-closed, so an entry
+        per attempt would let anyone turn a `401` into a `503`.
       security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id_token]
+              properties:
+                id_token:
+                  type: string
+                  description: |
+                    The compact JWS the provider issued, for this deployment's
+                    configured audience. `RS256` and `ES256` are accepted and nothing
+                    else; the configured key decides the algorithm and the token's
+                    header only has to agree.
+
+                    In the body rather than in a query string: it is a credential for
+                    the length of its own validity, and a query string lands in a proxy
+                    log.
+                  maxLength: 8192
+                ttl_seconds:
+                  type: integer
+                  format: int32
+                  minimum: 1
+                  description: |
+                    A shorter lifetime than the provider's configured ceiling. Optional,
+                    and it can only reduce: a request above the ceiling gets the ceiling
+                    rather than an error, because the request is a preference and the
+                    ceiling is the deployment's answer.
       responses:
-        "404":
-          description: Not implemented in v1.
+        "200":
+          description: |
+            A credential for the identity the binding named. It behaves exactly like a
+            token `ciphr token issue` produced, is visible in `ciphr token list` with
+            `created_by` of `oidc:<provider>`, and can be revoked the same way.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, token_id, identity, expires_at]
+                properties:
+                  token:
+                    type: string
+                    description: |
+                      The token, in the ordinary `cph_` format. Served once, here: what
+                      the store holds is a verifier.
+                  token_id:
+                    type: string
+                    description: |
+                      Its non-secret identifier — what the audit trail names, so a build
+                      log and the trail can be joined without either carrying the token.
+                  identity:
+                    type: string
+                    description: |
+                      Which identity the claims resolved to. Present so that a workflow
+                      that federated into the wrong binding finds out here rather than as
+                      a `403` on its next request.
+                  expires_at:
+                    type: integer
+                    format: int64
+                    description: Milliseconds since the Unix epoch, like every other timestamp here.
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401":
+          description: |
+            The presented token was not acceptable. **One body for all of it**, as
+            everywhere else on this API: an expired token, a wrong audience, an unmapped
+            claim set, an unknown issuer and a forged signature are the same answer here.
+            The distinctions are in the audit trail, where the operator can see them and
+            the caller cannot — and the last two are not recorded at all, for the reason
+            in the description above.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "404":
+          description: |
+            This deployment did not turn on the `oidc_login` entry. The same status this
+            path answered while it was a reservation, from the router's fallback.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503": { $ref: "#/components/responses/AuditUnavailable" }
 
   /v1/report:
     post:

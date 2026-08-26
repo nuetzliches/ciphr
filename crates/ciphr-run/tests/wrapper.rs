@@ -150,7 +150,9 @@ impl Live {
             // fallback rather than this client. `only` rather than `resolve`: this
             // composes a router in-process, which is not a deployment starting on a
             // configuration, so the startup record ADR-20 requires does not apply.
-            ciphr_server::surface::only(&["bulk_export"]).expect("a known entry"),
+            ciphr_server::surface::only(&["bulk_export"])
+                .expect("a known entry")
+                .into(),
         );
 
         let generated = rcgen::generate_simple_self_signed(vec![

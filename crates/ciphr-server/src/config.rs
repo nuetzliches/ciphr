@@ -60,6 +60,45 @@
 //! with no reason beside it reads as an accident six months later, and the
 //! safest-looking response to an accident is to restore the default — which for
 //! surface is the wrong direction to guess in. See [`crate::surface`].
+//!
+//! **`[[auth.oidc]]` is absent for the same reason, and it is the only section that
+//! carries key material of somebody else's** (ADR-26). Federation is off until a
+//! deployment names the `oidc_login` entry, and the two halves are checked against each
+//! other in both directions: the entry with no provider behind it is a route that
+//! refuses everything, and providers with the entry off are configuration nothing can
+//! reach.
+//!
+//! ```toml
+//! [[surface]]
+//! entry    = "oidc_login"
+//! accepted = "2026-08-26"
+//! reason   = "one CI runner per host, so a bootstrap token per host was the largest \
+//!             standing credential count"
+//!
+//! [[auth.oidc]]
+//! name         = "forge"
+//! issuer       = "https://forge.example/api/actions"
+//! audience     = "ciphr"
+//! ttl          = "15m"
+//! skew_seconds = 60
+//!
+//! # Copied from the provider's JWKS by hand. There is no fetch: it would be the first
+//! # outbound call from the process that holds plaintext secrets, and this build links
+//! # no public roots, so it could not make one. `docs/operations/federation.md` says
+//! # what to do when the provider rotates.
+//! [[auth.oidc.key]]
+//! alg = "RS256"
+//! kid = "1a2b3c"
+//! n   = "…the modulus, unpadded base64url…"
+//! e   = "AQAB"
+//!
+//! # Claims are matched by exact equality, all of them, and there is no wildcard. A
+//! # deployment that federates several branches lists them — in a file with a diff and
+//! # a reviewer, which is ADR-3's argument rather than a limitation of this section.
+//! [[auth.oidc.binding]]
+//! identity = "ci-widget"
+//! claims   = { sub = "repo:acme/widget:ref:refs/heads/main" }
+//! ```
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -92,6 +131,26 @@ pub struct Config {
     /// [`crate::surface`] for why both directions have to fail.
     #[serde(default, rename = "surface")]
     pub surface: Vec<crate::surface::SurfaceConfig>,
+    /// Authentication methods beyond the bearer token (ADR-6, ADR-26).
+    ///
+    /// Empty is the ordinary case. A bearer token needs nothing here; federation needs
+    /// a provider, and a provider is only reachable where the `oidc_login` entry names
+    /// it.
+    #[serde(default)]
+    pub auth: AuthConfig,
+}
+
+/// The `[auth]` table.
+///
+/// A table of its own rather than a repeated top-level key, because ADR-6 put
+/// authentication methods behind one idea and there will be more than one of them. A
+/// deployment that adds no method writes nothing here.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AuthConfig {
+    /// OIDC providers a workload may federate through (ADR-26).
+    #[serde(default, rename = "oidc")]
+    pub oidc: Vec<crate::oidc::ProviderConfig>,
 }
 
 /// Listener and TLS settings.
@@ -259,6 +318,24 @@ impl Config {
                 parse_size(size)?;
             }
         }
+
+        // Federation and its surface entry are checked against each other in both
+        // directions, for the same reason `surface::resolve` checks a build entry both
+        // ways: each half alone is a configuration that does not mean what it says. An
+        // entry with no provider is a route that answers every exchange with a refusal,
+        // and a provider with the entry off is key material nothing can reach — which
+        // reads, to whoever wrote it, exactly like federation being on.
+        let entry_named = self
+            .surface
+            .iter()
+            .any(|stanza| stanza.entry == crate::oidc::SURFACE_ENTRY);
+        if entry_named && self.auth.oidc.is_empty() {
+            return Err(ConfigError::OidcEntryWithoutProvider);
+        }
+        if !entry_named && !self.auth.oidc.is_empty() {
+            return Err(ConfigError::OidcProviderWithoutEntry);
+        }
+
         Ok(())
     }
 
