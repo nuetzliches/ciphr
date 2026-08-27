@@ -66,6 +66,45 @@ struct Cli {
     command: Command,
 }
 
+/// ── Why every positional below carries `allow_hyphen_values` ────────────────
+///
+/// A value that begins with `-` is a flag to a command-line parser, and three of
+/// this project's own namespaces produce such values.
+///
+/// **Token identifiers, and this one is not hypothetical.** A token is `cph_` plus
+/// an eight-character base64url identifier, and that alphabet ends `…89-_`
+/// (`ciphr_core::base64url`). So roughly one identifier in sixty-four begins with a
+/// hyphen, and `ciphr token revoke -Ab3xY9zQ` answered `unexpected argument '-A'
+/// found`. Nobody chose that identifier and nobody could avoid it: the store deals
+/// it, prints it, and then refuses to take it back. The moment an operator types
+/// `token revoke` is the moment after a credential leaked, which is the worst
+/// possible time to be debugging shell quoting.
+///
+/// It was found by the release of `ui-v0.4.1` going red on
+/// `revoking_one_token_records_that_one` — a test that had been rolling a
+/// one-in-sixty-four die on every run since it was written, and finally lost.
+///
+/// **Secret paths**, where `-` is an allowed segment character
+/// (`ciphr_core::path::is_allowed`). The failure there is worse than a refusal:
+/// `put -- -legacy/db` stores the secret and `get -legacy/db` cannot read it, so
+/// the store can hold a value the obvious command will not return.
+///
+/// **Identity names**, which are whatever the policy file says. Nothing validates
+/// them against a character set, so `-svc` is a legal identity that could not be
+/// issued a token.
+///
+/// What this costs is that a *mistyped* flag reaches the command as data:
+/// `token revoke --identty` now reports `no token with id '--identty'` rather than
+/// `unexpected argument`. That is a worse message for a typo and the right trade
+/// against a credential that cannot be revoked — and a defined flag is still a
+/// flag, so `-d` and `--policies` keep working after the subcommand.
+///
+/// **File paths are deliberately not in this list.** `surface show <CONFIG>`,
+/// `state <CONFIG>` and `backup <DESTINATION>` name files in the operating
+/// system's namespace rather than in ciphr's, where `./-foo.toml` is the answer
+/// every other tool on the host also expects. The rule this draws is that a value
+/// *this project* generates or constrains must survive a round trip through its own
+/// CLI; a filename the user invented is not that.
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Create a store: generate a root key and seal it.
@@ -74,6 +113,7 @@ enum Command {
     /// Write a new version of a secret. The value comes from standard input.
     Put {
         /// Where to store it.
+        #[arg(allow_hyphen_values = true)]
         path: String,
         /// How safe this secret is to rotate.
         #[arg(long)]
@@ -83,6 +123,7 @@ enum Command {
     /// Read a secret.
     Get {
         /// Which secret.
+        #[arg(allow_hyphen_values = true)]
         path: String,
         /// Which version. The current one if omitted.
         #[arg(long)]
@@ -109,12 +150,14 @@ enum Command {
     /// and without the master key.
     Versions {
         /// Which secret.
+        #[arg(allow_hyphen_values = true)]
         path: String,
     },
 
     /// Soft-delete a version. Reversible with `undelete`.
     Delete {
         /// Which secret.
+        #[arg(allow_hyphen_values = true)]
         path: String,
         /// Which version. The current one if omitted.
         #[arg(long)]
@@ -124,6 +167,7 @@ enum Command {
     /// Restore a soft-deleted version.
     Undelete {
         /// Which secret.
+        #[arg(allow_hyphen_values = true)]
         path: String,
         /// Which version.
         #[arg(long)]
@@ -133,6 +177,7 @@ enum Command {
     /// Destroy a version irreversibly by deleting its wrapped key.
     Destroy {
         /// Which secret.
+        #[arg(allow_hyphen_values = true)]
         path: String,
         /// Which version.
         #[arg(long)]
@@ -146,6 +191,7 @@ enum Command {
     /// with the service up; setting opens a session and needs it stopped.
     Rotation {
         /// Which secret.
+        #[arg(allow_hyphen_values = true)]
         path: String,
         /// One of: unclassified, rotatable, seed-only, breaks-data, volume-bound,
         /// invalidates-sessions. Omit it to read the current class instead.
@@ -331,11 +377,13 @@ enum HoneypotCommand {
     /// deploys, and never beside the real secrets of a real service.
     Add {
         /// The path to mark.
+        #[arg(allow_hyphen_values = true)]
         path: String,
     },
     /// Remove the mark, leaving the secret in place.
     Remove {
         /// The path to unmark.
+        #[arg(allow_hyphen_values = true)]
         path: String,
     },
     /// Show every piece of bait and whether it has been taken.
@@ -357,6 +405,7 @@ enum TokenCommand {
     /// Issue a token for an identity from the policy file.
     Issue {
         /// The identity name.
+        #[arg(allow_hyphen_values = true)]
         identity: String,
         /// How long it is valid, such as 90d. No expiry if omitted.
         #[arg(long)]
@@ -387,11 +436,13 @@ enum TokenCommand {
     /// Revoke one token by its identifier.
     Revoke {
         /// The eight-character identifier.
+        #[arg(allow_hyphen_values = true)]
         token_id: String,
     },
     /// Revoke every token of an identity.
     RevokeAll {
         /// The identity name.
+        #[arg(allow_hyphen_values = true)]
         identity: String,
     },
 }

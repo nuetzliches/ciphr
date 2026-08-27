@@ -8,6 +8,40 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A token whose identifier begins with `-` can be revoked.** A token is `cph_` plus an
+  eight-character base64url identifier, and that alphabet ends `…89-_` — so roughly **one token in
+  sixty-four** got an identifier starting with a hyphen, and `ciphr token revoke -Ab3xY9zQ` answered
+  `unexpected argument '-A' found`. Nobody chose that identifier and nobody could avoid it: the store
+  deals it, prints it, and then declined to take it back. The moment an operator types `token revoke`
+  is the moment after a credential leaked, which is the worst possible time to be debugging shell
+  quoting.
+
+  **Two more namespaces had the same defect, and one of them worse.** `-` is a legal character in a
+  secret path segment, so `put -- -legacy/db` stored a secret that `get -legacy/db` could not read —
+  the store held a value the obvious command would not return. And nothing validates identity names
+  in a policy file against a character set, so an identity called `-svc` could not be issued a token.
+  Every positional argument naming a token, a path or an identity now accepts such a value.
+
+  File paths are deliberately unchanged: `surface show`, `state` and `backup` name files in the
+  operating system's namespace, where `./-foo.toml` is what every other tool on the host expects
+  too. The rule this draws is that a value **ciphr itself** generates or constrains must survive a
+  round trip through ciphr's own CLI.
+
+  What it costs is that a mistyped flag now reaches the command as data — `token revoke --identty`
+  reports `no token with id '--identty'` rather than `unexpected argument`. That is a worse message
+  for a typo and the right trade against a credential that cannot be revoked. A *defined* flag is
+  still a flag, so `-d` and `--policies` keep working after the subcommand, and a test pins that.
+
+  **How it was found is the part worth recording.** The release of `ui-v0.4.1` went red on
+  `revoking_one_token_records_that_one`, a test that had been rolling a one-in-sixty-four die on
+  every run since it was written and finally lost. It was covered by accident and unreliably, which
+  is indistinguishable from not being covered at all until the day it is not. The new tests in
+  `crates/ciphr-cli/tests/values_that_look_like_flags.rs` use identifiers chosen to have the shape
+  that breaks, so they either always pass or always fail; four of the five fail against the code
+  before this change.
+
 ## [0.13.1] — 2026-08-27
 
 **The release that ships the attribution it already owed.** Nothing in `crates/` changed, so nothing
