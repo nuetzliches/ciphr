@@ -257,9 +257,10 @@ mkdir -p "$(dirname "$out")"
     cat <<'MD'
 # Third-party notices
 
-ciphr itself is licensed under **MIT OR Apache-2.0**, at your option; those two
-texts are `LICENSE-MIT` and `LICENSE-APACHE` in the source repository and are
-not repeated here.
+ciphr itself is licensed under **MIT OR Apache-2.0**, at your option. Those two
+texts travel with this file rather than being left in a repository: `LICENSE-MIT`
+and `LICENSE-APACHE` sit beside it — in `/usr/share/doc/ciphr/` inside the image,
+and as their own assets on the release page.
 
 This file covers everything else that is compiled into the binaries and images
 this project publishes. Each entry reproduces the license files the crate itself

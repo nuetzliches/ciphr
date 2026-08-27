@@ -219,6 +219,11 @@ jobs:
       - name: License policy
         run: sh ci/check-npm-licenses.sh ui
 
+      # `ui/` is the whole build context of the viewer image, so it keeps its own
+      # copy of each licence text. This is what stops the two from drifting.
+      - name: The viewer's licence copies are the licence texts
+        run: sh ci/check-license-copies.sh
+
       # The image generates this in its own build; running it here means a package
       # that ships no license text fails the pull request rather than the release.
       - name: Third-party notices

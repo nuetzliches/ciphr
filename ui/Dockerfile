@@ -74,6 +74,12 @@ COPY --from=builder /build/dist/ /usr/share/nginx/html/
 # which is the same way the service image's copy is read.
 COPY --from=builder /build/THIRD-PARTY-NOTICES.md /usr/share/doc/ciphr-ui/THIRD-PARTY-NOTICES.md
 
+# And this project's own terms, beside them, for the reason the service image
+# gives: a recipient of the image needs the text, not a pointer to a repository.
+# These two files exist under `ui/` because this build sees nothing else --
+# `ci/check-license-copies.sh` is what keeps them equal to the ones at the root.
+COPY --chmod=0644 LICENSE-MIT LICENSE-APACHE /usr/share/doc/ciphr-ui/
+
 # The configuration is checked where it is assembled, for the same reason
 # `vue-tsc` runs in the stage above: an image that cannot be produced from a file
 # nginx refuses is better than a container that discovers it at deploy time, in

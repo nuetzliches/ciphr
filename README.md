@@ -181,13 +181,14 @@ compiled in, and `ci/check-npm-licenses.sh` applies the same list — read out o
 the two Node trees. Copyleft and source-available licenses are absent by decision; adding one is a
 pull request that says so.
 
-Every artefact carries the notices those licenses require:
+Every artefact carries the notices those licenses require, **and this project's own two texts beside
+them** — a recipient of an image needs the terms it is offered under, not a pointer to a repository:
 
-| Artefact | Where the notices are |
+| Artefact | What travels with it |
 | --- | --- |
-| Service image | `/usr/share/doc/ciphr/THIRD-PARTY-NOTICES.md` |
-| Viewer image | `/usr/share/doc/ciphr-ui/THIRD-PARTY-NOTICES.md` |
-| `ciphr-run`, `ciphr-ci` | `THIRD-PARTY-NOTICES.md`, attached to each release |
+| Service image | `/usr/share/doc/ciphr/` — the notices, `LICENSE-MIT`, `LICENSE-APACHE` |
+| Viewer image | `/usr/share/doc/ciphr-ui/` — the same three |
+| `ciphr-run`, `ciphr-ci` | the same three, attached to each release |
 
 Both files are generated — `ci/build-notices.sh` for the crates, `ui/scripts/build-notices.mjs` for
 the viewer's packages — and both reproduce the license files their dependencies ship rather than
