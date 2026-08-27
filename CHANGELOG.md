@@ -8,6 +8,22 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+## [0.13.1] — 2026-08-27
+
+**The release that ships the attribution it already owed.** Nothing in `crates/` changed, so nothing
+a deployment does changes: no route, no field, no schema, no configuration key. What changes is what
+is *inside* the artefacts — every one of them now carries the license notices its dependencies
+require, which is an obligation this project had been meeting in its repository and not in the files
+people actually hold.
+
+**Take it or don't; there is no reason to hurry and no reason to wait.** A rollback to `0.13.0` is
+the image tag and nothing else, and an upgrade is the same. The one thing it is good for is a
+deployment that has to answer what is inside the binary it runs, which is exactly the question the
+notices exist to answer.
+
+**`ui-v0.4.1` moves with it and is the same kind of release.** Byte for byte the viewer of
+`ui-v0.4.0` plus its own notice file; no ordering constraint in either direction.
+
 ### Added
 
 - **Every artefact now carries the third-party notices its dependencies require.** MIT, BSD-2,
@@ -5078,7 +5094,8 @@ first production use.
   decision.
 - `AGENTS.md` with the working rules, and `SECURITY.md` with the disclosure process and scope.
 
-[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.13.0...main
+[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.13.1...main
+[0.13.1]: https://github.com/nuetzliches/ciphr/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/nuetzliches/ciphr/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/nuetzliches/ciphr/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/nuetzliches/ciphr/compare/v0.11.0...v0.12.0

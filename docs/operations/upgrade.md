@@ -1,6 +1,6 @@
 # Upgrading
 
-**Status:** current as of 2026-08-26, covering every released version up to `0.13.0`.
+**Status:** current as of 2026-08-27, covering every released version up to `0.13.1`.
 
 The changelog says what changed. This says what to *do* about it, and it exists because the two are
 not the same document: a changelog entry sinks under the next release, while the person upgrading two
@@ -97,6 +97,26 @@ rather than a report somebody remembers to read:
 A review host wants to fail on `1` and `2` and to accept `3`; the host itself wants `0` and nothing
 else ([field-report-2026-08-23.md](../assurance/field-reports/field-report-2026-08-23.md), finding 1, and
 [field-report-2026-08-23-b.md](../assurance/field-reports/field-report-2026-08-23-b.md), finding 1).
+
+## 0.13.1
+
+**Nothing to do, and this time that is the whole entry.** No route, no field, no schema, no
+configuration key, and nothing under `crates/` changed at all. A rollback to `0.13.0` is the image
+tag and nothing else, in either direction.
+
+**What it adds is a file inside each artefact.** The service image carries
+`/usr/share/doc/ciphr/THIRD-PARTY-NOTICES.md`, the viewer image
+`/usr/share/doc/ciphr-ui/THIRD-PARTY-NOTICES.md`, and the release page carries the same file for
+`ciphr-run` and `ciphr-ci`, which ship without an image. It is the license text of everything
+compiled into them — copied from what those dependencies ship, not reconstructed from an identifier.
+
+**It matters for one kind of deployment**: the one that has to say what is inside the binary it runs,
+to an auditor, a customer, or its own compliance process. `docker cp ciphr:/usr/share/doc/ciphr/THIRD-PARTY-NOTICES.md .`
+is the whole procedure. For every other deployment this release is invisible and can be taken with
+the next one.
+
+**Take `ui-v0.4.1` whenever convenient.** It is `ui-v0.4.0` plus the same kind of file, with no
+behaviour change and no ordering constraint against the service.
 
 ## 0.13.0
 
