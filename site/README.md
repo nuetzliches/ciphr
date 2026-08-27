@@ -132,7 +132,7 @@ Four entries now sit on that ring in one run from 44° to 140°, abutting rather
 
 The rest of the diagram — rings, cuts, clients, the band — is the `v0.5.1` drawing, re-read on
 2026-08-24 and left as it was because it still holds. That is a weaker statement than "verified
-against `v0.13.1`" and is meant to be.
+against `v0.13.2`" and is meant to be.
 
 ## Publishing
 

@@ -8,6 +8,20 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+## [0.13.2] — 2026-08-27
+
+**The release that makes every token revocable.** One token in sixty-four had an identifier the CLI
+would not accept back, and the command that could not take it is `token revoke` — the one an operator
+reaches for after a credential has leaked. That is the whole release.
+
+**Nothing else changed.** No route, no field, no schema, no configuration key, and a rollback to
+`0.13.1` is the image tag in either direction. The viewer does not move: `ui-v0.4.1` is current and
+this release does not touch it.
+
+**There is a workaround on `0.13.1` and earlier**, if upgrading is inconvenient: put `--` before the
+value, as in `ciphr token revoke -- -Ab3xY9zQ`. It has always worked and nothing said so, which is
+most of why this is worth a release rather than a note.
+
 ### Fixed
 
 - **A token whose identifier begins with `-` can be revoked.** A token is `cph_` plus an
@@ -5128,7 +5142,8 @@ first production use.
   decision.
 - `AGENTS.md` with the working rules, and `SECURITY.md` with the disclosure process and scope.
 
-[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.13.1...main
+[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.13.2...main
+[0.13.2]: https://github.com/nuetzliches/ciphr/compare/v0.13.1...v0.13.2
 [0.13.1]: https://github.com/nuetzliches/ciphr/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/nuetzliches/ciphr/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/nuetzliches/ciphr/compare/v0.12.0...v0.12.1

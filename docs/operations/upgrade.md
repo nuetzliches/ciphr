@@ -1,6 +1,6 @@
 # Upgrading
 
-**Status:** current as of 2026-08-27, covering every released version up to `0.13.1`.
+**Status:** current as of 2026-08-27, covering every released version up to `0.13.2`.
 
 The changelog says what changed. This says what to *do* about it, and it exists because the two are
 not the same document: a changelog entry sinks under the next release, while the person upgrading two
@@ -97,6 +97,31 @@ rather than a report somebody remembers to read:
 A review host wants to fail on `1` and `2` and to accept `3`; the host itself wants `0` and nothing
 else ([field-report-2026-08-23.md](../assurance/field-reports/field-report-2026-08-23.md), finding 1, and
 [field-report-2026-08-23-b.md](../assurance/field-reports/field-report-2026-08-23-b.md), finding 1).
+
+## 0.13.2
+
+**Nothing to do, and one reason to not put it off.** No route, no field, no schema, no configuration
+key; a rollback to `0.13.1` is the image tag in either direction, and `ui-v0.4.1` stays current.
+
+**What it fixes is `token revoke`, on roughly one token in sixty-four.** A token identifier is eight
+base64url characters and that alphabet contains `-`, so an identifier can begin with one — and the
+CLI read it as a flag:
+
+```
+$ ciphr token revoke -Ab3xY9zQ
+error: unexpected argument '-A' found
+```
+
+**On `0.13.1` and earlier the workaround is `--` before the value**, which has always worked:
+
+```
+ciphr token revoke -- -Ab3xY9zQ
+```
+
+Worth knowing whether or not this release is taken, because the moment it is needed is the moment
+after a credential leaked, and that is not the moment to find this page. The same fix covers secret
+paths and identity names beginning with `-`, where the path case was the worse one: such a secret
+could be written and not read back.
 
 ## 0.13.1
 
