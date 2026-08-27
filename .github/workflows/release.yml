@@ -508,3 +508,49 @@ jobs:
             cat "target/ci/ciphr-ci-$TARGET.sha256"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # The attribution, attached once. MIT, BSD, ISC and Zlib each require the
+  # copyright notice to travel with the binary rather than only with the source,
+  # and both container images carry their own copy already -- this is for the two
+  # artefacts that ship without one. `ciphr-run` is mounted into somebody else's
+  # container and `ciphr-ci` is downloaded onto a runner; for a deployment holding
+  # either of those files, the release page is the whole distribution.
+  #
+  # A job rather than a step in `wrapper-assets`, because it belongs to neither
+  # binary: it is one file describing what is inside both, and generating it twice
+  # would be two chances to attach the one that is a minute older.
+  notices:
+    name: Attach the third-party notices
+    needs: [version, release-shell]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      # The same script the service image runs in its own stage and the same one
+      # CI runs on every pull request, so this cannot be the first time it is
+      # asked to work. It fetches the crate sources itself: the texts are read out
+      # of them, and a runner has none.
+      - name: Generate them
+        run: sh ci/build-notices.sh target/THIRD-PARTY-NOTICES.md
+
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" target/THIRD-PARTY-NOTICES.md --clobber
+
+      - name: Report what it covers
+        run: |
+          set -euo pipefail
+          {
+            echo "### Third-party notices"
+            echo ''
+            echo '```'
+            sed -n '/^\*\*[0-9]* crates\.\*\*/,/^---$/p' target/THIRD-PARTY-NOTICES.md | sed '$d'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

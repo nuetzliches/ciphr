@@ -24,6 +24,18 @@ WORKDIR /build
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts --no-audit --no-fund
 
+# The attribution, before anything that changes often, because it depends on the
+# lockfile and on nothing else — so editing a component does not regenerate it.
+#
+# It is generated inside the image build rather than handed in, for the reason
+# the whole context is `ui/`: a file produced outside and copied in is a file
+# nobody can check against the tree it claims to describe. What it produces is
+# the license text of every package whose code is in the bundle, which until
+# 2026-08-26 this image shipped none of. `ci/check-npm-licenses.sh` is the
+# separate gate on *which* licenses may be here at all.
+COPY scripts/ scripts/
+RUN npm run notices
+
 COPY tsconfig.json vite.config.ts index.html ./
 
 # The files the document references by path instead of importing — the favicon,
@@ -54,6 +66,13 @@ FROM nginxinc/nginx-unprivileged:1.29-alpine@sha256:0c79d56aee561a1d81c63f00eee5
 # nobody notices until it matters.
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /build/dist/ /usr/share/nginx/html/
+
+# Beside the bundle rather than inside it. MIT requires the notice to travel with
+# the distribution, and the image is the distribution; serving it would be a
+# second thing — a `.md` under the web root arrives at a browser as a download,
+# under a policy that names every fetch type, for no gain. `docker cp` reaches it,
+# which is the same way the service image's copy is read.
+COPY --from=builder /build/THIRD-PARTY-NOTICES.md /usr/share/doc/ciphr-ui/THIRD-PARTY-NOTICES.md
 
 # The configuration is checked where it is assembled, for the same reason
 # `vue-tsc` runs in the stage above: an image that cannot be produced from a file

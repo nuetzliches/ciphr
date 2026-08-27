@@ -28,6 +28,33 @@ COPY crates/ crates/
 
 RUN cargo build --release --locked --bin ciphr-server --bin ciphr
 
+# ── Stage 1b: the third-party notices ────────────────────────────────────────
+#
+# A stage of its own, from the same base, and that is the point: it depends on
+# the manifests and not on the compile, so BuildKit runs it *beside* the stage
+# above rather than after it. Half a minute of `cargo tree` next to several
+# minutes of `cargo build` costs nothing at all in wall clock.
+#
+# What it produces is the license text of all 133 crates that are compiled into
+# these binaries. MIT, BSD, ISC and Zlib each require the copyright notice to
+# travel with the binary rather than only with the source, and until 2026-08-26
+# this image carried none of them. `ci/build-notices.sh` says why it copies the
+# texts the crates ship instead of reconstructing them from an SPDX expression,
+# and it fails rather than inventing one.
+#
+# `deny.toml` is here because the script reads the platform list out of it: the
+# set of targets a notice has to cover is the set cargo-deny already checks, and
+# repeating it in a second file is how the two stop agreeing.
+FROM rust:1.94-bookworm@sha256:6ae102bdbf528294bc79ad6e1fae682f6f7c2a6e6621506ba959f9685b308a55 AS notices
+
+WORKDIR /build
+
+COPY Cargo.toml Cargo.lock rust-toolchain.toml deny.toml ./
+COPY crates/ crates/
+COPY ci/build-notices.sh ci/
+
+RUN sh ci/build-notices.sh target/THIRD-PARTY-NOTICES.md
+
 # ── Stage 2: runtime ─────────────────────────────────────────────────────────
 FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241
 
@@ -89,6 +116,11 @@ RUN set -eu; \
 # trust, and would buy nothing but a second artifact to keep in step.
 COPY --from=builder /build/target/release/ciphr-server /usr/local/bin/ciphr-server
 COPY --from=builder /build/target/release/ciphr /usr/local/bin/ciphr
+
+# The attribution for what is inside those two binaries. `docker cp ciphr:/usr/share/doc/ciphr/…`
+# reaches it, and the same file is attached to every release for the two binaries
+# that ship without an image.
+COPY --from=notices /build/target/THIRD-PARTY-NOTICES.md /usr/share/doc/ciphr/THIRD-PARTY-NOTICES.md
 
 # Owned before VOLUME, so a named volume inherits the ownership rather than
 # arriving as root and forcing the entrypoint to chown a database it should not

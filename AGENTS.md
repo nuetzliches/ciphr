@@ -203,6 +203,8 @@ sh ci/check-forbid-unsafe.sh     # #![forbid(unsafe_code)] in every crate root
 sh ci/check-no-v-html.sh         # no v-html / innerHTML in ui/
 sh ci/check-ui-budget.sh         # one runtime dependency, no install scripts, integrity hashes
 sh ci/check-ui-image-files.sh    # every tracked path in ui/ reaches a stage of the viewer image
+sh ci/check-npm-licenses.sh ui   # deny.toml's allow list, applied to the npm trees
+sh ci/build-notices.sh           # every shipped crate ships a license text, and it is collected
 sh ci/check-workflow-interpolation.sh # no workflow expression reaches a shell script
 sh ci/check-surface-entries.sh   # the CLI knows every surface entry the server does
 sh ci/check-sdk-reexports.sh     # a ciphr-sdk consumer needs no dependency on ciphr-core
@@ -225,8 +227,13 @@ The viewer has its own CI job, its own pinned Node version, and its own budget, 
 package (ADR-11). Locally:
 
 ```sh
-cd ui && npm ci --ignore-scripts && npm run build && npm audit --audit-level=high
+cd ui && npm ci --ignore-scripts && npm run build && npm run notices && npm audit --audit-level=high
 ```
+
+`npm run notices` writes the viewer's third-party attribution, which the image contains and which the
+lockfile alone cannot produce — a lockfile records integrity hashes and no licenses. It lives in
+`ui/` rather than in `ci/` because the viewer image is built with `ui/` as its whole context, so a
+script outside it cannot run inside that build.
 
 Four rules for `ui/` that are not obvious from the code, and one of which no gate can catch:
 

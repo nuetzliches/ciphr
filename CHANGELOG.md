@@ -8,6 +8,47 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added
+
+- **Every artefact now carries the third-party notices its dependencies require.** MIT, BSD-2,
+  BSD-3, ISC and Zlib each require the copyright notice to travel with the *binary*, not only with
+  the source. This project distributes binaries — the wrapper mounted into foreign containers
+  (ADR-14), the CI binary a runner downloads (ADR-25), and two images — and none of them carried an
+  upstream copyright line. It was the one licensing obligation the repository was not meeting, and
+  nothing about the licenses themselves had to change to meet it.
+
+  The service image has the file at `/usr/share/doc/ciphr/THIRD-PARTY-NOTICES.md`, the viewer image
+  at `/usr/share/doc/ciphr-ui/THIRD-PARTY-NOTICES.md`, and every release attaches it for the two
+  binaries that ship without an image. `ci/build-notices.sh` produces the crate side and
+  `ui/scripts/build-notices.mjs` the viewer's; both run on every pull request, so a dependency that
+  ships no license text fails review rather than a release.
+
+  Both **copy the license files their dependencies ship** instead of reconstructing a text from an
+  SPDX identifier, and neither has a fallback for a crate that ships none. That is deliberate: a
+  notice nobody verified reads like attribution while being none. All 133 crates and all 23 npm
+  packages carry a text today.
+
+- **`ci/check-npm-licenses.sh`: the two Node trees answer to the same license policy the crates do.**
+  `deny.toml` has decided since it was written which licenses may enter this project, and `cargo
+  deny` reads 133 crates and zero npm packages. That is how `lightningcss` arrived under **MPL-2.0**,
+  transitively through Vite, in a project whose written policy names MPL first among the things
+  deliberately absent. Nothing was violated — it is a build-time CSS transformer, MPL is file-level
+  copyleft that does not reach the CSS it emits, and none of it is in the bundle — but that was luck
+  rather than a result, because nothing was looking. It is now an exception that **asserts it is
+  dev-only and is checked against the lockfile**, so it fails instead of covering the package the day
+  that stops being true.
+
+  The allow list is read out of `deny.toml` rather than copied into the script. One list, two
+  ecosystems: a second copy is a copy that drifts, silently and in the permissive direction.
+
+### Changed
+
+- **`deny.toml` now checks the arm64 half of what gets published.** Every image has been a manifest
+  list and both static binaries have been built per architecture since 2026-08-24 (issue #4), while
+  `[graph] targets` stayed amd64-only — so the arm64 leg of every release was outside the license,
+  advisory and duplicate-crate checks. It resolves to exactly what the amd64 leg resolves to today,
+  which is why nothing was wrong; the point of listing it is the day that stops being true.
+
 ## [0.13.0] — 2026-08-26
 
 **The release that closes ADR-6's open item.** *"Authentication methods sit behind a trait so that
