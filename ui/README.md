@@ -15,7 +15,16 @@ npm ci                 # exact tree from package-lock.json
 npm run dev            # http://localhost:4401, /v1 proxied to https://localhost:4400
 npm run build          # vue-tsc --noEmit && vite build  →  dist/
 npm run typecheck      # just the type check
+npm run notices        # third-party attribution  →  THIRD-PARTY-NOTICES.md
 ```
+
+`npm run notices` collects the license text of every package whose code is in the bundle — the
+lockfile's non-dev closure, which is twenty-three packages and not the one `package.json` names,
+because `vue` brings the rest with it. The image runs it in its own build and keeps the result at
+`/usr/share/doc/ciphr-ui/`; the file is not committed, since it is produced from the lockfile every
+time it is needed. A package that ships no license text fails it rather than being attributed from
+its `license` field, and `ci/check-npm-licenses.sh` is the separate gate on which licenses may be
+here at all.
 
 `npm run dev` serves a page assembled in the browser and therefore **without** the
 Content-Security-Policy: Vite's HMR client applies styles at runtime, which `style-src 'self'`

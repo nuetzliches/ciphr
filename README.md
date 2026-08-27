@@ -171,3 +171,23 @@ your option.
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion
 in this project by you, as defined in the Apache-2.0 license, shall be dual licensed as above,
 without any additional terms or conditions.
+
+### The dependencies
+
+Permissive licenses only, and that is a gate rather than a habit: the allow list lives in
+[`deny.toml`](deny.toml), `cargo deny check licenses` enforces it for the 133 crates that are
+compiled in, and `ci/check-npm-licenses.sh` applies the same list — read out of the same file — to
+the two Node trees. Copyleft and source-available licenses are absent by decision; adding one is a
+pull request that says so.
+
+Every artefact carries the notices those licenses require:
+
+| Artefact | Where the notices are |
+| --- | --- |
+| Service image | `/usr/share/doc/ciphr/THIRD-PARTY-NOTICES.md` |
+| Viewer image | `/usr/share/doc/ciphr-ui/THIRD-PARTY-NOTICES.md` |
+| `ciphr-run`, `ciphr-ci` | `THIRD-PARTY-NOTICES.md`, attached to each release |
+
+Both files are generated — `ci/build-notices.sh` for the crates, `ui/scripts/build-notices.mjs` for
+the viewer's packages — and both reproduce the license files their dependencies ship rather than
+reconstructing a text from an identifier. A dependency that ships no text fails the build.

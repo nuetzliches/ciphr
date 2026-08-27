@@ -212,6 +212,19 @@ jobs:
       - name: Dependency budget
         run: sh ci/check-ui-budget.sh
 
+      # The same allow list `cargo deny` applies to the crates, read out of
+      # deny.toml rather than copied. Here rather than in the supply-chain job
+      # because a lockfile records no licenses: they have to be read from the
+      # installed tree, and this is the job that installs it.
+      - name: License policy
+        run: sh ci/check-npm-licenses.sh ui
+
+      # The image generates this in its own build; running it here means a package
+      # that ships no license text fails the pull request rather than the release.
+      - name: Third-party notices
+        working-directory: ui
+        run: npm run notices
+
       # Type check and build in one step, the same script the image build runs,
       # so an image cannot be produced from code that does not type check.
       - name: Type check and build
@@ -317,6 +330,9 @@ jobs:
       - name: Dependency budget
         run: sh ci/check-site-highlight-budget.sh
 
+      - name: License policy
+        run: sh ci/check-npm-licenses.sh ci/site-highlight
+
       - name: The markup in the tree is what the mapping produces
         run: sh ci/check-site-highlighting.sh
 
@@ -390,6 +406,14 @@ jobs:
       # this one fails on a stale or unreachable database rather than skipping.
       - name: cargo audit
         run: cargo audit --deny warnings
+
+      # The other half of the licensing question. `cargo deny` answers whether a
+      # license may be used; this answers whether the artefacts carry the notices
+      # those licenses require, and it fails on a crate that ships no text rather
+      # than inventing one. The release attaches the file and both images contain
+      # it, so generating it has to be something a pull request can break.
+      - name: Third-party notices
+        run: sh ci/build-notices.sh
 
   # ── The two static binaries, once per architecture ───────────────────────────
   #

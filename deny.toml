@@ -6,11 +6,21 @@
 
 [graph]
 # The targets we actually ship or develop on. Anything platform-specific for a
-# target that is not listed is out of scope for these checks.
+# target that is not listed is out of scope for these checks — which is why the
+# two arm64 legs are here: since 2026-08-24 every image is a manifest list and
+# both static binaries are built per architecture (issue #4), and this list had
+# stayed amd64-only, so the arm64 half of what gets published was outside every
+# check below. It resolves to exactly what the amd64 half resolves to today; the
+# point of listing it is the day that stops being true.
+#
+# `ci/build-notices.sh` reads this list to decide what the shipped artefacts have
+# to attribute, so a platform added here is attributed without a second edit.
 targets = [
-    "x86_64-unknown-linux-gnu",   # server and UI container images
-    "x86_64-unknown-linux-musl",  # static CLI binary used from CI jobs
-    "x86_64-pc-windows-msvc",     # development
+    "x86_64-unknown-linux-gnu",    # server and UI container images
+    "aarch64-unknown-linux-gnu",   # the same images, arm64
+    "x86_64-unknown-linux-musl",   # static wrapper and CI binary
+    "aarch64-unknown-linux-musl",  # the same binaries, arm64
+    "x86_64-pc-windows-msvc",      # development
 ]
 all-features = true
 
