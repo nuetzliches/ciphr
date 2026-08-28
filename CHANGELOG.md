@@ -8,6 +8,33 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING: `ciphr token issue` requires `--ttl` or `--no-expiry`.** Writing neither used to mint a
+  credential that never expires, so the shortest command produced the most dangerous token and nobody
+  had decided that. The only thing standing against it was a line on standard error — and the caller
+  is a script, which does not read one. `docs/operations/upgrade.md` has the edit and the `grep` that
+  finds every call site; it is one flag per line.
+
+  This is the argument `Rotation::Unclassified` already made and it had simply not been applied here:
+  a deliberate answer and an untouched default must not be the same byte in the same column, and the
+  path of least resistance must not be the destructive one. It matters more than it would elsewhere
+  because the threat model is built around A3 — a compromised deploy runner holding a valid token —
+  and a token with no expiry is that adversary with unlimited time.
+
+  **`--no-expiry` is a real answer and stays supported.** A break-glass credential, a long-lived
+  integration and a honeypot token are all legitimate; what is refused is arriving there by writing
+  nothing. The two flags cannot be combined, for the same reason the two master-key sources cannot: a
+  precedence rule is a rule that lets a deployment issue the credential nobody meant.
+
+  **No stored token changes.** `--no-expiry` writes exactly the row the old default wrote, no `NULL`
+  is rewritten, and the refusal happens before anything is minted — a refusal that still left a
+  credential behind would be worse than none. Rolling back to `0.13.2` needs no undo.
+
+  **Why no deprecation cycle.** A deprecation here is a warning printed beside the old behaviour, and
+  that is precisely what was already there and precisely what did not work. There is no shape of this
+  change that warns effectively without also refusing.
+
 ### Added
 
 - **Every artefact now carries this project's own licence texts, not only its dependencies'.**

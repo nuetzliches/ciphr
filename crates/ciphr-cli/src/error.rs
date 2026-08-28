@@ -34,6 +34,8 @@ pub(crate) enum CliError {
         /// What was written.
         found: String,
     },
+    /// `token issue` was given neither `--ttl` nor `--no-expiry`.
+    NoExpiryDecision,
     /// A `.env` line could not be read.
     DotEnv {
         /// Which line.
@@ -170,6 +172,14 @@ impl fmt::Display for CliError {
             Self::Duration { found } => write!(
                 f,
                 "'{found}' is not a duration; use a number with a unit, such as 30d, 12h or 90m"
+            ),
+            Self::NoExpiryDecision => f.write_str(
+                "say how long this token lives. A credential with no end is the one an attacker \
+                 wants, and until now it was what you got by writing nothing.\n\
+                 \n    ciphr token issue <identity> --ttl 90d\n    ciphr token issue <identity> \
+                 --no-expiry\n\n\
+                 --no-expiry is a real answer and stays supported. It has to be the one you wrote \
+                 down, not the one nobody chose.",
             ),
             Self::DotEnv { line, reason } => write!(f, "line {line}: {reason}"),
             Self::Audit(detail) => write!(
