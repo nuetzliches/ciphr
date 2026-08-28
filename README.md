@@ -193,3 +193,39 @@ them** — a recipient of an image needs the terms it is offered under, not a po
 Both files are generated — `ci/build-notices.sh` for the crates, `ui/scripts/build-notices.mjs` for
 the viewer's packages — and both reproduce the license files their dependencies ship rather than
 reconstructing a text from an identifier. A dependency that ships no text fails the build.
+
+### What the images stand on
+
+The allow list above governs what is *compiled into* these binaries. An image is also an operating
+system, and that layer answers to whoever packaged it:
+
+| Image | Foundation | Third-party userland |
+| --- | --- | --- |
+| `ciphr` | `debian:bookworm-slim` | 107 packages |
+| `ciphr/ui` | `nginx-unprivileged:alpine` | 71 packages, BusyBox among them |
+| `ciphr/run` | `scratch` | none — the wrapper is the only file in it |
+
+**Most of that userland is copyleft, and 78 of the service image's 107 packages carry a GPL, LGPL or
+AGPL clause.** Two of the three this project installs deliberately are among them: `gosu` (GPL-3+),
+which the entrypoint drops privileges with, and `ca-certificates` (GPL-2+). `curl` is under the curl
+license. That is not in tension with the paragraph above — nothing here is linked into any ciphr
+binary. Our code sits beside it in a filesystem, which is aggregation rather than a combined work,
+and leaves `MIT OR Apache-2.0` untouched.
+
+**The attribution for that layer is already inside the images**, because the distributions put it
+there: `/usr/share/doc/<package>/copyright` in the Debian-based image, and Alpine's equivalent in the
+viewer's. Nothing had to be added.
+
+**What a redistributor needs is the source offer**, which GPL-2 §3 and GPL-3 §6 require of whoever
+passes the binaries on. For the service image that is
+`http://snapshot.debian.org/archive/debian/20260824T000000Z/` and the `bookworm-security` archive at
+the same timestamp — the exact snapshot `Dockerfile` installs from, so the answer is a specific
+archive rather than "some Debian". The three package versions are pinned beside it in the same file.
+**`DEBIAN_SNAPSHOT` in `Dockerfile` is the authority for that timestamp**, and moving it means
+moving the line above too; no gate enforces the pair.
+For the viewer, the base is pinned by digest and `apk list -I` inside the image names every package
+version, which is what Alpine's `aports` history is indexed by.
+
+This is the ordinary position of every containerised product, and it is written down here for the one
+reason it usually is not: the snapshot pin makes it checkable. Most images cannot say which versions
+they contained.
