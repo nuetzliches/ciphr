@@ -1,6 +1,6 @@
 # Documentation
 
-**Status:** current as of 2026-08-27, `v0.13.2` released; the external review was against `v0.3.0`. Phases 0-3, 7 and 8 are
+**Status:** current as of 2026-08-28, `v0.14.0` released; the external review was against `v0.3.0`. Phases 0-3, 7 and 8 are
 in it; route A's binary (`ciphr-ci`, ADR-25) shipped in `v0.11.0`; the viewer (phase 5) ships as its own image on its own cadence. Describes what is built, and
 says so where something is not.
 

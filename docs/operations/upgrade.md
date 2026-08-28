@@ -1,7 +1,6 @@
 # Upgrading
 
-**Status:** current as of 2026-08-28, covering every released version up to `0.13.2`, plus one
-mandatory edit under *Unreleased* that no release carries yet.
+**Status:** current as of 2026-08-28, covering every released version up to `0.14.0`.
 
 The changelog says what changed. This says what to *do* about it, and it exists because the two are
 not the same document: a changelog entry sinks under the next release, while the person upgrading two
@@ -99,7 +98,7 @@ A review host wants to fail on `1` and `2` and to accept `3`; the host itself wa
 else ([field-report-2026-08-23.md](../assurance/field-reports/field-report-2026-08-23.md), finding 1, and
 [field-report-2026-08-23-b.md](../assurance/field-reports/field-report-2026-08-23-b.md), finding 1).
 
-## Unreleased
+## 0.14.0
 
 ### `ciphr token issue` needs `--ttl` or `--no-expiry`, and every script that calls it needs one edit
 

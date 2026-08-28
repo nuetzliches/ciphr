@@ -23,7 +23,7 @@ one every later access with that credential carries, which is what lets a reader
 of a credential to its use.
 
 **What `user_agent` is worth, and what it is not** (the header has been recorded since the trail
-existed; the clients started filling it usefully in `Unreleased`). Requests from this project's own
+existed; the clients started filling it usefully in `v0.14.0`). Requests from this project's own
 binaries carry `ciphr-ci/<version>` and `ciphr-run/<version>`; an application built on `ciphr-sdk`
 carries `ciphr-sdk/<version>` unless it names itself. Before that they all carried the transport
 crate's default, so the field was populated and identified nothing.
