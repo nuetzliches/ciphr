@@ -1,6 +1,9 @@
 # The master key
 
-**Status:** current as of 2026-08-23. Every procedure here has a command that exists.
+**Status:** current as of 2026-08-28. Every procedure here has a command that exists. *Getting the
+key off the host* is the exception and says so in its own words: its second and third levels describe
+mechanisms that are **not implemented**, and they are there because this document was the one place an
+operator looks and the only one that did not mention them.
 
 This is the highest-consequence thing in the system. Lose it and every secret is unrecoverable —
 there is no reset, no recovery code, and no support channel that can help. Leak it and the database is
@@ -113,6 +116,100 @@ buys and does not buy:
 If that trade is unacceptable for a given deployment, the answer is a different seal mechanism — split
 keys or a hardware module — and the design keeps that path open without a data format change. It is
 not something to compensate for with a more complicated environment file.
+
+## Getting the key off the host
+
+**Added 2026-08-28.** Several records in this repository say the path to a hardware module is cheap —
+[ADR-5](../adr/0005-seal-static-key-from-environment.md) that moving to it *"is a migration of a
+single row, not of every secret"*, [monitoring.md](monitoring.md) that a field exists so a client
+need not change shape when such a seal arrives, and
+[why-build-this.md](../why-build-this.md) that PKCS#11 outside the commercial edition is a thing
+Vault Community does not give you. None of those is a document an operator opens, and this one — the
+one they do open — said nothing. That is what this section fixes.
+
+**Read the three levels below as three different claims, not three grades of the same one.** Only the
+second and third move adversary A5, and confusing them is how a deployment ends up believing it has
+protection it does not have.
+
+### Level 1 — the key is supplied by something outside ciphr. Works today, no code.
+
+Keep `type = "static_file"` and let a credential system own the file. ciphr reads a path; nothing in
+it cares what put the file there.
+
+```toml
+[seal]
+type = "static_file"
+path = "/run/secrets/ciphr-master-key"
+```
+
+What can own that path, in rising order of what protects the key at rest:
+
+- **Container-runtime secrets.** Compose under Swarm, or Podman secrets. Covered in *Where it lives*
+  above: memory-backed under Swarm and Kubernetes, a real file under plain Compose.
+- **A systemd credential.** `LoadCredentialEncrypted=` decrypts into the unit's private credentials
+  directory at start; at rest the key is sealed to the TPM, or to a host key where there is no TPM.
+  This is the strongest of the three on a single host that has no cloud, and it needs no daemon.
+- **A secrets driver against a KMS.** The Kubernetes Secrets Store CSI driver, or an equivalent, so
+  the at-rest copy lives in AWS KMS, Azure Key Vault, GCP KMS, or an existing vault, and the file
+  appears in a `tmpfs` mount for this workload only.
+- **An envelope-encrypted file in the repository.** `sops` or `age`, decrypted into the mount by the
+  deploy step. Weaker than the three above — the decryption key has to be somewhere — but it removes
+  the plaintext key from the artefact that is most often copied.
+
+**What level 1 buys, stated so it can be checked:** the plaintext key is not in the image, not in the
+container configuration, not in `/proc/<pid>/environ`, and not in a routine filesystem backup. The
+at-rest copy is protected by another system's key hierarchy, and revoking access there revokes it
+here.
+
+**What level 1 does not buy, and the sentence not to lose:** *it does not move A5.* Root on the host
+reads the mounted file, and reads the key out of process memory whether or not it can read the file.
+Anything that hands ciphr a plaintext key hands it to whoever owns that process. A deployment that
+adopts level 1 and reports that the master key is "in the KMS" has said something true about where
+the key is stored and nothing about who can read it while the service runs.
+
+### Level 2 — the key never becomes plaintext in this process. Not implemented.
+
+A `Seal` implementation that asks a hardware module or a KMS to unwrap the root key, so that this
+process holds the *root* key and never the master key: PKCS#11 against an HSM or a TPM, or a cloud
+KMS `Decrypt` against the stored wrapped record.
+
+**This is the level that moves A5**, and it is the only one that does. It is a code change,
+[ADR-5](../adr/0005-seal-static-key-from-environment.md) promised it its own ADR, and no such ADR
+exists yet. The abstraction is in place — `Seal` has three methods and the mechanism's identifier is
+stored beside the wrapped root key, so a database says which mechanism sealed it — and the
+migration remains one row.
+
+Worth knowing before it sounds like a complete answer: the root key is still in this process's
+memory after an unwrap, so root on the host still reaches the secrets of a *running* service. What
+level 2 removes is the offline case — a stolen disk plus a stolen key file stops being enough,
+because the unwrap needs the module.
+
+### Level 3 — startup requires a human. Not implemented, and not planned.
+
+Split-key unsealing, in the shape OpenBao uses. It was
+[proposed and closed](https://github.com/nuetzliches/ciphr/issues/64): ADR-5 rejected it for v1
+because every restart would then need a human, which defeats the purpose of the system for automated
+deploys, and that reasoning has not weakened. The cost was also larger than it looks — the server
+would grow a locked-but-listening state it has never had.
+
+### What changes operationally under level 1
+
+Three procedures elsewhere in this document assume the deployment owns the file directly. Under
+level 1 they still work, with one adjustment each:
+
+- **`ciphr init` needs the key too.** The mount has to exist before the store is initialized, not
+  merely before the service starts. A credential system scoped to the service unit and not to the
+  one-shot init step is the common way to get a first boot that fails with an unseal error.
+- **Rotation is unchanged in ciphr and gains a step outside it.** *Rotating it* below writes the new
+  key alongside the old and passes both. Under level 1 the new key is generated and stored in the
+  external system first, then made available at a second path for the length of the rotation, and
+  retired there after a restart with the new key has been confirmed. The invariants ciphr enforces
+  are the same either way.
+- **The break-glass copy is still mandatory, and this is the point most easily lost.** A KMS you
+  cannot reach is a key you do not have — an expired account, a deleted key version, a region you
+  cannot log into. *Backups* below requires an offline copy outside this system, and moving the
+  primary copy into a KMS does not discharge that requirement. It makes it more important, because
+  the failure mode is now somebody else's outage.
 
 ## Backups: the rule that matters most
 
