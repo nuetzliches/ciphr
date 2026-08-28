@@ -30,7 +30,7 @@
 #
 # **A crate that ships no license file fails this.** There is no fallback that
 # invents a text from the SPDX expression, because a notice nobody verified is
-# worse than a missing one — it looks like attribution. All 122 crates in the
+# worse than a missing one — it looks like attribution. All 133 crates in the
 # shipped graph carry a file today; the first one that does not is a decision to
 # make in a pull request, not a case to handle in a loop. The failure message
 # says as much.
@@ -257,9 +257,10 @@ mkdir -p "$(dirname "$out")"
     cat <<'MD'
 # Third-party notices
 
-ciphr itself is licensed under **MIT OR Apache-2.0**, at your option; those two
-texts are `LICENSE-MIT` and `LICENSE-APACHE` in the source repository and are
-not repeated here.
+ciphr itself is licensed under **MIT OR Apache-2.0**, at your option. Those two
+texts travel with this file rather than being left in a repository: `LICENSE-MIT`
+and `LICENSE-APACHE` sit beside it — in `/usr/share/doc/ciphr/` inside the image,
+and as their own assets on the release page.
 
 This file covers everything else that is compiled into the binaries and images
 this project publishes. Each entry reproduces the license files the crate itself

@@ -204,6 +204,7 @@ sh ci/check-no-v-html.sh         # no v-html / innerHTML in ui/
 sh ci/check-ui-budget.sh         # one runtime dependency, no install scripts, integrity hashes
 sh ci/check-ui-image-files.sh    # every tracked path in ui/ reaches a stage of the viewer image
 sh ci/check-npm-licenses.sh ui   # deny.toml's allow list, applied to the npm trees
+sh ci/check-license-copies.sh    # ui/'s licence texts are byte-identical to the root's
 sh ci/build-notices.sh           # every shipped crate ships a license text, and it is collected
 sh ci/check-workflow-interpolation.sh # no workflow expression reaches a shell script
 sh ci/check-surface-entries.sh   # the CLI knows every surface entry the server does

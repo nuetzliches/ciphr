@@ -134,9 +134,10 @@ for (const e of entries) byLicense.set(e.license, (byLicense.get(e.license) ?? 0
 
 let output = `# Third-party notices — the viewer
 
-The viewer itself is licensed under **MIT OR Apache-2.0**, at your option; those
-two texts are \`LICENSE-MIT\` and \`LICENSE-APACHE\` in the source repository and
-are not repeated here.
+The viewer itself is licensed under **MIT OR Apache-2.0**, at your option. Those
+two texts travel with this file rather than being left in a repository:
+\`LICENSE-MIT\` and \`LICENSE-APACHE\` sit beside it in \`/usr/share/doc/ciphr-ui/\`
+inside the image.
 
 This file covers the packages whose code is distributed in this image. Each entry
 reproduces the license files the package itself ships, verbatim; nothing below

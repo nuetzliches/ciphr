@@ -536,13 +536,22 @@ jobs:
       - name: Generate them
         run: sh ci/build-notices.sh target/THIRD-PARTY-NOTICES.md
 
-      - name: Attach it to the release
+      # Our own two texts go up beside it. A release page carrying the licences of
+      # 133 crates and not the one the binaries are offered under is the gap the
+      # notices themselves closed for everybody else's code: whoever redistributes
+      # `ciphr-run` or `ciphr-ci` needs the terms, and "they are in the repository"
+      # is an answer for somebody who already went there.
+      - name: Attach them to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          gh release upload "$TAG" target/THIRD-PARTY-NOTICES.md --clobber
+          gh release upload "$TAG" \
+            target/THIRD-PARTY-NOTICES.md \
+            LICENSE-MIT \
+            LICENSE-APACHE \
+            --clobber
 
       - name: Report what it covers
         run: |

@@ -8,6 +8,33 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added
+
+- **Every artefact now carries this project's own licence texts, not only its dependencies'.**
+  `0.13.1` put the licence text of 133 crates into each image and onto each release page, and left
+  ciphr's own out — the notice file said the two were "in the source repository" and stopped there.
+  That is an answer for somebody who already has the repository and none for somebody holding the
+  image. MIT asks for its notice in all copies, and Apache-2.0 §4(a) asks that a recipient be given
+  the licence; whoever redistributes one of these artefacts needs the text to satisfy either. The OCI
+  `licenses` label names the terms, and naming terms is not stating them.
+
+  `LICENSE-MIT` and `LICENSE-APACHE` now sit beside the notices in `/usr/share/doc/ciphr/` and
+  `/usr/share/doc/ciphr-ui/`, and go up as their own release assets. **Nothing about the licensing
+  changed** — this is the same `MIT OR Apache-2.0` it has always been, delivered where the artefact
+  is rather than where the source is.
+
+  **Apache-2.0 §4(d) is not engaged**, which was checked rather than assumed: none of the 133 crates
+  ships a `NOTICE` file, so there is nothing to propagate. The search covers every platform in
+  `deny.toml` and reads the whole crate tree rather than its top level — the narrower search that was
+  run first would have missed a `NOTICE` in a subdirectory, which is exactly where `ring`,
+  `tracing-core` and `libsqlite3-sys` keep their vendored licences.
+
+- **`ci/check-license-copies.sh`: the viewer's copies of the licence texts are the licence texts.**
+  `ui/` is the whole build context of the viewer image, so a file at the root of the repository
+  cannot enter it and the viewer keeps its own copy of each text. A copy can drift, and a drifted
+  licence text is an image whose stated terms are not this project's. Nobody edits a licence text on
+  purpose, which is precisely why nobody would notice: byte for byte, or the build fails.
+
 ## [0.13.2] — 2026-08-27
 
 **The release that makes every token revocable.** One token in sixty-four had an identifier the CLI

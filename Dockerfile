@@ -122,6 +122,15 @@ COPY --from=builder /build/target/release/ciphr /usr/local/bin/ciphr
 # that ship without an image.
 COPY --from=notices /build/target/THIRD-PARTY-NOTICES.md /usr/share/doc/ciphr/THIRD-PARTY-NOTICES.md
 
+# And this project's own terms, beside them. Until 2026-08-27 the image carried
+# the licence texts of 133 crates and not its own: the notice file said the two
+# were "in the source repository" and left it there, which is an answer for
+# somebody who already has the repository and none for somebody holding the
+# image. MIT asks for its notice in all copies and Apache-2.0 §4(a) asks that a
+# recipient be given the licence, and whoever redistributes this image needs the
+# text to do either. The OCI `licenses` label names the terms; it is not them.
+COPY --chmod=0644 LICENSE-MIT LICENSE-APACHE /usr/share/doc/ciphr/
+
 # Owned before VOLUME, so a named volume inherits the ownership rather than
 # arriving as root and forcing the entrypoint to chown a database it should not
 # be touching.
