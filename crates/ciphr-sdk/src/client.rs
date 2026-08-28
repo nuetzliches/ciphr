@@ -41,6 +41,23 @@ use crate::types::{
 /// connection surfaces as a failed start rather than as a container that hangs.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// What a client calls itself, if the caller states nothing else.
+///
+/// The audit trail carries a `user_agent` for every request, and until this existed it
+/// carried the transport crate's default — the same string for `ciphr-ci`, for
+/// `ciphr-run`, and for any unrelated program built on the same crate. A field that
+/// records something identifying nothing is worse than an absent one, because a trail is
+/// read by somebody who believes what it says.
+///
+/// Naming the SDK is the honest floor: it says which client library made the request and
+/// which version of it, which is what this crate can know about itself. A binary that
+/// ships with this project says more, through [`ClientBuilder::user_agent`].
+///
+/// **This is self-description, never authentication.** Whoever can call the API with
+/// `curl` can call it with any of these strings. It distinguishes a misconfigured job
+/// from a correct one, and nothing may be gated on it.
+const DEFAULT_USER_AGENT: &str = concat!("ciphr-sdk/", env!("CARGO_PKG_VERSION"));
+
 /// The largest response body this client will read.
 ///
 /// An export of a whole prefix is the biggest legitimate response, and secret values are
@@ -80,6 +97,7 @@ impl Client {
             token: SecretString::from(token.to_owned()),
             certificate_authority_pem: certificate_authority_pem.to_vec(),
             timeout: DEFAULT_TIMEOUT,
+            user_agent: DEFAULT_USER_AGENT.to_owned(),
         }
     }
 
@@ -564,6 +582,7 @@ pub struct ClientBuilder {
     token: SecretString,
     certificate_authority_pem: Vec<u8>,
     timeout: Duration,
+    user_agent: String,
 }
 
 impl ClientBuilder {
@@ -577,18 +596,46 @@ impl ClientBuilder {
         self
     }
 
+    /// What this process calls itself, in the `User-Agent` header and therefore in the
+    /// `user_agent` field of every audit entry it produces.
+    ///
+    /// Defaults to `ciphr-sdk/<version>`. A binary set it to its own name and version —
+    /// `ciphr-ci/<version>`, `ciphr-run/<version>` — so that a trail can answer *which
+    /// client fetched this*, which is the question the field claims to answer and could
+    /// not before. An application embedding this crate is the case the default is for,
+    /// and naming itself here is better still.
+    ///
+    /// **It identifies, it does not authenticate.** The value is chosen by whoever makes
+    /// the request, so a mismatch is evidence and a match is not. Nothing in this project
+    /// may decide anything on it — see
+    /// [ADR-15](../../../docs/adr/0015-honeypots-and-what-a-tripwire-may-do.md) for what a
+    /// signal that needs interpretation is worth.
+    ///
+    /// # Errors
+    ///
+    /// Not here — a value that cannot be a header is refused by
+    /// [`ClientBuilder::build`], with the rest of the configuration.
+    #[must_use]
+    pub fn user_agent(mut self, product: &str) -> Self {
+        product.clone_into(&mut self.user_agent);
+        self
+    }
+
     /// Build the client.
     ///
     /// # Errors
     ///
-    /// [`SdkError::Configuration`] if the base URL is not an `https` URL, or if the PEM
-    /// contains no certificate. Both are refused here rather than at the first request:
-    /// a client that cannot work should not exist, and a misconfiguration found at
-    /// startup is a failed start instead of a failed fetch later.
+    /// [`SdkError::Configuration`] if the base URL is not an `https` URL, if the PEM
+    /// contains no certificate, or if the product token is not usable as a header value.
+    /// All three are refused here rather than at the first request: a client that cannot
+    /// work should not exist, and a misconfiguration found at startup is a failed start
+    /// instead of a failed fetch later.
     pub fn build(self) -> Result<Client, SdkError> {
         let base = normalize_base_url(&self.base_url)?;
 
         let authorities = read_authorities(&self.certificate_authority_pem)?;
+
+        let user_agent = usable_product_token(&self.user_agent)?;
 
         // The provider is passed explicitly rather than installed as the process
         // default. A library that installs a process-wide crypto provider makes a
@@ -601,7 +648,7 @@ impl ClientBuilder {
             .root_certs(ureq::tls::RootCerts::from(authorities))
             .build();
 
-        let config = agent_config(tls, self.timeout);
+        let config = agent_config(tls, self.timeout, &user_agent);
 
         Ok(Client {
             agent: config.new_agent(),
@@ -616,10 +663,19 @@ impl ClientBuilder {
 ///
 /// Extracted for exactly that reason: the two settings below are the client's transport
 /// contract, and a test that rebuilt the chain itself could pass while this one drifted.
-fn agent_config(tls: ureq::tls::TlsConfig, timeout: Duration) -> ureq::config::Config {
+fn agent_config(
+    tls: ureq::tls::TlsConfig,
+    timeout: Duration,
+    user_agent: &str,
+) -> ureq::config::Config {
     ureq::Agent::config_builder()
         .tls_config(tls)
         .timeout_global(Some(timeout))
+        // Set on every client, never left to the transport's default. The trail's
+        // `user_agent` is the only place a reader can tell the tool that masks from a
+        // hand-written request, and the crate default named the crate rather than the
+        // binary — so the field was present, populated, and useless.
+        .user_agent(user_agent.to_owned())
         // Status codes are not errors here: a `403` body says which class of refusal
         // it is, and this client reads it rather than throwing it away.
         .http_status_as_error(false)
@@ -669,6 +725,45 @@ fn normalize_base_url(input: &str) -> Result<String, SdkError> {
     }
 
     Ok(trimmed.to_owned())
+}
+
+/// The product token, if it can be sent as one.
+///
+/// Kept to visible ASCII because that is what a header field value may carry and what an
+/// audit trail is grepped for. The narrow check is deliberate: this value is written into
+/// a record that somebody later searches, and a control character or a newline in it is
+/// the beginning of a record that does not say what it appears to say. The server
+/// truncates at 256 characters, so a longer one is refused here rather than silently
+/// halved into a different string.
+///
+/// # Errors
+///
+/// [`SdkError::Configuration`] if it is empty, longer than 256 characters, or contains a
+/// byte outside printable ASCII.
+fn usable_product_token(input: &str) -> Result<String, SdkError> {
+    if input.is_empty() {
+        return Err(SdkError::Configuration {
+            detail: "the product token is empty; a client that says nothing about itself \
+                     leaves an audit entry that names nothing"
+                .to_owned(),
+        });
+    }
+    if input.chars().count() > 256 {
+        return Err(SdkError::Configuration {
+            detail: "the product token is longer than the 256 characters the trail keeps"
+                .to_owned(),
+        });
+    }
+    if let Some(bad) = input.chars().find(|c| !c.is_ascii_graphic() && *c != ' ') {
+        return Err(SdkError::Configuration {
+            detail: format!(
+                "the product token contains {bad:?}, which is not printable ASCII and cannot \
+                 be sent as a header value"
+            ),
+        });
+    }
+
+    Ok(input.to_owned())
 }
 
 /// The certificates in a PEM bundle.
@@ -852,12 +947,73 @@ mod tests {
         let tls = ureq::tls::TlsConfig::builder()
             .provider(ureq::tls::TlsProvider::Rustls)
             .build();
-        let config = super::agent_config(tls, std::time::Duration::from_secs(5));
+        let config = super::agent_config(tls, std::time::Duration::from_secs(5), "ciphr-test/0");
 
         assert_eq!(config.max_redirects(), 0, "no redirect may be followed");
         // The other half of the transport contract, pinned in the same place: a `403` body
         // is read rather than thrown away as an error.
         assert!(!config.http_status_as_error());
+    }
+
+    /// Read from the same function `build` uses, for the same reason as the test above:
+    /// the value this pins is what an operator reads out of the audit trail, and a test
+    /// that rebuilt the chain itself could pass while the shipped one sent `ureq/3.x`.
+    #[test]
+    fn the_agent_says_what_it_is() {
+        let tls = ureq::tls::TlsConfig::builder()
+            .provider(ureq::tls::TlsProvider::Rustls)
+            .build();
+        let config = super::agent_config(tls, std::time::Duration::from_secs(5), "ciphr-ci/9.9.9");
+
+        let ureq::config::AutoHeaderValue::Provided(sent) = config.user_agent() else {
+            panic!("the transport default names the crate, not the binary: {config:?}");
+        };
+        assert_eq!(
+            sent.as_str(),
+            "ciphr-ci/9.9.9",
+            "the caller's product token reaches the wire unchanged"
+        );
+    }
+
+    #[test]
+    fn a_client_that_states_nothing_still_names_the_sdk() {
+        // The floor. An embedding application that never calls `user_agent` produces a
+        // trail entry naming this crate and its version -- which is less than
+        // `ciphr-ci/…`, and vastly more than the transport crate's own default.
+        assert!(
+            super::DEFAULT_USER_AGENT.starts_with("ciphr-sdk/"),
+            "got {:?}",
+            super::DEFAULT_USER_AGENT
+        );
+        assert!(super::usable_product_token(super::DEFAULT_USER_AGENT).is_ok());
+    }
+
+    #[test]
+    fn a_product_token_that_would_corrupt_a_record_is_refused() {
+        // Each of these reaches an audit record that somebody later greps. A newline is
+        // the one that matters: the trail is JSON Lines, and a value carrying one is the
+        // start of a record that does not say what it appears to say.
+        for bad in [
+            "",
+            "ciphr-ci/1.0\nX-Injected: yes",
+            "ciphr\u{7f}ci",
+            "ciphr\tci",
+        ] {
+            let error = super::usable_product_token(bad)
+                .expect_err("a product token that cannot be sent has to be refused at build");
+            assert!(
+                matches!(error, SdkError::Configuration { .. }),
+                "got {error:?} for {bad:?}"
+            );
+        }
+
+        let too_long = "a".repeat(257);
+        assert!(
+            super::usable_product_token(&too_long).is_err(),
+            "the server keeps 256 characters; a longer token would be recorded as a \
+             different string than was sent"
+        );
+        assert!(super::usable_product_token(&"a".repeat(256)).is_ok());
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # The audit trail
 
-**Status:** implemented and tested as of 2026-08-25. The chain, the fail-closed sink, the file
+**Status:** implemented and tested as of 2026-08-28. The chain, the fail-closed sink, the file
 device, and the SQLite device work and are tested, and so do `ciphr audit tail`, `verify`, `anchor`,
 and `cut` — the last of these is what bounds the queryable trail, and it arrived after the rest.
 
@@ -21,6 +21,23 @@ subject is the identity and the new token's non-secret id. Folding one into the 
 trail say the operator authenticated with a token they had just created. The recorded id is the same
 one every later access with that credential carries, which is what lets a reader join the creation
 of a credential to its use.
+
+**What `user_agent` is worth, and what it is not** (the header has been recorded since the trail
+existed; the clients started filling it usefully in `Unreleased`). Requests from this project's own
+binaries carry `ciphr-ci/<version>` and `ciphr-run/<version>`; an application built on `ciphr-sdk`
+carries `ciphr-sdk/<version>` unless it names itself. Before that they all carried the transport
+crate's default, so the field was populated and identified nothing.
+
+It answers one question: **did this read come from the tool that registers a mask for every value
+before it writes any of them, or from something else?** That is worth knowing, because a job that
+falls back to a hand-written request gets no masking at all — and `ci.md` spends a chapter on why
+masking is the client's job.
+
+**It is not authentication, and no rule here may treat it as one.** The value is chosen by whoever
+makes the request, so `curl -H "User-Agent: ciphr-ci/0.13.2"` says exactly what `ciphr-ci` says. A
+*mismatch* is evidence; a *match* proves nothing. Alerting on it is therefore a report to read, not
+a tripwire to act on — ADR-15 governs what a tripwire may do, and a signal needing interpretation
+does not qualify. Nothing in the policy path sees this field.
 
 **Never recorded:** the secret value, key material, or a token. Only a token's non-secret
 identifier. That is structural rather than reviewed: the types that hold secrets implement no
