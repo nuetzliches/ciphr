@@ -8,6 +8,28 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-08-28
+
+**The release that will not guess how long a credential lives.** `ciphr token issue` used to mint a
+token that never expires when neither flag was given, so the shortest command produced the most
+dangerous credential and nobody had decided that. It now requires `--ttl` or `--no-expiry`. **That is
+one edit per call site in your deploy scripts and it is the only mandatory one here** —
+[the upgrade document](docs/operations/upgrade.md) carries the `grep` that finds them.
+
+**Two smaller things ride along, and neither asks anything of a deployment.** Every client of this
+project now says what it is, so the audit trail's `user_agent` identifies something instead of naming
+the transport crate. And every artefact carries this project's own licence texts rather than only its
+dependencies'.
+
+**The viewer moves with this one: take `ui-v0.4.2`.** It is the licence change and nothing else — the
+viewer image gained the two texts and its notice script stopped claiming they were somewhere else.
+`ui-v0.4.1` remains readable against this service; there is no ordering constraint (ADR-11) and no
+feature waiting on it.
+
+**A rollback to `0.13.2` is the image tag in either direction.** No schema, no route, no field, and
+no configuration key changed; a token issued with `--no-expiry` is byte for byte the row the old
+default wrote.
+
 ### Changed
 
 - **BREAKING: `ciphr token issue` requires `--ttl` or `--no-expiry`.** Writing neither used to mint a
@@ -5218,7 +5240,8 @@ first production use.
   decision.
 - `AGENTS.md` with the working rules, and `SECURITY.md` with the disclosure process and scope.
 
-[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.13.2...main
+[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.14.0...main
+[0.14.0]: https://github.com/nuetzliches/ciphr/compare/v0.13.2...v0.14.0
 [0.13.2]: https://github.com/nuetzliches/ciphr/compare/v0.13.1...v0.13.2
 [0.13.1]: https://github.com/nuetzliches/ciphr/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/nuetzliches/ciphr/compare/v0.12.1...v0.13.0

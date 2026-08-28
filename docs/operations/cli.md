@@ -1,6 +1,6 @@
 # The `ciphr` command
 
-**Status:** implemented and tested as of 2026-08-28, released in `v0.13.2` except where a line says
+**Status:** implemented and tested as of 2026-08-28, released in `v0.14.0` except where a line says
 otherwise. Every command below works and every one of them is in a release. The export *rendering*
 moved into `ciphr-export` on 2026-08-24 and is now shared with `ciphr-ci` (ADR-25); no command's
 behaviour changed with it. Deployment
@@ -336,7 +336,7 @@ ciphr token revoke A1b2C3d4
 ciphr token revoke-all deploy-runner
 ```
 
-**One of `--ttl` and `--no-expiry` is required** (`Unreleased`; before that, writing neither meant
+**One of `--ttl` and `--no-expiry` is required** (`v0.14.0`; before that, writing neither meant
 no expiry). Both are real answers and the command refuses to pick for you: a credential with no end
 is what an attacker wants, and it should not be what an operator gets by writing less. The two
 cannot be combined, for the same reason the two master-key sources cannot — a precedence rule is a

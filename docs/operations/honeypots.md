@@ -143,7 +143,7 @@ ciphr token issue deploy-runner --honeypot --no-expiry
 The identity is required and must exist. It grants nothing; it is what names *which* bait
 was taken in the trail. Give the bait an identity that makes the placement plausible.
 
-**Since `Unreleased` every `token issue` says how long the credential lives**, and for bait the
+**Since `v0.14.0` every `token issue` says how long the credential lives**, and for bait the
 answer is usually `--no-expiry`: a plant is left where somebody may find it years later, and a
 lifetime on it is a date nobody will remember. Use `--ttl` where the placement itself is
 temporary — a job log that rotates, a host being decommissioned — and then the token's death is the

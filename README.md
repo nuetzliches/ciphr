@@ -4,7 +4,7 @@ A small secret manager for machine identities: key/value secrets, gap-free acces
 and path-based authorization. The name contains *CI* — the primary consumer is a build and
 deploy pipeline, not a human.
 
-> **Status: v0.13.2 released.** Usable end to end: envelope encryption with master key rotation,
+> **Status: v0.14.0 released.** Usable end to end: envelope encryption with master key rotation,
 > SQLite with migrations, the policy evaluator, the fail-closed hash-chained audit trail, the HTTPS
 > API with token authentication, and the `ciphr` CLI. **v0.11.0 is the release that made the consumer
 > side reachable**: `ciphr-ci` ([ADR-25](docs/adr/0025-the-ci-side-fetch-is-its-own-binary.md)) fetches
@@ -19,7 +19,13 @@ deploy pipeline, not a human.
 > `status` can read `degraded`, a device that misses a record is stopped and says so, and a refused
 > request from an authenticated caller now leaves an entry.
 >
-> **Pin `0.13.2`, and take `ui-v0.4.1` with it.** The viewer moves separately (ADR-11), and there is
+> **`v0.14.0` breaks one command on purpose, and it is one flag per call site.** `ciphr token issue`
+> used to mint a credential that never expires when neither flag was given — the shortest command
+> producing the most dangerous token, decided by nobody. It now requires `--ttl` or `--no-expiry`,
+> and `--no-expiry` is a real answer rather than a discouraged one. Everything else in that release
+> asks nothing of a deployment.
+>
+> **Pin `0.14.0`, and take `ui-v0.4.2` with it.** The viewer moves separately (ADR-11), and there is
 > no ordering constraint between the two tags. Anything older than `ui-v0.3.3` is worth leaving
 > behind rather than pinning: `ui-v0.3.2` shows a stopped audit device as `refused` and a degraded
 > service as green, because it was tagged before the code that reads those two states was merged.
