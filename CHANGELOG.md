@@ -34,6 +34,28 @@ This file is updated in the same commit as the change it describes.
   cannot enter it and the viewer keeps its own copy of each text. A copy can drift, and a drifted
   licence text is an image whose stated terms are not this project's. Nobody edits a licence text on
   purpose, which is precisely why nobody would notice: byte for byte, or the build fails.
+### Fixed
+
+- **Every client says what it is, so the trail's `user_agent` identifies something.** The field has
+  been recorded for every request since the trail existed, and no client of this project ever set
+  the header — so what it held was the transport crate's own default, identical for `ciphr-ci`, for
+  `ciphr-run`, and for any unrelated program built on the same crate. An operator reading the trail
+  could not answer *was this fetched by the tool that masks, or by something else*, which is the
+  shape of question the trail exists for.
+
+  Requests now carry `ciphr-ci/<version>`, `ciphr-run/<version>`, or `ciphr-sdk/<version>` for an
+  application embedding the client, which may name itself instead with
+  `ClientBuilder::user_agent`. A product token that could not be sent as a header — empty, longer
+  than the 256 characters the server keeps, or carrying a control character — is refused when the
+  client is built rather than at the first request.
+
+  **This identifies; it does not authenticate.** The value is chosen by whoever makes the request,
+  so a mismatch is evidence and a match proves nothing. Nothing decides anything on it, and nothing
+  may: an access control an attacker sets with a header is not one. What it catches is the
+  misconfigured job, which is the common half of the problem.
+
+  Nothing to do on upgrade. The server was already recording the header and needs no change; entries
+  written before this release keep whatever the old default was, and `null` where no header arrived.
 
 ## [0.13.2] — 2026-08-27
 

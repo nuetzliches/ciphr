@@ -141,8 +141,12 @@ fn run(cli: &Cli) -> Result<core::convert::Infallible, RunError> {
         reason: error.kind().to_string(),
     })?;
 
+    // Route B says so in the trail, for the same reason `ciphr-ci` does: the entry names
+    // the wrapper that refused the process-control variables rather than leaving the
+    // reader to guess which client fetched.
     let client = Client::builder(&cli.url, token.trim(), &authority)
         .timeout(core::time::Duration::from_secs(cli.timeout))
+        .user_agent(concat!("ciphr-run/", env!("CARGO_PKG_VERSION")))
         .build()?;
 
     let environment = fetch(&client, cli)?;

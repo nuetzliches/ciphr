@@ -168,8 +168,14 @@ fn run(cli: &Cli) -> Result<(), CiError> {
         reason: error.kind().to_string(),
     })?;
 
+    // Route A says so in the trail. `user_agent` is how an operator tells a fetch made by
+    // this binary -- which registers a mask for every value before it writes any of them --
+    // from a hand-written request that registers none. Evidence, never a control: the
+    // string is chosen by the caller, so a match proves nothing and only a mismatch says
+    // something.
     let client = Client::builder(&cli.url, token.trim(), &authority)
         .timeout(core::time::Duration::from_secs(cli.timeout))
+        .user_agent(concat!("ciphr-ci/", env!("CARGO_PKG_VERSION")))
         .build()?;
 
     let paths = paths(&client, cli)?;
