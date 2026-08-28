@@ -1,6 +1,7 @@
 # Upgrading
 
-**Status:** current as of 2026-08-27, covering every released version up to `0.13.2`.
+**Status:** current as of 2026-08-28, covering every released version up to `0.13.2`, plus one
+mandatory edit under *Unreleased* that no release carries yet.
 
 The changelog says what changed. This says what to *do* about it, and it exists because the two are
 not the same document: a changelog entry sinks under the next release, while the person upgrading two
@@ -97,6 +98,52 @@ rather than a report somebody remembers to read:
 A review host wants to fail on `1` and `2` and to accept `3`; the host itself wants `0` and nothing
 else ([field-report-2026-08-23.md](../assurance/field-reports/field-report-2026-08-23.md), finding 1, and
 [field-report-2026-08-23-b.md](../assurance/field-reports/field-report-2026-08-23-b.md), finding 1).
+
+## Unreleased
+
+### `ciphr token issue` needs `--ttl` or `--no-expiry`, and every script that calls it needs one edit
+
+**This is the one thing to do, it is one word per call site, and `grep` finds every one of them.**
+`token issue` used to mint a credential that never expires when neither flag was given, which meant
+the shortest command produced the most dangerous token and nobody had decided that. It now refuses
+and names both ways out.
+
+```sh
+# find the call sites -- they are in your deploy scripts, not in this repository
+grep -rn 'ciphr token issue' . --include='*.sh' --include='*.yml' --include='*.yaml' \
+                               --include='Makefile' --include='*.md'
+```
+
+**What to do**, per call site — and the second line is a real answer, not a discouraged one:
+
+```sh
+ciphr token issue deploy-runner --ttl 90d       # anything a CI runner holds
+ciphr token issue deploy-runner --no-expiry     # break-glass, bait, a long-lived integration
+```
+
+**Nothing already in the store changes.** Existing tokens keep their expiry or their absence of one,
+`--no-expiry` writes exactly the row the old default wrote, and no `NULL` is rewritten. This is a
+refusal at the moment of issue and nothing else; a rollback to `0.13.2` needs no undo.
+
+**Who is affected:** anything automating `ciphr token issue` — an onboarding script, a runbook step
+somebody pastes, a `Makefile` target. **Who is not:** every other command, the server, the API, the
+viewer, and any deployment that already passed `--ttl`.
+
+**Two consequences worth knowing before you choose per call site.**
+
+- *For bait,* `--no-expiry` is usually right: a plant is found years later, and a lifetime on it is a
+  date nobody will remember. An expired honeypot token still fires — the bait flag is read before
+  expiry, deliberately — so this is tidiness rather than detection. See
+  [honeypots.md](honeypots.md).
+- *For a CI runner,* the threat model's A3 is a compromised runner holding a valid token, and an
+  expiry is the only thing that bounds how long that lasts without somebody noticing. Federation
+  (ADR-26) is the better answer where it fits: the runner stores no long-lived credential at all.
+
+**Why this did not wait for a deprecation cycle.** A deprecation here would be a warning printed
+alongside the old behaviour — and a warning on standard error is exactly what was already there and
+exactly what did not work, because the caller is a script. There is no shape of this change that
+warns effectively without also refusing. The edit is mechanical, findable, and reversible by adding
+one flag, which is the smallest form a breaking change can take.
 
 ## 0.13.2
 

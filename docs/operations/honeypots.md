@@ -1,6 +1,6 @@
 # Honeypots: planting bait, and what to do when it fires
 
-**Status:** written 2026-08-21, revised 2026-08-22 (step 3 says that revoking stops the
+**Status:** written 2026-08-21, revised 2026-08-28 (step 3 says that revoking stops the
 service, step 2 now runs while it is up, and "What a caller can and cannot tell" narrows the
 indistinguishability claim to the response), revised 2026-08-23 for the revoke endpoint
 (step 3 no longer stops the service where the `token_revoke` entry is on, and says to issue
@@ -137,11 +137,22 @@ A honeypot token is planted where a credential should not be but often is — an
 a host, a job log, a wiki page, a repository somebody archived:
 
 ```sh
-ciphr token issue deploy-runner --honeypot
+ciphr token issue deploy-runner --honeypot --no-expiry
 ```
 
 The identity is required and must exist. It grants nothing; it is what names *which* bait
 was taken in the trail. Give the bait an identity that makes the placement plausible.
+
+**Since `Unreleased` every `token issue` says how long the credential lives**, and for bait the
+answer is usually `--no-expiry`: a plant is left where somebody may find it years later, and a
+lifetime on it is a date nobody will remember. Use `--ttl` where the placement itself is
+temporary — a job log that rotates, a host being decommissioned — and then the token's death is the
+plant's.
+
+**An expired honeypot token still fires**, so this is a tidiness question rather than a
+detection one. `SqliteStore::authenticate` reads the bait flag *before* it looks at expiry or
+revocation, deliberately: asking about the dates first would make an expired honeypot fail as an
+ordinary expired token and go unrecorded, which is the one way a honeypot silently stops being one.
 
 **What is visible where.** `ciphr honeypot list` and `GET /v1/honeypots` are the only places
 the flag appears. It is absent from `ciphr list`, `ciphr get`, `GET /v1/list` and

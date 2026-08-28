@@ -84,6 +84,7 @@ fn issue(store: &Path, policies: &Path) -> String {
             "issue",
             "alice",
             "--force",
+            "--no-expiry",
         ],
     );
     assert!(output.status.success(), "issue: {}", stderr(&output));

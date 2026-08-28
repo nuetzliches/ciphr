@@ -1,6 +1,6 @@
 # The `ciphr` command
 
-**Status:** implemented and tested as of 2026-08-26, released in `v0.13.2` except where a line says
+**Status:** implemented and tested as of 2026-08-28, released in `v0.13.2` except where a line says
 otherwise. Every command below works and every one of them is in a release. The export *rendering*
 moved into `ciphr-export` on 2026-08-24 and is now shared with `ciphr-ci` (ADR-25); no command's
 behaviour changed with it. Deployment
@@ -330,10 +330,18 @@ the operator, and entered with `put`.
 
 ```sh
 ciphr token issue deploy-runner --ttl 90d
+ciphr token issue break-glass    --no-expiry
 ciphr token list --identity deploy-runner
 ciphr token revoke A1b2C3d4
 ciphr token revoke-all deploy-runner
 ```
+
+**One of `--ttl` and `--no-expiry` is required** (`Unreleased`; before that, writing neither meant
+no expiry). Both are real answers and the command refuses to pick for you: a credential with no end
+is what an attacker wants, and it should not be what an operator gets by writing less. The two
+cannot be combined, for the same reason the two master-key sources cannot — a precedence rule is a
+rule that lets a deployment issue the credential nobody meant. What to change in an existing script
+is in [upgrade.md](upgrade.md).
 
 `token revoke` says which of two things happened: `A1b2C3d4 revoked` when this call established the
 timestamp, and `A1b2C3d4 was already revoked` when somebody had got there first. Both are successes

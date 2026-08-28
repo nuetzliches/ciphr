@@ -81,7 +81,7 @@ impl Cli {
     /// Issue a token and return its non-secret identifier.
     fn issue(&self, identity: &str) -> String {
         let printed = self
-            .run(&["token", "issue", identity, "--force"])
+            .run(&["token", "issue", identity, "--force", "--no-expiry"])
             .expect("issue");
         let token = printed.trim().strip_prefix("cph_").expect("a ciphr token");
         token.chars().take(8).collect()
@@ -156,7 +156,7 @@ fn the_token_itself_is_never_in_the_trail() {
     // deliberately duplicated off the host.
     let cli = Cli::new();
     let printed = cli
-        .run(&["token", "issue", "alice", "--force"])
+        .run(&["token", "issue", "alice", "--force", "--no-expiry"])
         .expect("issue");
     let token = printed.trim();
 

@@ -134,7 +134,7 @@ fn a_real_token_whose_identifier_begins_with_a_hyphen_can_be_revoked() {
     // a test that sometimes takes ten times that -- this asserts the round trip on
     // whatever identifier is dealt, and the test above pins the hyphen case.
     let cli = Cli::new();
-    let issued = cli.run(&["token", "issue", "-svc", "--force"]);
+    let issued = cli.run(&["token", "issue", "-svc", "--force", "--no-expiry"]);
     assert!(issued.status.success(), "issue: {}", stderr_of(&issued));
 
     let printed = String::from_utf8(issued.stdout).expect("utf-8");
@@ -175,7 +175,7 @@ fn a_secret_path_that_begins_with_a_hyphen_can_be_read_back() {
 #[test]
 fn an_identity_whose_name_begins_with_a_hyphen_can_be_issued_a_token() {
     let cli = Cli::new();
-    let output = cli.run(&["token", "issue", "-svc", "--force"]);
+    let output = cli.run(&["token", "issue", "-svc", "--force", "--no-expiry"]);
 
     assert!(
         !is_parser_refusal(&output),

@@ -407,9 +407,22 @@ enum TokenCommand {
         /// The identity name.
         #[arg(allow_hyphen_values = true)]
         identity: String,
-        /// How long it is valid, such as 90d. No expiry if omitted.
-        #[arg(long)]
+        /// How long it is valid, such as 90d.
+        ///
+        /// One of `--ttl` and `--no-expiry` is required. It used to default to no
+        /// expiry, which meant the shortest command produced the most dangerous
+        /// credential and nobody had decided that -- the same argument
+        /// `Rotation::Unclassified` already made about a default that asserts
+        /// something no human said.
+        #[arg(long, conflicts_with = "no_expiry")]
         ttl: Option<String>,
+        /// Issue a credential that never expires.
+        ///
+        /// A real answer, not a discouraged one: an operator's own break-glass token
+        /// and a long-lived integration are both legitimate. What is refused is
+        /// arriving here by writing nothing.
+        #[arg(long)]
+        no_expiry: bool,
         /// Print the token even though output is not a terminal.
         #[arg(long)]
         force: bool,
@@ -1577,12 +1590,20 @@ fn issue_token(
     cli: &Context,
     identity: String,
     ttl: Option<&str>,
+    no_expiry: bool,
     force: bool,
     honeypot: bool,
 ) -> Result<(), CliError> {
     // The identity must exist in the policy file. Issuing a token for a name
     // nobody granted anything would produce a credential that authenticates and
     // can do nothing, which is a confusing thing to hand someone.
+    // Refused before the policy file is read, so the answer is the same whether or not
+    // the identity exists: the operator gets one thing to fix rather than two in
+    // sequence, and this is the one they will hit on upgrade.
+    if ttl.is_none() && !no_expiry {
+        return Err(CliError::NoExpiryDecision);
+    }
+
     let policies = PolicySet::from_toml(&std::fs::read_to_string(&cli.policies)?)?;
     if policies.identity(&identity).is_none() {
         return Err(CliError::UnknownIdentity { name: identity });
@@ -1590,6 +1611,9 @@ fn issue_token(
 
     guard_secret_output(force)?;
 
+    // `--no-expiry` leaves this `None`, which is the same row it has always been.
+    // Nothing about a token already in the store changes; what changed is that
+    // reaching this line without saying so is no longer possible.
     let expires_at = ttl
         .map(parse_duration_millis)
         .transpose()?
@@ -1640,7 +1664,9 @@ fn issue_token(
     eprintln!("Identity {identity}, token id {}.", token.id());
     match expires_at {
         Some(at) => eprintln!("Expires {}.", ciphr_audit::time::rfc3339_millis(at)),
-        None => eprintln!("No expiry. Consider --ttl for anything held by CI."),
+        // Still worth saying, and it says something different now: this is a choice
+        // somebody made, and `token list` is where it stays visible afterwards.
+        None => eprintln!("No expiry, as asked. It stays valid until it is revoked."),
     }
     eprintln!("This is the only time the token is shown.");
     if honeypot {
@@ -1998,9 +2024,10 @@ fn token(cli: &Context, command: TokenCommand) -> Result<(), CliError> {
         TokenCommand::Issue {
             identity,
             ttl,
+            no_expiry,
             force,
             honeypot,
-        } => issue_token(cli, identity, ttl.as_deref(), force, honeypot),
+        } => issue_token(cli, identity, ttl.as_deref(), no_expiry, force, honeypot),
         TokenCommand::List { identity } => {
             // Read-only, unaudited (ADR-22). This is the incident question -- "is
             // this credential still valid, when was it last used" -- and it is asked
