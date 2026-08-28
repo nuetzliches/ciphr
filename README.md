@@ -190,7 +190,7 @@ them** — a recipient of an image needs the terms it is offered under, not a po
 | Viewer image | `/usr/share/doc/ciphr-ui/` — the same three |
 | `ciphr-run`, `ciphr-ci` | the same three, attached to each release |
 
-Both files are generated — `ci/build-notices.sh` for the crates, `ui/scripts/build-notices.mjs` for
+Both notice files are generated — `ci/build-notices.sh` for the crates, `ui/scripts/build-notices.mjs` for
 the viewer's packages — and both reproduce the license files their dependencies ship rather than
 reconstructing a text from an identifier. A dependency that ships no text fails the build.
 

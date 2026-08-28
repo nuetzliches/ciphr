@@ -30,7 +30,7 @@
 #
 # **A crate that ships no license file fails this.** There is no fallback that
 # invents a text from the SPDX expression, because a notice nobody verified is
-# worse than a missing one — it looks like attribution. All 122 crates in the
+# worse than a missing one — it looks like attribution. All 133 crates in the
 # shipped graph carry a file today; the first one that does not is a decision to
 # make in a pull request, not a case to handle in a loop. The failure message
 # says as much.
