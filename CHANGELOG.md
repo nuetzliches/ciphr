@@ -8,6 +8,30 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-09-07
+
+**The release that shows you the end of the audit trail.** The first page of the audit view was the
+oldest hundred records the store ever wrote, so a reader asking what happened today was shown the day
+the store was initialized and had to page forward through everything in between. Nobody decided that:
+it fell out of `after_seq` being the only cursor, and a forward-only cursor has one starting point.
+`GET /v1/audit` now takes `end=newest` and `before_seq`, and the viewer opens at the end.
+
+**No client could have fixed this for itself**, which is why it is a change to the endpoint and not
+only to the viewer: `after_seq` only moves forward, and nothing in the response says where the head
+is. **Nothing changes for a request that passes neither parameter** — the default is still the oldest
+page, and no existing call means anything different.
+
+**The viewer moves with this one, and for the first time since `ui-v0.4.0` the order matters: the
+service first, then `ui-v0.5.0`.** The new viewer asks for `end=newest`; an unknown query parameter
+is ignored rather than refused, so against an older service it serves the *oldest* page under a
+heading that says "the most recent records" — no error, nothing on either log. `ui-v0.4.2` reads this
+service exactly as it read `0.14.0`, so a deployment that takes only the service loses nothing.
+[The upgrade document](docs/operations/upgrade.md) has both directions.
+
+**A rollback to `0.14.0` is the image tag in either direction.** No schema, no route, no field and no
+configuration key changed. A client that had started passing the new parameters gets the oldest page
+again, on the same silent terms.
+
 ### Added
 
 - **`GET /v1/audit` can be read from the newest end of the trail.** `end=newest` returns the last
@@ -5274,7 +5298,8 @@ first production use.
   decision.
 - `AGENTS.md` with the working rules, and `SECURITY.md` with the disclosure process and scope.
 
-[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.14.0...main
+[Unreleased]: https://github.com/nuetzliches/ciphr/compare/v0.15.0...main
+[0.15.0]: https://github.com/nuetzliches/ciphr/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/nuetzliches/ciphr/compare/v0.13.2...v0.14.0
 [0.13.2]: https://github.com/nuetzliches/ciphr/compare/v0.13.1...v0.13.2
 [0.13.1]: https://github.com/nuetzliches/ciphr/compare/v0.13.0...v0.13.1

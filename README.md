@@ -4,7 +4,7 @@ A small secret manager for machine identities: key/value secrets, gap-free acces
 and path-based authorization. The name contains *CI* — the primary consumer is a build and
 deploy pipeline, not a human.
 
-> **Status: v0.14.0 released.** Usable end to end: envelope encryption with master key rotation,
+> **Status: v0.15.0 released.** Usable end to end: envelope encryption with master key rotation,
 > SQLite with migrations, the policy evaluator, the fail-closed hash-chained audit trail, the HTTPS
 > API with token authentication, and the `ciphr` CLI. **v0.11.0 is the release that made the consumer
 > side reachable**: `ciphr-ci` ([ADR-25](docs/adr/0025-the-ci-side-fetch-is-its-own-binary.md)) fetches
@@ -25,10 +25,19 @@ deploy pipeline, not a human.
 > and `--no-expiry` is a real answer rather than a discouraged one. Everything else in that release
 > asks nothing of a deployment.
 >
-> **Pin `0.14.0`, and take `ui-v0.4.2` with it.** The viewer moves separately (ADR-11), and there is
-> no ordering constraint between the two tags. Anything older than `ui-v0.3.3` is worth leaving
-> behind rather than pinning: `ui-v0.3.2` shows a stopped audit device as `refused` and a degraded
-> service as green, because it was tagged before the code that reads those two states was merged.
+> **`v0.15.0` shows you the end of the audit trail.** `GET /v1/audit` gains `end=newest` and
+> `before_seq`, so the trail can be read from its newest end instead of only forward from its
+> beginning — where the first page used to be the oldest hundred records the store ever wrote. A page
+> is still oldest first from either end, because that is the order its hash chain can be checked in.
+> Nothing changes for a request that passes neither parameter.
+>
+> **Pin `0.15.0`, and take `ui-v0.5.0` with it — in that order.** The viewer moves separately
+> (ADR-11), and for the first time since `ui-v0.4.0` the order between the two tags matters: the new
+> viewer asks for `end=newest`, an unknown query parameter is ignored rather than refused, and an
+> older service therefore answers with the *oldest* page under a heading that says otherwise. Service
+> first, then viewer. Anything older than `ui-v0.3.3` is worth leaving behind rather than pinning:
+> `ui-v0.3.2` shows a stopped audit device as `refused` and a degraded service as green, because it
+> was tagged before the code that reads those two states was merged.
 >
 > **Two things broke on purpose in `v0.11.0`**, both from the same review: the server
 > refuses to start without a `sqlite` audit device, and `ciphr-run` and `ciphr-ci` refuse a secret
