@@ -27,7 +27,7 @@ use ciphr_audit::{Action, Anchor, StoredRecord, verify_from, verify_with_anchor}
 use ciphr_core::{Plaintext, Rotation, SecretPath, SecretVersion};
 use ciphr_crypto::{RootKey, RootKeyId, Seal, StaticSeal, Token};
 use ciphr_policy::PolicySet;
-use ciphr_store::{AuditFilter, SealState, SqliteAuditDevice, SqliteStore, Store};
+use ciphr_store::{AuditFilter, AuditWindow, SealState, SqliteAuditDevice, SqliteStore, Store};
 use clap::{Args, Parser, Subcommand};
 
 use ciphr_export::{ExportFormat, Exported, render_actions_env};
@@ -2157,12 +2157,14 @@ fn audit(cli: &Context, command: &AuditCommand) -> Result<(), CliError> {
 
     match command {
         AuditCommand::Tail { count } => {
-            let mut rows = session.store.audit_query(&AuditFilter {
-                limit: u32::MAX,
+            // The store selects the last `count` records. This used to read the whole
+            // trail and drop everything but its end, which on a store that has been
+            // running a while is the entire chain in memory to print twenty lines.
+            let rows = session.store.audit_query(&AuditFilter {
+                limit: *count,
+                window: AuditWindow::Newest { before_seq: None },
                 ..AuditFilter::default()
             })?;
-            let start = rows.len().saturating_sub(*count as usize);
-            rows.drain(..start);
 
             for row in rows {
                 let record: serde_json::Value = serde_json::from_str(&row.payload)
