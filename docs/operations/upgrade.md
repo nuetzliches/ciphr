@@ -1,6 +1,6 @@
 # Upgrading
 
-**Status:** current as of 2026-08-28, covering every released version up to `0.14.0`.
+**Status:** current as of 2026-09-07, covering every released version up to `0.15.0`.
 
 The changelog says what changed. This says what to *do* about it, and it exists because the two are
 not the same document: a changelog entry sinks under the next release, while the person upgrading two
@@ -97,6 +97,36 @@ rather than a report somebody remembers to read:
 A review host wants to fail on `1` and `2` and to accept `3`; the host itself wants `0` and nothing
 else ([field-report-2026-08-23.md](../assurance/field-reports/field-report-2026-08-23.md), finding 1, and
 [field-report-2026-08-23-b.md](../assurance/field-reports/field-report-2026-08-23-b.md), finding 1).
+
+## 0.15.0
+
+### Nothing is mandatory, and step 5 is load-bearing again: the service before the viewer
+
+**There is no edit to make and no configuration to change.** No schema, no route, no field changed
+meaning, and no key was added. A deployment that takes this release and leaves the viewer where it is
+loses nothing: `ui-v0.4.2` reads this service exactly as it read `0.14.0`.
+
+**What this release does add is a viewer that must not arrive first.** `ui-v0.5.0` opens the audit
+view at the end of the trail by asking for `end=newest`, a query parameter `0.14.0` and older do not
+know. **An unknown query parameter is ignored rather than refused**, so that combination does not
+fail — it serves the *oldest* page under a heading that says "the most recent records", which is a
+viewer quietly showing the wrong hundred rows. There is no error, no `400`, and nothing on either log
+to find it by.
+
+So the order is the one step 5 already prescribes, and here it is the difference between right and
+plausibly wrong rather than between a field shown and a field missing:
+
+1. Service to `0.15.0`.
+2. Then the viewer to `ui-v0.5.0`.
+
+**Reversing it is recoverable and leaves nothing behind**, which is the one comfort here: the viewer
+holds no state, so a deployment that took `ui-v0.5.0` too early fixes it by finishing the service
+upgrade, or by pinning the viewer back to `ui-v0.4.2` until it can. Nothing was written wrongly — a
+reader was shown the wrong page.
+
+**A rollback to `0.14.0` needs the image tag and nothing else**, subject to the database rule at the
+top of this document. A client that had started passing `end=newest` or `before_seq` gets the oldest
+page again, on the same silent terms as above.
 
 ## 0.14.0
 

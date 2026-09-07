@@ -1,10 +1,11 @@
 # The viewer
 
-**Status:** current as of 2026-09-07, phase 5. **The audit view opens at the end of the trail**, and
-that is the one change here with a deploy ordering constraint: it asks for `end=newest`, a parameter
-older services do not know, and an unknown query parameter is ignored rather than refused — so the
-same viewer against an older service shows the *oldest* page under a heading that says otherwise.
-The service first, then the viewer, which is the standing rule in
+**Status:** current as of 2026-09-07, phase 5. **The audit view opens at the end of the trail in
+`ui-v0.5.0`**, and that release carries the first deploy ordering constraint since `ui-v0.2.0`: it
+asks for `end=newest`, a parameter older services do not know, and an unknown query parameter is
+ignored rather than refused — so this viewer against a service below `0.15.0` shows the *oldest* page
+under a heading that says otherwise. **It needs a service at `0.15.0` or newer**, and the order is
+the service first, then the viewer, which is the standing rule in
 [upgrade.md](operations/upgrade.md) rather than a new one. **Sign-in through an identity provider is released in
 `ui-v0.4.0`** — ADR-12's second half, on ADR-26's machinery, with the flow decision in ADR-28; it
 needs a service at `0.13.0` or newer, and only where a deployment mounts an `/sso.json`. `ui-v0.3.3`, the first viewer that reads the two states `0.12.0` added; the capability its token needs changed on 2026-08-23 (ADR-23), and `ui-v0.3.1` closes finding F4 — the viewer now refuses to mount while a service worker controls its document. Built and running: the five
@@ -16,10 +17,12 @@ reads the rotation class from `GET /v1/versions/{path}`, which returned a bare a
 `Subject` rather than `Path` from `ui-v0.3.0`, and for the token actions it shows the identity a
 credential was issued for. A `0.3.0` service records no token actions at all, so there are no rows
 whose subject is missing — the column falls back to the path, which is every row that service writes.
-That is why this release has **no deploy ordering constraint**, unlike `ui-v0.2.0`, which needed the
-service first because it read a response shape `0.2.0` did not produce.
+That is why **`ui-v0.3.0` had no deploy ordering constraint**, unlike `ui-v0.2.0`, which needed the
+service first because it read a response shape `0.2.0` did not produce — and unlike `ui-v0.5.0`,
+where the constraint is back and quieter, because a parameter an old service ignores costs no error
+at all.
 
-**Its own version, on its own cadence** (ADR-11). `ui-v0.3.3` is the sixth viewer release; the
+**Its own version, on its own cadence** (ADR-11). `ui-v0.5.0` is the eleventh viewer release; the
 numbers are not meant to line up with the service's, and they have not since `ui-v0.1.1`.
 
 **It exists because the fifth was tagged too early**, and a deployment found out.

@@ -1,6 +1,6 @@
 # Secrets in a CI job: `ciphr-ci`, and the masking trap
 
-**Status:** implemented and tested as of 2026-08-28, current as of `v0.14.0`
+**Status:** implemented and tested as of 2026-09-07, current as of `v0.15.0`
 ([ADR-25](../adr/0025-the-ci-side-fetch-is-its-own-binary.md)). Both `ciphr-ci` and `action.yml` are
 covered by tests that run the real binary against the real service.
 
