@@ -59,7 +59,7 @@ pub mod sqlite;
 pub mod store;
 pub mod tokens;
 
-pub use audit::{AuditCut, AuditFilter, AuditRow, SqliteAuditDevice};
+pub use audit::{AuditCut, AuditFilter, AuditRow, AuditWindow, SqliteAuditDevice};
 pub use error::StoreError;
 pub use honeypots::{BaitKind, Honeypot, HoneypotTier, Trip};
 pub use lock::StoreLock;

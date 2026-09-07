@@ -391,14 +391,43 @@ paths:
         longer in it. A client verifying from genesis fails on such a store, which is the
         correct outcome: the point the remainder starts from is deliberately not served
         here, because it is only worth anything as the anchor kept outside the store.
+
+        **A page is oldest first from either end**, and `end=newest` changes which records
+        are selected rather than their order: it returns the last `limit` matching records
+        *in chain order*. That is what keeps a page checkable — the only check a client can
+        make on one is that it is a run, consecutive sequence numbers each naming the
+        previous record's hash, which is a statement about records read forwards.
+
+        Reading the end of the trail is a request of its own because a client cannot
+        construct it: `after_seq` only moves forward, and nothing here says where the head
+        is. Without `end=newest` the first page of a long trail is its oldest records,
+        which for a reader asking what happened today is the least useful page there is.
       parameters:
         - name: limit
           in: query
           description: Maximum entries to return. Clamped to 1000.
           schema: { type: integer, minimum: 1, maximum: 1000, default: 100 }
+        - name: end
+          in: query
+          description: |
+            Which end of the trail the page is taken from. The page itself is oldest first
+            either way.
+          schema: { type: string, enum: [oldest, newest], default: oldest }
         - name: after_seq
           in: query
-          description: Only entries with a sequence number greater than this.
+          description: |
+            Only entries with a sequence number greater than this: pages forward from the
+            oldest end. Refused together with `before_seq` or `end=newest`, which page the
+            other way — a request that names both directions is answered with `400` rather
+            than half-served.
+          schema: { type: integer, format: int64, minimum: 0 }
+        - name: before_seq
+          in: query
+          description: |
+            Only entries with a sequence number less than this: pages backward from the
+            newest end, and implies `end=newest`. An empty page is how a client learns
+            there is nothing older, which is also the answer on a trail bounded by
+            `ciphr audit cut`.
           schema: { type: integer, format: int64, minimum: 0 }
         - name: since
           in: query

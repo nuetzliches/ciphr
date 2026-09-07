@@ -8,6 +8,35 @@ This file is updated in the same commit as the change it describes.
 
 ## [Unreleased]
 
+### Added
+
+- **`GET /v1/audit` can be read from the newest end of the trail.** `end=newest` returns the last
+  `limit` matching records, and `before_seq` pages backward from there. A page is oldest first from
+  either end — that is deliberate and not a detail: the only check a client can make on a page is
+  that it is a run, consecutive sequence numbers each naming the previous record's hash, which is a
+  statement about records read forwards. A page delivered newest first would read as a chain running
+  backwards.
+
+  **Nothing changes for a caller that passes neither.** The default is still the oldest page and
+  `after_seq` still pages forward, so no existing request means anything different. A request that
+  names both directions — `after_seq` together with `before_seq` or with `end=newest` — is refused
+  with `400` rather than half-served, on the endpoint whose whole promise is that its answer can be
+  checked. `openapi.yaml` carries the contract.
+
+  This exists because no client could do it for itself: `after_seq` only moves forward, and nothing
+  in the response says where the head is.
+
+### Changed
+
+- **The viewer's audit view opens at the end of the trail, and this one has a deploy ordering
+  constraint.** The first page used to be the oldest hundred records the store ever wrote, so a
+  reader asking what happened today was shown the day the store was initialized. **Take the service
+  before the viewer:** the request carries `end=newest`, an unknown query parameter is ignored rather
+  than refused, and an older service therefore answers it with the oldest page under a heading that
+  says otherwise. That is the standing rule in `docs/operations/upgrade.md` rather than a new one,
+  and `docs/ui.md` says which viewer tag it needs. **Load older** and **Load newer** page in both
+  directions from there.
+
 ## [0.14.0] — 2026-08-28
 
 **The release that will not guess how long a credential lives.** `ciphr token issue` used to mint a

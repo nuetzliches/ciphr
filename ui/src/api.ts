@@ -254,7 +254,10 @@ export interface Policy {
 /** The filters `GET /v1/audit` accepts. Applied server-side, as the endpoint documents. */
 export interface AuditFilters {
   limit?: number;
+  /** Which end of the trail to read. The page is oldest first either way. */
+  end?: "oldest" | "newest";
   after_seq?: number;
+  before_seq?: number;
   since?: number;
   identity?: string;
   path?: string;
@@ -267,7 +270,8 @@ export interface AuditFilters {
  * It decides whether a page can be checked for linkage: a filtered page is a selection
  * of records rather than a run of the chain, so consecutive sequence numbers and
  * matching `prev_hash` values are not expected and their absence proves nothing.
- * `limit` and `after_seq` are paging, not narrowing, and stay out of it.
+ * `limit`, `end`, `after_seq` and `before_seq` are paging, not narrowing, and stay out
+ * of it: a window of the trail is still a run, whichever end it was taken from.
  */
 export function narrows(filters: AuditFilters): boolean {
   return (
@@ -283,8 +287,14 @@ function query(filters: AuditFilters): string {
   if (filters.limit !== undefined) {
     parameters.set("limit", String(filters.limit));
   }
+  if (filters.end !== undefined) {
+    parameters.set("end", filters.end);
+  }
   if (filters.after_seq !== undefined) {
     parameters.set("after_seq", String(filters.after_seq));
+  }
+  if (filters.before_seq !== undefined) {
+    parameters.set("before_seq", String(filters.before_seq));
   }
   if (filters.since !== undefined) {
     parameters.set("since", String(filters.since));
