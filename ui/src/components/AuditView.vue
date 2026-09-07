@@ -6,8 +6,19 @@
  * server-side filtering because the alternative is pulling the whole trail to answer a
  * question about part of it.
  *
- * Paging is `after_seq`, which is stable while the trail grows. An offset would shift
- * under the reader every time a record is written, which for this endpoint is constantly.
+ * Paging is a sequence number, which is stable while the trail grows. An offset would
+ * shift under the reader every time a record is written, which for this endpoint is
+ * constantly.
+ *
+ * **It opens at the end of the trail** (`end=newest`), and that is the whole reason this
+ * view is worth opening. A page taken from the oldest end is the first hundred records
+ * this store ever wrote; a reader asking what happened today would have to page through
+ * everything that ever happened to reach it. Which end a page comes from is the service's
+ * to decide, not this view's — `after_seq` only moves forward and nothing tells a client
+ * where the head is, so this could not be fixed here.
+ *
+ * Within a page nothing is reordered: entries are oldest first from either end, because
+ * that is what `chain.ts` can check. Reading backwards is `before_seq`, which prepends.
  */
 import { computed, onMounted, ref } from "vue";
 
@@ -25,12 +36,27 @@ const linkage = ref<Linkage | null>(null);
 const problem = ref<string | null>(null);
 const loading = ref(false);
 const picked = ref<number | null>(null);
+/** Whether a page older than the first row shown might exist. See `load`. */
+const olderMayExist = ref(false);
+
+/**
+ * Which page to ask for.
+ *
+ * Three requests and not one with two optional numbers: "the end of the trail", "the
+ * records before this one" and "the records after this one" are the three things a reader
+ * can ask for, and the service refuses a request that names two directions at once.
+ */
+type Page = { at: "newest" } | { before: number } | { after: number };
 
 /** The filters as the API takes them, with the local datetime turned into epoch millis. */
-function filters(afterSeq?: number): AuditFilters {
+function filters(page: Page): AuditFilters {
   const active: AuditFilters = { limit: limit.value };
-  if (afterSeq !== undefined) {
-    active.after_seq = afterSeq;
+  if ("before" in page) {
+    active.before_seq = page.before;
+  } else if ("after" in page) {
+    active.after_seq = page.after;
+  } else {
+    active.end = "newest";
   }
   if (identity.value !== "") {
     active.identity = identity.value;
@@ -50,13 +76,33 @@ function filters(afterSeq?: number): AuditFilters {
   return active;
 }
 
-async function load(afterSeq?: number): Promise<void> {
+/**
+ * Fetch one page and put it where it belongs.
+ *
+ * A backward page is prepended and a forward page appended, so what is shown stays one
+ * ascending run and `checkLinkage` keeps meaning what it says — it reads the whole table,
+ * not the last response.
+ *
+ * Whether anything older exists is answered by a short page rather than by a sequence
+ * number: a trail bounded by `ciphr audit cut` does not begin at 1, so "the first row is
+ * sequence 12" says nothing about whether 11 is still there to be read.
+ */
+async function load(page: Page): Promise<void> {
   loading.value = true;
   problem.value = null;
   try {
-    const active = filters(afterSeq);
-    const page = await api.audit(active);
-    entries.value = afterSeq === undefined ? page.entries : [...entries.value, ...page.entries];
+    const active = filters(page);
+    const fetched = await api.audit(active);
+    if ("before" in page) {
+      entries.value = [...fetched.entries, ...entries.value];
+    } else if ("after" in page) {
+      entries.value = [...entries.value, ...fetched.entries];
+    } else {
+      entries.value = fetched.entries;
+    }
+    if (!("after" in page)) {
+      olderMayExist.value = fetched.entries.length === limit.value;
+    }
     linkage.value = checkLinkage(entries.value, narrows(active));
   } catch (error) {
     problem.value = error instanceof ApiError ? error.text : "The request failed.";
@@ -65,9 +111,30 @@ async function load(afterSeq?: number): Promise<void> {
   }
 }
 
+const oldest = computed(() => entries.value[0]?.seq ?? null);
+
 const newest = computed(() =>
   entries.value.length === 0 ? null : entries.value[entries.value.length - 1]?.seq ?? null,
 );
+
+/**
+ * The two continuations, from whichever records are shown.
+ *
+ * They read the ends of the table rather than remembering the last cursor: after a
+ * prepend or an append the ends *are* the cursors, and a remembered one would be the
+ * second place that has to be right.
+ */
+function loadOlder(): void {
+  if (oldest.value !== null) {
+    void load({ before: oldest.value });
+  }
+}
+
+function loadNewer(): void {
+  if (newest.value !== null) {
+    void load({ after: newest.value });
+  }
+}
 
 const shownRecord = computed(() =>
   picked.value === null ? null : (entries.value.find((entry) => entry.seq === picked.value) ?? null),
@@ -130,20 +197,22 @@ function outcomeOf(entry: AuditEntry): string {
 }
 
 onMounted(() => {
-  void load();
+  void load({ at: "newest" });
 });
 </script>
 
 <template>
   <h1>Audit</h1>
   <p class="lead">
-    Every access, in order, as it was recorded. Filters are applied by the service; entries are shown
-    oldest first, and <em>Load more</em> continues from the last sequence number rather than an
-    offset, so a growing trail does not shift the page under you.
+    Every access, in order, as it was recorded. Filters are applied by the service. This opens at the
+    <strong>end</strong> of the trail — the most recent records — and pages in both directions from
+    there by sequence number rather than by an offset, so a growing trail does not shift the page
+    under you. Within a page entries are oldest first, whichever end it came from, because that is
+    the order the chain can be checked in.
   </p>
 
   <div class="panel">
-    <form class="filters" @submit.prevent="load()">
+    <form class="filters" @submit.prevent="load({ at: 'newest' })">
       <label>
         Identity
         <input v-model="identity" type="text" placeholder="deploy-runner" />
@@ -198,6 +267,19 @@ onMounted(() => {
   </div>
 
   <div class="panel">
+    <!-- Above the table, because it loads what goes above the first row. A page arrives
+         in chain order and is prepended, so the table stays one run and the linkage
+         badge above keeps describing all of it. -->
+    <p v-if="oldest !== null" class="note">
+      <button type="button" :disabled="loading || !olderMayExist" @click="loadOlder()">
+        Load older
+      </button>
+      <!-- Not "the trail starts here": what a short page shows is that nothing older
+           *matches*, and where `ciphr audit cut` bounds the trail those are the same
+           answer for a reader of this endpoint. -->
+      <span v-if="!olderMayExist" class="muted">nothing older matches</span>
+    </p>
+
     <table>
       <thead>
         <tr>
@@ -234,8 +316,13 @@ onMounted(() => {
     </table>
 
     <p v-if="newest !== null" class="note">
-      <button type="button" :disabled="loading" @click="load(newest ?? undefined)">Load more</button>
-      showing {{ entries.length }} entries, up to sequence {{ newest }}
+      <!-- Forward from the last row shown. On a view that opens at the end this is
+           usually empty and occasionally is not, which is the point: it picks up what
+           was written while you were reading. -->
+      <button type="button" :disabled="loading" @click="loadNewer()">
+        Load newer
+      </button>
+      showing {{ entries.length }} entries, sequence {{ oldest }} to {{ newest }}
     </p>
   </div>
 

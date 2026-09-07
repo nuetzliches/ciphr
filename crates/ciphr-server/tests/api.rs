@@ -2452,6 +2452,86 @@ fn audit_filters_are_applied_by_the_server() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
+/// The end of the trail is reachable in one request, and a page from it is still a run.
+///
+/// Without this the first page of a trail is its oldest records, which on a store that
+/// has been running is the least useful thing a reader can be shown: to see what happened
+/// today they page forward through everything that ever happened. A client cannot fix that
+/// for itself, because `after_seq` only moves forward and nothing tells it where the head
+/// is.
+#[test]
+fn the_audit_trail_can_be_read_from_its_newest_end() {
+    let harness = Harness::new();
+    for _ in 0..6 {
+        harness.get(
+            "/v1/secrets/infra/service-a/DB_PASSWORD",
+            Some(&harness.deploy_token),
+        );
+    }
+
+    let sequence_numbers = |body: &serde_json::Value| -> Vec<u64> {
+        body["entries"]
+            .as_array()
+            .expect("array")
+            .iter()
+            .map(|entry| entry["seq"].as_u64().expect("a sequence number"))
+            .collect()
+    };
+
+    let (status, whole) = harness.get("/v1/audit?limit=1000", Some(&harness.auditor_token));
+    assert_eq!(status, StatusCode::OK);
+    let all = sequence_numbers(&whole);
+    assert!(all.len() > 6, "the trail needs more records than one page");
+    let head = *all.last().expect("a non-empty trail");
+
+    // The newest page is the end of the trail, ascending. Ascending is the property the
+    // viewer's linkage check rests on: it reads a page forwards, so a page delivered
+    // newest first would look like a chain running backwards.
+    let (status, newest) =
+        harness.get("/v1/audit?end=newest&limit=3", Some(&harness.auditor_token));
+    assert_eq!(status, StatusCode::OK);
+    let tail = sequence_numbers(&newest);
+    assert_eq!(tail, vec![tail[0], tail[0] + 1, tail[0] + 2], "a run");
+    // Reading the trail is itself recorded, so the head moved on between the two requests
+    // above. What must hold is that the page reaches the end as it stood when it was
+    // taken — a page that stopped short of `head` would be the old behaviour with extra
+    // steps.
+    assert!(
+        tail.contains(&head),
+        "a page from the newest end must reach the head: {tail:?} does not contain {head}"
+    );
+
+    // And `before_seq` walks back from there, so the entry point is not a dead end. The
+    // cursor is exclusive, so the two pages meet without an overlap.
+    let (status, older) = harness.get(
+        &format!("/v1/audit?before_seq={}&limit=3", tail[0]),
+        Some(&harness.auditor_token),
+    );
+    assert_eq!(status, StatusCode::OK);
+    let before = sequence_numbers(&older);
+    assert_eq!(
+        before,
+        vec![tail[0] - 3, tail[0] - 2, tail[0] - 1],
+        "the three records immediately before the page above"
+    );
+
+    // A request that names both directions is refused rather than half-served. Serving
+    // one of the two would answer a question the caller did not ask, on the endpoint
+    // whose whole promise is that its answer can be checked.
+    for contradiction in [
+        "/v1/audit?after_seq=1&before_seq=5",
+        "/v1/audit?after_seq=1&end=newest",
+        "/v1/audit?end=sideways",
+    ] {
+        let (status, _) = harness.get(contradiction, Some(&harness.auditor_token));
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "{contradiction} must be refused"
+        );
+    }
+}
+
 #[test]
 fn every_endpoint_writes_an_audit_entry() {
     // The test that keeps the central promise honest as handlers are added. If a new

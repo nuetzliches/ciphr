@@ -38,7 +38,7 @@ use ciphr_audit::{Action, RequestContext};
 use ciphr_core::path::RESERVED_PREFIX;
 use ciphr_core::{Capability, Plaintext, Rotation, SecretPath, SecretVersion};
 use ciphr_policy::IdentityKind;
-use ciphr_store::{AuditFilter, Store};
+use ciphr_store::{AuditFilter, AuditWindow, Store};
 use serde::{Deserialize, Serialize};
 
 use crate::error::ApiError;
@@ -502,14 +502,56 @@ struct ExportedSecret {
 }
 
 /// Query parameters of `GET /v1/audit`.
+///
+/// Three of these are paging and the rest are narrowing, and the difference matters to a
+/// caller: `end`, `after_seq` and `before_seq` select a window of the trail, so a page
+/// taken with them alone is still a run of the chain that the caller can check for
+/// linkage. A narrowing filter makes the page a selection instead.
 #[derive(Debug, Default, Deserialize)]
 struct AuditQuery {
     limit: Option<u32>,
+    /// `oldest` (the default) or `newest`: which end of the trail the page is taken from.
+    end: Option<String>,
     after_seq: Option<u64>,
+    before_seq: Option<u64>,
     since: Option<i64>,
     identity: Option<String>,
     path: Option<String>,
     decision: Option<String>,
+}
+
+/// The window `AuditQuery` asks for, or the reason it asks for nothing coherent.
+///
+/// `before_seq` implies the newest end, because it cannot mean anything else, so a caller
+/// paging backwards does not have to say the same thing twice. What is refused is a
+/// request that names both directions: `after_seq` with `before_seq`, or `after_seq` with
+/// `end=newest`. Serving one of the two and ignoring the other would answer a question
+/// nobody asked, on the endpoint whose whole point is that a page can be believed.
+fn audit_window(query: &AuditQuery) -> Result<AuditWindow, ApiError> {
+    let newest = match query.end.as_deref() {
+        Some("newest") => true,
+        // Absent means the oldest end, which is what this endpoint has always served.
+        None | Some("oldest") => false,
+        Some(_) => {
+            return Err(ApiError::BadRequest {
+                reason: "end must be 'oldest' or 'newest'".to_owned(),
+            });
+        }
+    };
+
+    match (query.after_seq, query.before_seq) {
+        (Some(_), Some(_)) => Err(ApiError::BadRequest {
+            reason: "after_seq and before_seq page in opposite directions; pass one".to_owned(),
+        }),
+        (Some(_), None) if newest => Err(ApiError::BadRequest {
+            reason: "after_seq pages forward from the oldest end; use before_seq with end=newest"
+                .to_owned(),
+        }),
+        (after_seq @ Some(_), None) => Ok(AuditWindow::Oldest { after_seq }),
+        (None, before_seq @ Some(_)) => Ok(AuditWindow::Newest { before_seq }),
+        (None, None) if newest => Ok(AuditWindow::Newest { before_seq: None }),
+        (None, None) => Ok(AuditWindow::Oldest { after_seq: None }),
+    }
 }
 
 /// What `GET /v1/audit` returns.
@@ -1443,6 +1485,9 @@ async fn read_honeypots(
 /// Authorized as the virtual path `sys/audit` through the ordinary evaluator. Returns
 /// each entry as the exact stored JSON plus its hash, so a client can verify the chain
 /// rather than trusting this endpoint to have told the truth about it.
+///
+/// A page is oldest first whichever end it is taken from; `end=newest` selects the last
+/// matching records rather than reordering them. See [`AuditWindow`].
 async fn read_audit(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1472,12 +1517,14 @@ async fn read_audit(
         }
     };
 
+    let window = audit_window(&query)?;
+
     let filter = AuditFilter {
         limit: query
             .limit
             .unwrap_or(AUDIT_LIMIT_DEFAULT)
             .clamp(1, AUDIT_LIMIT_MAX),
-        after_seq: query.after_seq,
+        window,
         since: query.since,
         identity: query.identity,
         path: query.path,

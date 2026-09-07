@@ -1,6 +1,11 @@
 # The viewer
 
-**Status:** current as of 2026-08-26, phase 5. **Sign-in through an identity provider is released in
+**Status:** current as of 2026-09-07, phase 5. **The audit view opens at the end of the trail**, and
+that is the one change here with a deploy ordering constraint: it asks for `end=newest`, a parameter
+older services do not know, and an unknown query parameter is ignored rather than refused — so the
+same viewer against an older service shows the *oldest* page under a heading that says otherwise.
+The service first, then the viewer, which is the standing rule in
+[upgrade.md](operations/upgrade.md) rather than a new one. **Sign-in through an identity provider is released in
 `ui-v0.4.0`** — ADR-12's second half, on ADR-26's machinery, with the flow decision in ADR-28; it
 needs a service at `0.13.0` or newer, and only where a deployment mounts an `/sso.json`. `ui-v0.3.3`, the first viewer that reads the two states `0.12.0` added; the capability its token needs changed on 2026-08-23 (ADR-23), and `ui-v0.3.1` closes finding F4 — the viewer now refuses to mount while a service worker controls its document. Built and running: the five
 views below, the strict Content-Security-Policy, and the container that serves them. Sign-in is a
@@ -168,10 +173,25 @@ Your identity's policy decides everything you can see. The viewer holds no privi
 
 ## The five views
 
-**Audit.** Filter by identity, exact path, decision, and time; page forward with `after_seq` rather
-than an offset, so a growing trail does not shift under you. Filters are applied by the service,
-because the alternative is pulling the whole trail to answer a question about part of it. Clicking an
-entry shows the record exactly as stored, with its hash.
+**Audit.** Filter by identity, exact path, decision, and time; page by sequence number rather than by
+an offset, so a growing trail does not shift under you. Filters are applied by the service, because
+the alternative is pulling the whole trail to answer a question about part of it. Clicking an entry
+shows the record exactly as stored, with its hash.
+
+**It opens at the end of the trail, and that is the useful end.** Until `end=newest` existed the
+first page was the oldest hundred records the store ever wrote — so a reader asking what happened
+today was shown the day the store was initialized and had to page forward through everything in
+between. No client could fix that for itself: `after_seq` only moves forward, and nothing in the
+response says where the head is. **Load older** walks back with `before_seq` and prepends, so the
+table stays one ascending run and the chain badge above it keeps describing all of it; **Load newer**
+picks up what was written while you were reading. Whether anything older exists is answered by a
+short page rather than by a sequence number, because a trail bounded by `ciphr audit cut` does not
+begin at 1.
+
+Inside a page nothing is reordered — entries are oldest first from either end. That is not a
+presentation choice: the only check a reader can make on a page is that it is a run, consecutive
+sequence numbers each naming the previous record's hash, and that is a statement about records read
+forwards. A page delivered newest first would read as a chain running backwards.
 
 **Secrets.** A prefix is required — the API lists under a prefix and authorizes every returned path
 individually, so there is no call that means "everything", and an empty result is indistinguishable

@@ -542,7 +542,7 @@ impl AuditDevice for SqliteAuditDevice {
 
 #[cfg(test)]
 mod tests {
-    use super::SqliteAuditDevice;
+    use super::{AuditFilter, AuditWindow, SqliteAuditDevice};
     use crate::error::StoreError;
     use crate::sqlite::SqliteStore;
     use ciphr_audit::{Action, AuditSink, Chain, Entry, verify_from_genesis};
@@ -551,6 +551,120 @@ mod tests {
         // The store runs the migrations; the device then attaches to the same file.
         let _store = SqliteStore::open(path).expect("open store");
         SqliteAuditDevice::open(path).expect("open audit device")
+    }
+
+    /// A store with `count` records in its trail, every third one a denial.
+    ///
+    /// It is the store that comes back rather than the device: reading is the store's
+    /// half of this file and writing is the device's, and `count` is also the timestamp
+    /// each record is written at, so the sequence numbers run 1 to `count`.
+    fn store_with_trail(path: &std::path::Path, count: i64) -> SqliteStore {
+        let store = SqliteStore::open(path).expect("open store");
+        let device = SqliteAuditDevice::open(path).expect("open audit device");
+        let mut sink = AuditSink::new(vec![Box::new(device)], Chain::new()).expect("sink");
+        for tick in 1..=count {
+            let entry = if tick % 3 == 0 {
+                Entry::denied(Action::Read, "no rule")
+            } else {
+                Entry::allowed(Action::Read)
+            };
+            sink.record(&entry, tick).expect("record");
+        }
+        store
+    }
+
+    fn sequence_numbers(rows: &[super::AuditRow]) -> Vec<u64> {
+        rows.iter().map(|row| row.seq).collect()
+    }
+
+    #[test]
+    fn a_page_read_from_the_newest_end_is_the_last_records_in_chain_order() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let store = store_with_trail(&directory.path().join("store.db"), 10);
+
+        let page = |window| {
+            sequence_numbers(
+                &store
+                    .audit_query(&AuditFilter {
+                        limit: 3,
+                        window,
+                        ..AuditFilter::default()
+                    })
+                    .expect("query"),
+            )
+        };
+
+        // The point of the newest end: the last three records, and *not* reversed. A
+        // caller checking linkage reads a page forwards, so a page that arrived newest
+        // first would look like a chain running backwards.
+        assert_eq!(
+            page(AuditWindow::Newest { before_seq: None }),
+            vec![8, 9, 10]
+        );
+
+        // `before_seq` walks back into history, and the pages meet without a gap or an
+        // overlap: the cursor is exclusive at both ends.
+        assert_eq!(
+            page(AuditWindow::Newest {
+                before_seq: Some(8)
+            }),
+            vec![5, 6, 7]
+        );
+
+        // An empty page is how a reader learns there is nothing older. It is also what a
+        // trail bounded by `audit cut` returns before sequence 1, which is why the
+        // absence of older records is not read off a sequence number.
+        assert!(
+            page(AuditWindow::Newest {
+                before_seq: Some(1)
+            })
+            .is_empty()
+        );
+
+        // The oldest end is untouched, including its default.
+        assert_eq!(page(AuditWindow::default()), vec![1, 2, 3]);
+        assert_eq!(
+            page(AuditWindow::Oldest { after_seq: Some(3) }),
+            vec![4, 5, 6]
+        );
+    }
+
+    #[test]
+    fn a_filter_selects_the_same_records_from_either_end() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let store = store_with_trail(&directory.path().join("store.db"), 10);
+
+        let denials = |window, limit| {
+            sequence_numbers(
+                &store
+                    .audit_query(&AuditFilter {
+                        limit,
+                        window,
+                        allowed: Some(false),
+                        ..AuditFilter::default()
+                    })
+                    .expect("query"),
+            )
+        };
+
+        // Every third record is a denial. Whichever end the page comes from, the filter
+        // is applied before the limit — the newest end must not mean "the last three
+        // records, of which the denials", which would return one row and look like a
+        // trail with almost no denials in it.
+        assert_eq!(denials(AuditWindow::default(), 10), vec![3, 6, 9]);
+        assert_eq!(
+            denials(AuditWindow::Newest { before_seq: None }, 2),
+            vec![6, 9]
+        );
+        assert_eq!(
+            denials(
+                AuditWindow::Newest {
+                    before_seq: Some(9)
+                },
+                2
+            ),
+            vec![3, 6]
+        );
     }
 
     #[test]
@@ -958,6 +1072,44 @@ mod tests {
     }
 }
 
+/// Which end of the trail a page is taken from, and where it continues.
+///
+/// A page is **always returned oldest first**, from either end. Reading from the newest
+/// end changes which records are selected, never their order: what comes back is the last
+/// `limit` matching records in chain order, not a reversed list. That is deliberate,
+/// because the only check a reader can make on a page is that it is a run — consecutive
+/// sequence numbers, each record naming its predecessor's hash — and that is a statement
+/// about records read forwards.
+///
+/// One cursor per direction, and the direction is the variant rather than a second field,
+/// so "after sequence 400, reading backwards" is not a value that can be constructed and
+/// then have to be rejected somewhere.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuditWindow {
+    /// The oldest matching entries, or with a cursor the ones after it.
+    Oldest {
+        /// Only entries with a sequence number greater than this.
+        after_seq: Option<u64>,
+    },
+    /// The newest matching entries, or with a cursor the ones before it.
+    Newest {
+        /// Only entries with a sequence number less than this.
+        before_seq: Option<u64>,
+    },
+}
+
+impl Default for AuditWindow {
+    /// The beginning of the trail.
+    ///
+    /// The default is the oldest end because verification reads from genesis and because
+    /// it is what this filter has always meant; a caller that wants recent activity says
+    /// so. Which end a *reader* should be shown first is a different question, and the
+    /// answer to it lives where the reading happens rather than here.
+    fn default() -> Self {
+        Self::Oldest { after_seq: None }
+    }
+}
+
 /// Filters for reading the audit log.
 ///
 /// Server-side filtering exists because the alternative is a client pulling the
@@ -968,8 +1120,8 @@ mod tests {
 pub struct AuditFilter {
     /// Return at most this many entries. The caller is expected to clamp it.
     pub limit: u32,
-    /// Only entries with a sequence number greater than this.
-    pub after_seq: Option<u64>,
+    /// Which end of the trail to read, and where to continue from.
+    pub window: AuditWindow,
     /// Only entries at or after this time, in milliseconds since the Unix epoch.
     pub since: Option<i64>,
     /// Only entries for this identity.
@@ -983,6 +1135,9 @@ pub struct AuditFilter {
 impl SqliteStore {
     /// Read audit entries, oldest first, matching a filter.
     ///
+    /// [`AuditFilter::window`] decides which end of the trail the page comes from. Both
+    /// ends return the page in chain order; see [`AuditWindow`] for why.
+    ///
     /// Filtering on identity, path, and decision reads inside the stored payload with
     /// SQLite's JSON functions. That keeps one representation of a record — the bytes
     /// that were hashed — rather than duplicating fields into columns that could
@@ -993,22 +1148,48 @@ impl SqliteStore {
     /// Returns [`StoreError::Sqlite`] on a database error, or [`StoreError::Corrupt`]
     /// if a stored row is not readable.
     pub fn audit_query(&self, filter: &AuditFilter) -> Result<Vec<AuditRow>, StoreError> {
-        let mut statement = self.connection().prepare(
-            "SELECT seq, hash, payload FROM audit_log
+        // The two directions are two whole statements rather than one assembled from
+        // fragments. The filters have to mean the same thing from either end, and a query
+        // built by concatenation is one nobody can read as SQL to check that they do.
+        //
+        // Reading from the newest end takes the last `limit` rows with `ORDER BY seq
+        // DESC` and turns them back around in SQLite rather than in Rust: reversing a
+        // `Vec` after the fact is a second place where the promise "a page is a run in
+        // chain order" is kept, and the linkage check downstream depends on it.
+        const FROM_OLDEST: &str = "SELECT seq, hash, payload FROM audit_log
              WHERE (?1 IS NULL OR seq > ?1)
                AND (?2 IS NULL OR ts >= ?2)
                AND (?3 IS NULL OR json_extract(payload, '$.entry.principal.name') = ?3)
                AND (?4 IS NULL OR json_extract(payload, '$.entry.path') = ?4)
                AND (?5 IS NULL OR json_extract(payload, '$.entry.allowed') = ?5)
              ORDER BY seq
-             LIMIT ?6",
-        )?;
+             LIMIT ?6";
+
+        const FROM_NEWEST: &str = "SELECT seq, hash, payload FROM (
+               SELECT seq, hash, payload FROM audit_log
+                WHERE (?1 IS NULL OR seq < ?1)
+                  AND (?2 IS NULL OR ts >= ?2)
+                  AND (?3 IS NULL OR json_extract(payload, '$.entry.principal.name') = ?3)
+                  AND (?4 IS NULL OR json_extract(payload, '$.entry.path') = ?4)
+                  AND (?5 IS NULL OR json_extract(payload, '$.entry.allowed') = ?5)
+                ORDER BY seq DESC
+                LIMIT ?6
+             )
+             ORDER BY seq";
+
+        // A cursor above `i64::MAX` cannot name a stored row, and clamping is correct in
+        // both directions: nothing is after the largest sequence number SQLite can hold,
+        // and everything is before it.
+        let (sql, cursor) = match filter.window {
+            AuditWindow::Oldest { after_seq } => (FROM_OLDEST, after_seq),
+            AuditWindow::Newest { before_seq } => (FROM_NEWEST, before_seq),
+        };
+
+        let mut statement = self.connection().prepare(sql)?;
 
         let rows = statement.query_map(
             params![
-                filter
-                    .after_seq
-                    .map(|seq| i64::try_from(seq).unwrap_or(i64::MAX)),
+                cursor.map(|seq| i64::try_from(seq).unwrap_or(i64::MAX)),
                 filter.since,
                 filter.identity,
                 filter.path,
