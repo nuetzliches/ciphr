@@ -37,6 +37,11 @@ This file is updated in the same commit as the change it describes.
   and `docs/ui.md` says which viewer tag it needs. **Load older** and **Load newer** page in both
   directions from there.
 
+- **`ciphr audit tail` no longer reads the whole trail to print its last lines.** It asked the store
+  for every record and then dropped all but the last `-n`, which on a store that has been running is
+  the entire chain in memory to print twenty lines. The store now selects them. Identical output, and
+  nothing for an operator to do.
+
 ## [0.14.0] — 2026-08-28
 
 **The release that will not guess how long a credential lives.** `ciphr token issue` used to mint a
